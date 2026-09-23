@@ -1,0 +1,55 @@
+Configuration:
+  name: Default
+  status: warn
+
+  Properties:
+    Property:
+      - name: log-path
+        value: "logs"
+      - name: service-name
+        value: "unstructured-collector-dvlx15mqnc"
+      - name: log-pattern
+        value : "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p ${hostName} --- [%15.15t] %-40.40c{1.} | %l : %m%n%ex"
+
+  Appenders:
+    Console:
+      name: Console_Appender
+      target: SYSTEM_OUT
+      PatternLayout:
+        pattern: ${log-pattern}
+    File:
+      name: File_Appender
+      fileName: ${log-path}/${service-name}.log
+      PatternLayout:
+        pattern: ${log-pattern}
+    RollingFile:
+      - name: RollingFile_Appender
+        fileName: ${log-path}/${service-name}_${date:yyyy-MM-dd_HH}.log
+        filePattern: "${log-path}/archive/${service-name}_%d{yyyy-MM-dd_HH}.%i.gz"
+        PatternLayout:
+          pattern: ${log-pattern}
+        Policies:
+          TimeBasedTriggeringPolicy:
+            Interval: 1
+            modulate: true
+        DefaultRollOverStrategy:
+          Delete:
+            basePath: "${log-path}/archive"
+            maxDepth: "1"
+            IfAccumulatedFileCount:
+              exceeds: 31
+  Loggers:
+    Root:
+      level: info
+      AppenderRef:
+        - ref: Console_Appender
+        - ref: File_Appender
+        - ref: RollingFile_Appender
+    Logger:
+      - name: 적용할 패키지
+        additivity: false
+        level: info
+        AppenderRef:
+          - ref: Console_Appender
+          - ref: File_Appender
+          - ref: RollingFile_Appender

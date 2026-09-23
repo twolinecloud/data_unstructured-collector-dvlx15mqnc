@@ -1,0 +1,7 @@
+swagger-ui:
+  protocol: "http"
+  host: "localhost:8000"
+
+logging:
+  config: classpath:log4j2-spring.yml
+

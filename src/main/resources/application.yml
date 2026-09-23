@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: unstructured-collector-dvlx15mqnc
+    version: v1
+    desc: unstructured-collector-dvlx15mqnc RESTful API Service
+  jackson:
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+  datasource:
+    dbcp2:
+      initial-size: 20
+    url: jdbc:postgresql://${POSTGRES_HOST:127.0.0.1}:${POSTGRES_DB_PORT:5432}/${POSTGRES_DB_NAME:postgres}?allowMultiQueries=true
+    driver-class-name: org.postgresql.Driver
+    username: ${POSTGRES_USERNAME:postgres}
+    password: ${POSTGRES_PASSWORD:0000}
+    hikari:
+      maximum-pool-size: 3
+      maxLifeTime: 3300000
+      connection-timeout: 30000
+      idle-timeout: 600000
+      connection-test-query: SELECT 1
+      dialect: org.hibernate.dialect.PostgreSQLDialect
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-postgresql.sql
+server:
+  port: 8080
+  forward-headers-strategy: framework
+service-path: ${SERVICE_PATH:}
+springdoc:
+  cache:
+    disabled: true
+  version: 1
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+    resolve-schema-properties: true
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+  swagger-ui:
+    operations-sorter: alpha
+    tags-sorter: alpha
+    path: /swagger-ui.html
+    url: ${SERVICE_PATH:}/v3/api-docs
+    config-url: ${SERVICE_PATH:}/v3/api-docs/swagger-config
+    disable-swagger-default-url: true
+    display-query-params-without-oauth2: true
+    show-common-extensions: true
+  show-actuator: true
+  show-login-endpoint: true
+logging:
+  config: classpath:log4j2-spring.yml
+  level:
+    org.springframework.web.servlet.PageNotFound: 'OFF'
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+mybatis:
+  type-aliases-package: egovframework.unstructured.collector.request
+  mapper-locations: mappers/*Mapper.xml
+  configuration:
+    map-underscore-to-camel-case: false
+    cache-enabled: false
+    use-generated-keys: true

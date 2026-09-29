@@ -1,5 +1,6 @@
 package egovframework.unstructured.collector.voice.source;
 
+import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.voice.mapper.BoramiVoiceMapper;
 import egovframework.unstructured.collector.common.model.BatchWindow;

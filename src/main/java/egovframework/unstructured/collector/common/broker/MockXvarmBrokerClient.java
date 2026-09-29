@@ -68,6 +68,59 @@ public class MockXvarmBrokerClient implements XvarmBrokerClient {
     }
 
     /**
+     * 파일 단건 — XVARM 원본 스토리지에 {@code fileKey} 경로의 파일이 있으면 그것을 그대로(암호화된 채) 옮긴다.
+     * 시뮬레이션 데이터 생성이 그 경로에 암호화된 더미 이미지를 써 둔다. 없으면 더미 이미지를 만들어 떨군다.
+     */
+    @Override
+    public ExtractResult extractFile(FileRequest req) {
+        String requestId = "MOCKREQ-" + req.requestId();
+        Path dir = dirs.receiveDir(egovframework.unstructured.collector.common.model.VoiceKind.MEET);   // 브로커 출력 = 접견 수신 폴더
+        Path file = dir.resolve(req.fileName());
+        try {
+            Files.createDirectories(dir);
+            Path src = sourceOf(req.fileKey());
+            byte[] body = src != null ? Files.readAllBytes(src)
+                    : maybeEncrypt(egovframework.unstructured.collector.common.util.SampleImage.jpeg(req.requestId()), true);
+            Files.write(file, body, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            log.info("[Broker:MOCK] 파일 추출 — {} ({} bytes{})", file.getFileName(), body.length,
+                    src != null ? ", XVARM 원본 복사" : ", 더미 이미지");
+            return new ExtractResult(requestId, file.toString(), body.length);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Mock 브로커 파일 생성 실패: " + file, e);
+        }
+    }
+
+    /** 파일키가 가리키는 원본 — 없거나 경로로 읽히지 않으면 null. */
+    private static Path sourceOf(String fileKey) {
+        if (fileKey == null || fileKey.isBlank()) {
+            return null;
+        }
+        try {
+            Path p = Path.of(fileKey);
+            return Files.isRegularFile(p) ? p : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private byte[] maybeEncrypt(byte[] plain, boolean encrypted) {
+        if (modeState.decrypt() != VoiceProperties.DecryptMode.REAL || !encrypted) {
+            return plain;
+        }
+        String keyPath = props.decrypt().rvsKeyPath();
+        if (!org.springframework.util.StringUtils.hasText(keyPath)) {
+            return plain;
+        }
+        try {
+            return egovframework.unstructured.collector.common.decrypt.MediaDecryptor
+                    .fromKeyFile(Path.of(keyPath.trim())).encrypt(plain);
+        } catch (Exception e) {
+            log.warn("[Broker:MOCK] 더미 암호화 실패 — 평문으로 둡니다 ({})", e.getMessage());
+            return plain;
+        }
+    }
+
+    /**
      * 복호화가 REAL 이고 이 건이 암호화 대상이면 실제로 암호화해 준다.
      *
      * <p>키를 못 읽으면 <b>평문 그대로 둔다</b> — 여기서 예외를 던지면 복호화 문제가 브로커 실패로

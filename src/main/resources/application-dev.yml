@@ -47,6 +47,7 @@ voice:
       rerd: ${VOICE_SCHEMA_RERD:re}
       smsm: ${VOICE_SCHEMA_SMSM:sm}
       xvarm: ${VOICE_SCHEMA_XVARM:}          # 실 XVARM 테이블 미확인 — REAL 모드로 올리기 전에 채운다
+      irim: ${VOICE_SCHEMA_IRIM:ir}          # 수용자 이미지 내역 — 개발계 borami-db ir.tb_irim_bsif_ds
     # 개발계 DB 에는 공통파일기본·XVARM 테이블이 없다(2026-09-12). 기본 MOCK_DEV 가 sm.tb_smsm_cmfi_bs ·
     # xvarm.asyscontentelement 를 만들어 시딩하고, 실 테이블이 생기면 VOICE_XVARM_MODE=REAL 로 올린다.
     xvarm-mode: ${VOICE_XVARM_MODE:MOCK_DEV}
@@ -147,3 +148,12 @@ voice:
 logging:
   level:
     egovframework.unstructured.collector: ${LOG_LEVEL:INFO}
+
+# ── 수용자 이미지 — Admin DB(개발계, service-core 네임스페이스) ─────────────────
+#   계정은 차트가 Secret 으로 준다(ADMIN_DB_USERNAME · ADMIN_DB_PASSWORD). 비어 있으면 매핑 단계가 인증 실패로 남는다.
+#   ⚠ 사진 저장소(IMAGE_OUTPUT_DIR 또는 {ROOT_DIR}/image)는 PV 에 두어야 파드가 다시 떠도 남는다.
+image:
+  admin-db:
+    url: ${ADMIN_DB_URL:jdbc:postgresql://admin-db-fy9tjq4tsk.service-core.svc.cluster.local:5432/correction_ai}
+    username: ${ADMIN_DB_USERNAME:}
+    password: ${ADMIN_DB_PASSWORD:}

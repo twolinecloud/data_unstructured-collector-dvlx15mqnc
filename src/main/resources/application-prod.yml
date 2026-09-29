@@ -45,3 +45,10 @@ log-collector:
 logging:
   level:
     egovframework.unstructured.collector: INFO
+
+# ── 수용자 이미지 — 운영 Admin DB. 비워 두면 매핑 단계가 사유와 함께 실패한다(H2 로 조용히 빠지지 않게) ──
+image:
+  admin-db:
+    url: ${ADMIN_DB_URL:}
+    username: ${ADMIN_DB_USERNAME:}
+    password: ${ADMIN_DB_PASSWORD:}

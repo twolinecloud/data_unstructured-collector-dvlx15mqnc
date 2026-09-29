@@ -66,7 +66,7 @@ public class VoiceMockController {
     private final VoiceDirState dirs;
     private final egovframework.unstructured.collector.voice.stt.SttOutputStore outputStore;
     private final egovframework.unstructured.collector.voice.source.SimulationDataService sim;
-    private final egovframework.unstructured.collector.voice.source.DbKindDetector dbKind;
+    private final egovframework.unstructured.collector.common.config.DbKindDetector dbKind;
     private final egovframework.unstructured.collector.common.config.DeployEnvPreset deployEnv;
     private final egovframework.unstructured.collector.common.logging.LogCollectorClient logCollector;
     private final egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;

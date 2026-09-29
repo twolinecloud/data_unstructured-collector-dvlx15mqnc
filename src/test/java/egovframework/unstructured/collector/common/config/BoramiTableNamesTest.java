@@ -1,4 +1,4 @@
-package egovframework.unstructured.collector.voice.source;
+package egovframework.unstructured.collector.common.config;
 
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.sync.EsbFileNamingPolicy;
@@ -29,7 +29,7 @@ class BoramiTableNamesTest {
                                     VoiceProperties.XvarmMode xvarmMode, DbKindDetector.DbKind dbKind) {
         VoiceProperties p = new VoiceProperties(
                 new VoiceProperties.Source(VoiceProperties.SourceMode.DIRECT_JDBC, "", "",
-                        new VoiceProperties.Schema(imsc, rerd, smsm, xvarm),
+                        new VoiceProperties.Schema(imsc, rerd, smsm, xvarm, ""),
                         new VoiceProperties.Flag("Y", "Y", "N", "Y"),
                         xvarmMode, new VoiceProperties.XvarmMock("sm", "xvarm"),
                         new VoiceProperties.LocalH2("jdbc:h2:mem:t", "sa", "", 10, 0),

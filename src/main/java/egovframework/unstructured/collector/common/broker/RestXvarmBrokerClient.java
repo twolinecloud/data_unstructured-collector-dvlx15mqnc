@@ -102,6 +102,19 @@ public class RestXvarmBrokerClient implements XvarmBrokerClient {
         return poll(base, requestId);
     }
 
+    @Override
+    public ExtractResult extractFile(FileRequest req) {
+        String base = requireBaseUrl();
+        JsonNode accepted = post(base + "/api/v1/xvarm/extract", Map.of(
+                "docId", nullSafe(req.docId()),
+                "fileKey", nullSafe(req.fileKey()),
+                "requestId", req.requestId(),
+                "fileName", nullSafe(req.fileName())));
+        log.info("[Broker:REST] 파일 추출 요청 — requestId={} status={}", req.requestId(),
+                accepted == null ? "(응답없음)" : accepted.path("status").asText(""));
+        return poll(base, req.requestId());
+    }
+
     /** 완료될 때까지 상태를 묻는다. 타임아웃이면 예외 — 조용히 넘기면 없는 파일을 기다리게 된다. */
     private ExtractResult poll(String base, String requestId) {
         long intervalMs = props.broker().pollIntervalMs();

@@ -39,6 +39,24 @@ public interface XvarmBrokerClient {
 
     String mode();
 
+    /**
+     * 파일 하나를 추출한다 — 대상 모델({@link VoiceTarget}) 없이 문서ID · 파일키로. <b>수용자 이미지</b>가 쓴다.
+     *
+     * <p>브로커 API 는 음성과 같다({@code POST /api/v1/xvarm/extract}). 산출물은 브로커의 출력 폴더
+     * (= 접견 수신 폴더)에 {@code fileName} 으로 놓인다.</p>
+     */
+    default ExtractResult extractFile(FileRequest req) {
+        throw new UnsupportedOperationException(mode() + " 브로커는 파일 단건 추출을 지원하지 않는다");
+    }
+
+    /**
+     * @param docId     문서ID — {@code TB_SMSM_CMFI_BS.DOC_ID}
+     * @param fileKey   XVARM 파일 키 — {@code ASYSCONTENTELEMENT.FILEKEY}
+     * @param requestId 멱등 키 — 같은 값이면 브로커가 다시 추출하지 않는다
+     * @param fileName  산출 파일명
+     */
+    record FileRequest(String docId, String fileKey, String requestId, String fileName) {}
+
     /** 브로커 요청 키 — {@code VOC-{execId}-{대상키}}. execId 가 없으면 {@code VOC-{대상키}}. */
     static String requestIdOf(VoiceTarget target, String execId) {
         return (execId == null || execId.isBlank())

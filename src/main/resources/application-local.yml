@@ -73,6 +73,7 @@ voice:
       rerd: ${VOICE_SCHEMA_RERD:re}
       smsm: ${VOICE_SCHEMA_SMSM:sm}
       xvarm: ${VOICE_SCHEMA_XVARM:}
+      irim: ${VOICE_SCHEMA_IRIM:ir}
   # ── XVARM 브로커 ────────────────────────────────────────────────────────
   #   MOCK : 내부 Mock 컴포넌트가 수신 폴더에 더미 파일을 만든다(외부 의존 없음)
   #   REST : 8082 의 borami-xvarm-broker 를 실제로 호출한다
@@ -155,3 +156,8 @@ voice:
 logging:
   level:
     egovframework.unstructured.collector: ${LOG_LEVEL:DEBUG}
+
+# ── 수용자 이미지 — Admin DB 는 기본 로컬 H2(매핑 테이블 자동 생성) ───────────────
+#   개발계 Admin DB 로 붙어 보려면 포트포워딩 후 환경변수로 준다(DDL 이 적용돼 있어야 한다):
+#     kubectl -n service-core port-forward svc/admin-db-fy9tjq4tsk 15434:5432
+#     ADMIN_DB_URL=jdbc:postgresql://localhost:15434/correction_ai  ADMIN_DB_USERNAME=…  ADMIN_DB_PASSWORD=…

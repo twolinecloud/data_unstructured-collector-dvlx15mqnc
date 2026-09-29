@@ -1,5 +1,6 @@
 package egovframework.unstructured.collector.voice.source;
 
+import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import java.time.LocalDateTime;
 import java.util.List;
 

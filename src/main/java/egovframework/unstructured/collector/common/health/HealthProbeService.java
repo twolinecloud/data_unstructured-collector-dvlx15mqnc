@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.config.VoiceModeState;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
-import egovframework.unstructured.collector.voice.source.DbKindDetector;
+import egovframework.unstructured.collector.common.config.DbKindDetector;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;

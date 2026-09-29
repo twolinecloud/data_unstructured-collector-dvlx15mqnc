@@ -1,5 +1,7 @@
 package egovframework.unstructured.collector.voice.source;
 
+import egovframework.unstructured.collector.common.config.DbKindDetector;
+import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.MockDatasetState;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.config.VoiceModeState;

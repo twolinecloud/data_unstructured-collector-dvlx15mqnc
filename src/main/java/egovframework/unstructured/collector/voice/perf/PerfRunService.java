@@ -21,7 +21,7 @@ import egovframework.unstructured.collector.common.model.BatchWindow;
 import egovframework.unstructured.collector.common.model.FileProcOutcome;
 import egovframework.unstructured.collector.common.model.ProcStatus;
 import egovframework.unstructured.collector.voice.source.BoramiSourceClient;
-import egovframework.unstructured.collector.voice.source.DbKindDetector;
+import egovframework.unstructured.collector.common.config.DbKindDetector;
 import egovframework.unstructured.collector.voice.source.SimulationDataService;
 import egovframework.unstructured.collector.voice.stt.MockSttLatency;
 import egovframework.unstructured.collector.voice.stt.SttClient;

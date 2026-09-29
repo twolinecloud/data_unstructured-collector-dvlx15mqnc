@@ -25,7 +25,7 @@ class VoiceModeStateTest {
     private VoiceProperties props() {
         return new VoiceProperties(
                 new VoiceProperties.Source(VoiceProperties.SourceMode.MOCK, "", "",
-                        new VoiceProperties.Schema("", "", "", ""),
+                        new VoiceProperties.Schema("", "", "", "", ""),
                         new VoiceProperties.Flag("Y", "Y", "N", "Y"),
                         VoiceProperties.XvarmMode.MOCK_DEV, new VoiceProperties.XvarmMock("sm", "xvarm"),
                         new VoiceProperties.LocalH2("jdbc:h2:mem:t", "sa", "", 10, 0),

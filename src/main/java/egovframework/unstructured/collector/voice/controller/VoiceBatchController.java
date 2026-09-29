@@ -69,8 +69,8 @@ public class VoiceBatchController {
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
     private final egovframework.unstructured.collector.common.config.FaultInjector faultInjector;
     private final egovframework.unstructured.collector.common.config.MockDatasetState dataset;
-    private final egovframework.unstructured.collector.voice.source.DbKindDetector db;
-    private final egovframework.unstructured.collector.voice.source.BoramiTableNames tables;
+    private final egovframework.unstructured.collector.common.config.DbKindDetector db;
+    private final egovframework.unstructured.collector.common.config.BoramiTableNames tables;
     private final egovframework.unstructured.collector.common.config.DeployEnvPreset deployEnv;
     private final egovframework.unstructured.collector.voice.batch.VerificationService verification;
 

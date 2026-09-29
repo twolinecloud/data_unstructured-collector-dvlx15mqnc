@@ -46,6 +46,16 @@ public class XvarmBrokerRouter implements XvarmBrokerClient {
     }
 
     @Override
+    public ExtractResult extractFile(FileRequest req) {
+        String mode = state.broker().name();
+        XvarmBrokerClient impl = byMode.get(mode);
+        if (impl == null) {
+            throw new IllegalStateException("브로커 구현이 없다: " + mode + " (등록: " + byMode.keySet() + ")");
+        }
+        return impl.extractFile(req);
+    }
+
+    @Override
     public String mode() {
         return state.broker().name();
     }

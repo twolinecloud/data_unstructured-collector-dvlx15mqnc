@@ -20,6 +20,7 @@ DROP TABLE IF EXISTS TB_RERD_TFIN_DS;
 DROP TABLE IF EXISTS TB_SMSM_CMFI_BS;
 DROP TABLE IF EXISTS TB_IMPH_UCDR_DS;
 DROP TABLE IF EXISTS ASYSCONTENTELEMENT;
+DROP TABLE IF EXISTS TB_IRIM_BSIF_DS;
 
 -- ── 특이수용자상세 (전체 18컬럼 중 조회에 쓰는 것) ──────────────────────────
 CREATE TABLE TB_IMSC_PTPR_DT (
@@ -136,3 +137,21 @@ CREATE INDEX IX_RERD_CRT_DT   ON TB_RERD_TFIN_DS (CRT_DT);
 CREATE INDEX IX_RERD_CORR_NO  ON TB_RERD_TFIN_DS (CORR_NO);
 CREATE INDEX IX_UCDR_CRT_DT   ON TB_IMPH_UCDR_DS (CRT_DT);
 CREATE INDEX IX_UCDR_CORR_NO  ON TB_IMPH_UCDR_DS (CORR_NO);
+
+-- ── 수용자 이미지 내역 (사진: IMAGE_SE_CD='1') — 수용자 이미지 수집 파이프라인 ───────────
+--   실제 보라미 ir.TB_IRIM_BSIF_DS 와 같은 컬럼(2026-09-29 개발계 확인). 한 수용자에 여러 장이 있고
+--   IMAGE_SN 이 가장 큰 것이 최신이다.
+CREATE TABLE TB_IRIM_BSIF_DS (
+    CORR_NO            VARCHAR(18)   NOT NULL,   -- 교정번호
+    IMAGE_SN           SMALLINT      NOT NULL,   -- 이미지순번 — 클수록 최신
+    IMAGE_SE_CD        VARCHAR(1),               -- 이미지구분코드 — '1' 사진
+    BDY_SFE_KND_CD     VARCHAR(2),               -- 신체특징종류코드
+    BDY_SFE_CN         VARCHAR(1000),            -- 신체특징내용
+    FG_LC_CD           VARCHAR(1),               -- 손가락위치코드
+    IMAGE_CMMN_FILE_ID VARCHAR(20),              -- 이미지공통파일ID → TB_SMSM_CMFI_BS.CMMN_FILE_ID
+    CRT_DT             TIMESTAMP,
+    CRT_USR_ID         VARCHAR(40),
+    MDFCN_DT           TIMESTAMP,
+    MDFCN_USR_ID       VARCHAR(40),
+    CONSTRAINT PK_TB_IRIM_BSIF_DS PRIMARY KEY (CORR_NO, IMAGE_SN)
+);

@@ -3,6 +3,7 @@ package egovframework.unstructured.collector;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import egovframework.unstructured.collector.image.config.ImageProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -32,7 +33,7 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
  * {@code STR}(정형)은 데이터 수집 서비스, {@code EXT}(외부)는 외부 연계 수집 서비스가 쓴다.</p>
  */
 @EnableScheduling
-@EnableConfigurationProperties(VoiceProperties.class)
+@EnableConfigurationProperties({VoiceProperties.class, ImageProperties.class})
 @SpringBootApplication
 public class Main {
 

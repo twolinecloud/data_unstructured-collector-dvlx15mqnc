@@ -1,4 +1,4 @@
-package egovframework.unstructured.collector.voice.source;
+package egovframework.unstructured.collector.common.config;
 
 import egovframework.unstructured.collector.common.config.VoiceModeState;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
@@ -77,6 +77,11 @@ public class BoramiTableNames {
         return modeState.xvarm() == VoiceProperties.XvarmMode.MOCK_DEV;
     }
 
+    /** 수용자 이미지 내역 — 실제 {@code ir.TB_IRIM_BSIF_DS}. 사진은 {@code IMAGE_SE_CD='1'} */
+    public String irimBsifDs() {
+        return qualify(realSchema(schema().irim()), "TB_IRIM_BSIF_DS");
+    }
+
     /** 사용자통화내역 — 특이수용자와 같은 {@code im} 스키마에 있다 */
     public String imphUcdrDs() {
         return qualify(realSchema(schema().imsc()), "TB_IMPH_UCDR_DS");
@@ -111,8 +116,8 @@ public class BoramiTableNames {
 
     /** 현재 조립된 테이블명 전체(진단·기동 로그용). */
     public String describe() {
-        return "특이수용자=%s, 녹취=%s, 공통파일=%s, 통화내역=%s, XVARM=%s (xvarm=%s · %s)".formatted(
-                imscPtprDt(), rerdTfinDs(), smsmCmfiBs(), imphUcdrDs(), asysContentElement(),
+        return "특이수용자=%s, 녹취=%s, 공통파일=%s, 통화내역=%s, XVARM=%s, 이미지=%s (xvarm=%s · %s)".formatted(
+                imscPtprDt(), rerdTfinDs(), smsmCmfiBs(), imphUcdrDs(), asysContentElement(), irimBsifDs(),
                 modeState.xvarm(), db.label());
     }
 }

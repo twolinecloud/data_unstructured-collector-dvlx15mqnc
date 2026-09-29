@@ -45,6 +45,7 @@ voice:
       rerd: ${VOICE_SCHEMA_RERD:re}
       smsm: ${VOICE_SCHEMA_SMSM:sm}
       xvarm: ${VOICE_SCHEMA_XVARM:}     # 테이블이 없어 비워 둔다 — 접견 조회 시 오류가 난다
+      irim: ${VOICE_SCHEMA_IRIM:ir}     # 수용자 이미지 내역
 
     # 실 borami-db 에도 공통파일기본·XVARM 이 없어 접견 4단 조인이 서지 않는다 — MOCK_DEV 가 sm/xvarm 스키마에 만든다.
     # (borami 계정에 CREATE SCHEMA/TABLE 권한이 있어야 한다. 없으면 docs/borami_missing_tables.sql 을 DBA 가 돌린다)

@@ -1,9 +1,18 @@
-# voice-collector — 비정형 음성 수집 서비스
+# unstructured-collector — 비정형 데이터 수집 서비스
 
-보라미의 수용자 음성(접견·통화)을 골라 가져와 복호화하고 **STT 텍스트로 만드는** 서비스.
-범위는 STT 처리와 내부 저장·감시까지다 — STT 텍스트를 외부 서비스로 전송하지 않는다
-(비식별 커넥터 연동은 아키텍처 변경으로 제외됐다).
+보라미의 **비정형 데이터**를 수집한다.
 
+- **음성**(접견·통화) — 골라 가져와 복호화하고 **STT 텍스트**로 만든 뒤 비식별 커넥터를 거쳐 저장·이관한다
+- **수용자 사진** — 최신 사진의 XVARM 파일을 받아 **접견과 같은 방식으로 복호화**해 저장하고 Admin DB 에 경로를 매핑한다
+
+정형 데이터는 `data-collector`, 파일 기반 비정형 데이터는 이 서비스가 맡는다.
+
+> **이관 (2026-09-29)** — `data_voice-collector-x2daarjxe4`(voice-collector)에서 이 저장소로 옮기고 이름을 바꿨다.
+> 투라코 서비스명 `unstructured-collector-dvlx15mqnc` · `spring.application.name=unstructured-collector`.
+> 그대로 둔 것: 수용자 PID salt(`kcais-voice-collector` — 바꾸면 기존 T4·T5 이력과 PID 가 어긋난다) ·
+> 설정 접두 `voice.*` · 데이터 루트 `/k8s/voice_collector`(브로커 출력 경로와 맞물림) · 시뮬레이터 파일명
+> `voice_collector_simulator.html`(admin-fe 링크·nginx 경로).
+>
 > 설계 근거: `data_agent-connector-dp8qbi7xqh/study/회의록/9_11/음성수집_서비스_개발계획_초안_v2.md`
 
 ---
@@ -519,19 +528,83 @@ Jenkins 파이프라인이 `${GROUP_NAME}_HelmChart` 레포의 `$STAGE/$SERVICE_
 ## 7. 패키지 구조
 
 ```
-src/main/resources/static/voice_collector_simulator.html   ← 시연용 조작 화면
+src/main/resources/static/voice_collector_simulator.html   ← 시연·성능 시험 화면(1~6번 탭)
 
 egovframework.unstructured.collector
-├─ controller/ VoiceBatchController(운영·시연) · VoiceMockController(Mock 전용)
-├─ batch/      VoiceCollectService(본체) · Scheduler · IdempotencyGuard
-├─ source/     보라미 조회 — Mock / Jdbc / EsbHttp2Db
-├─ broker/     XVARM 브로커 — Mock / Rest
-├─ sync/       파일 수신 — FileArrivalWatcher · EsbFileNamingPolicy · PhoneFileProvider
-├─ decrypt/    복호화 — DecryptService · Noop / PhoneAria / MeetRvs
-├─ stt/        STT — Mock / Npu · SttOutputStore(배치 폴더에 .txt/.json 저장)  ★ 텍스트를 외부로 보내지 않는다
-├─ logging/    LogCollectorClient (T1 · T2 COLLECT/ANALYZE · T4)
-├─ mapper/     BoramiVoiceMapper (MyBatis)
-├─ model/      VoiceTarget · VoiceFile · SttResult · FileProcOutcome …
-├─ util/       InmatePidGenerator · AudioFormatDetector · SilentWav
-└─ config/     VoiceProperties · VoiceModeState(모드) · VoiceDirState(디렉터리) · RestTemplateConfig · EgovConfigDataAccess
+├─ common/     음성·이미지가 같이 쓰는 기반
+│  ├─ config/    VoiceProperties · VoiceModeState(모드) · VoiceDirState(디렉터리) · 보라미 DataSource 라우터
+│  │             · BoramiTableNames · DbKindDetector · SourcePoolPeak(Hikari 최고치·반납) · RestTemplate · MyBatis
+│  ├─ broker/    XVARM 브로커 — Mock / Rest (음성 extract · 이미지 extractFile)
+│  ├─ sync/      파일 수신 — FileArrivalWatcher · EsbFileNamingPolicy · PhoneFileProvider
+│  ├─ decrypt/   복호화 — DecryptService · MediaDecryptor(RVS) · Noop / PhoneAria / MeetRvs
+│  ├─ logging/   LogCollectorClient (T1 · T2 · T4)
+│  ├─ health/    연계 상태 점검
+│  ├─ model/     VoiceTarget · VoiceFile · SttResult · FileProcOutcome …
+│  └─ util/      InmatePidGenerator · AudioFormatDetector · SilentWav · SampleImage
+├─ voice/      접견·전화 음성 수집 · STT 파이프라인
+│  ├─ controller/ VoiceBatchController(운영·시연) · VoiceMockController · PerfController(Mock 전용)
+│  ├─ batch/      VoiceCollectService(본체 — 확보/STT 워커 생산자-소비자) · Scheduler · IdempotencyGuard
+│  ├─ source/     보라미 조회 — Mock / Jdbc / EsbHttp2Db · SimulationDataService
+│  ├─ mapper/     BoramiVoiceMapper (MyBatis)
+│  ├─ stt/        STT — Mock / Npu · SttOutputStore · SttTempStore
+│  ├─ transfer/   AgentConnectorClient(비식별 · 이관) · DeidentLoad
+│  └─ perf/       성능 시험(4·5번 탭)
+└─ image/      수용자 이미지 수집
+   ├─ controller/ ImageController(/api/v1/image) · ImageMockController(/api/v1/mock/image — 6번 탭)
+   ├─ batch/      ImageCollectService(본체) · ImageMetrics
+   ├─ source/     ImageSourceService — 보라미 조회 3단계
+   ├─ store/      ImageFileStore(복호화·저장) · InmatePhotoRepository(Admin DB 매핑)
+   ├─ config/     ImageProperties(image.*) · AdminDb(Admin DB 풀 — 스프링 빈 DataSource 아님)
+   ├─ sim/        ImageSimulationService — SIMIMG 시뮬레이션 데이터
+   ├─ perf/       ImagePerfService — 6번 탭 검증
+   └─ model/      ImageTarget · ImageOutcome · ImageStage · ImageFormat
 ```
+
+---
+
+## 8. 수용자 이미지 수집
+
+PL 요구사항(2026-09-29) — 단순 메타 조회가 아니라 **실제 파일 수신 → 접견과 같은 복호화 → 저장 → Admin DB 매핑** 전체.
+
+| 단계 | 무엇을 | 어디서 |
+|---|---|---|
+| ① 최신 이미지 조회 | `IMAGE_SE_CD='1'`(사진) 중 수용자별 `IMAGE_SN` 최대 1건의 `IMAGE_CMMN_FILE_ID` | 보라미 `TB_IRIM_BSIF_DS`(개발계 `ir`) |
+| ② 문서ID | `CMMN_FILE_ID = IMAGE_CMMN_FILE_ID` 의 `DOC_ID` (+ 파일명 · 암호화 여부) | `TB_SMSM_CMFI_BS` |
+| ③ FILEKEY | `ELEMENTID = DOC_ID` 의 `FILEKEY` | `ASYSCONTENTELEMENT` |
+| ④ 수신 · 복호화 | 브로커 `POST /api/v1/xvarm/extract` → 수신 폴더 → `MediaDecryptor`(접견과 같은 RVS 키) | borami-xvarm-broker |
+| ⑤ 저장 · 매핑 | `{image.output-dir}/{교정번호}/{교정번호}_{순번}.{확장자}` → `TB_SRC_INMATE_PHOTO` UPSERT | Admin DB `kcais` |
+
+- **API** — `POST /api/v1/image/batches`(동기 실행) · `GET /api/v1/image/status` · `GET /api/v1/image/photos/{corrNo}` ·
+  `POST /api/v1/image/photo-ref/sync`(선택 — `TB_SRC_INMATE_BS.PHOTO_REF` 일괄 반영)
+- **변경 없는 건은 다시 받지 않는다** — 매핑된 순번·FILEKEY 가 같고 파일이 있으면 건너뜀(`force` 로 다시)
+- **순서 꼬임 방지** — 수용자당 한 행인 별도 테이블 · 행 잠금(`SELECT … FOR UPDATE`) · 옛 사진(순번이 작은 것)은 덮지 않음(STALE)
+  · 동시 INSERT 경합은 갱신으로 재시도. `PHOTO_REF` 동시 갱신은 기본 끔(`image.update-photo-ref`)
+- **커넥션을 잡고 기다리지 않는다** — 조회는 문장마다 빌렸다 반납, 파일 수신·복호화·저장은 트랜잭션 밖,
+  매핑만 Admin DB 에서 짧은 트랜잭션 하나. Admin DB 풀은 스프링 빈이 아니다(보라미 DataSource 자동 구성과 섞이지 않게)
+- **복호화 확인** — 결과가 이미지(매직 넘버)가 아니면 저장하지 않고 실패. 공통파일기본의 `CMMN_FILE_ENC_YN='N'` 이면 복호화하지 않는다
+- **처리 이력** — 아직 로그 컬렉터(T1·T2·T4)에 남기지 않는다. 이미지용 작업 코드가 로그 컬렉터에 먼저 정해져야 한다
+
+### Admin DB DDL — 배포 전에 관리자가 적용
+
+`src/main/resources/db/admin/V1__tb_src_inmate_photo.sql` (PostgreSQL · `correction_ai.kcais`).
+앱이 만들지 않는다(로그 컬렉터 V-스크립트와 같은 운영 방식). 적용 전에는 'DB 매핑' 단계가 실패로 남는다.
+로컬 H2 는 `admin-schema-h2.sql` 로 자동 생성된다.
+
+### 설정 (`image.*`)
+
+| 키 | 기본 | 뜻 |
+|---|---|---|
+| `image.output-dir` (`IMAGE_OUTPUT_DIR`) | `{ROOT_DIR}/image` | 사진 저장소 — 배포에서는 **PV** 에 두어야 파드가 다시 떠도 남는다 |
+| `image.workers` | 4 | 동시 처리 워커 |
+| `image.max-per-run` | 2000 | 한 번에 처리할 최대 수용자 |
+| `image.update-photo-ref` | false | 매핑과 함께 `PHOTO_REF` 갱신 |
+| `image.admin-db.url` (`ADMIN_DB_URL`) | 로컬 H2 · dev: `admin-db-fy9tjq4tsk.service-core…/correction_ai` | Admin DB |
+| `ADMIN_DB_USERNAME` · `ADMIN_DB_PASSWORD` | — | 차트 Secret 으로 준다 |
+| `voice.source.schema.irim` (`VOICE_SCHEMA_IRIM`) | dev·local `ir` | `TB_IRIM_BSIF_DS` 스키마 |
+
+### 시뮬레이터 6번 탭 — 수용자 이미지 수집 검증
+
+이미지 수집 건수 · 이미지 워커 · 가상 이미지 처리 지연(ms)을 정해 돌린다.
+SIM 사진(`SIMIMG…`, 수용자마다 사진 2장 + 사진 아닌 이미지 1장 — 순번 2가 골라져야 맞다)을 암호화해 만들고,
+실제 파이프라인으로 처리한 뒤 TPS · 평균 복호화 · 평균 DB 매핑 · 단계별 시간 · 정합성(매핑 행 · 최신 순번 · 원문 해시 · Hikari 반납)을 보여 준다.
+끝나면 SIM 데이터를 지운다. [📸 전체 리포트 저장] 으로 ①·② 를 PNG 로 남긴다.

@@ -31,6 +31,14 @@ public class SourcePoolPeak {
     /** 이 서비스의 원천 풀들 — 시험이 끝난 뒤 연결이 모두 돌아왔는지 본다. */
     private final List<Metered> pools = new CopyOnWriteArrayList<>();
 
+    /**
+     * 이 계측기에 붙은 새 Hikari 풀 — 빌릴 때마다 사용 중 수를 적고, 시험 뒤 반납 현황({@link #state()})에도 잡힌다.
+     * Admin DB 풀(수용자 이미지 매핑)이 쓴다.
+     */
+    public HikariDataSource newPool() {
+        return new Metered(this);
+    }
+
     /** 새로 잰다. */
     public synchronized void reset() {
         peak = 0;

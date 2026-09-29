@@ -102,6 +102,38 @@ public class FileArrivalWatcher {
         return true;
     }
 
+    /**
+     * 정해진 폴더에 정해진 이름의 파일이 도착해 안정될 때까지 기다린다 — 대상 모델 없이(수용자 이미지).
+     *
+     * @return 도착한 파일
+     * @throws IllegalStateException 타임아웃 — 폴더 현황을 같이 싣는다
+     */
+    public Path awaitFile(Path dir, String fileName) {
+        Path file = dir.resolve(fileName);
+        long deadline = System.currentTimeMillis() + props.sync().waitTimeoutSec() * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (arrived(dir, fileName) && isStable(file)) {
+                return file;
+            }
+            sleep(Math.max(props.sync().stableCheckMs() / 2, 200));
+        }
+        List<String> present = StaleFiles.names(dir);
+        throw new IllegalStateException("수신 파일 대기 타임아웃 — %s (%d초, dir=%s) · 폴더 현황: %s"
+                .formatted(fileName, props.sync().waitTimeoutSec(), dir,
+                        present.isEmpty() ? "비어 있음(아무도 파일을 만들지 않았다)" : present));
+    }
+
+    /** 요청 직전 — 그 이름에 남아 있는 지난 요청의 파일을 치운다({@link #clearStale(VoiceTarget)} 와 같은 원칙). */
+    public boolean clearStale(Path dir, String fileName) {
+        Path file = dir.resolve(fileName);
+        if (!Files.exists(file)) {
+            return false;
+        }
+        log.warn("[Sync] 지난 요청의 잔재를 치운다 — {} (요청 전부터 있던 파일)", file.getFileName());
+        StaleFiles.delete(file);
+        return true;
+    }
+
     /** 이미 와 있는지만 즉시 확인한다(대기 없음). */
     public boolean isArrived(VoiceTarget target) {
         return arrived(dirFor(target.kind()),

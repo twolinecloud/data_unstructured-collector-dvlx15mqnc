@@ -1,4 +1,4 @@
-package egovframework.unstructured.collector.voice.source;
+package egovframework.unstructured.collector.common.config;
 
 import egovframework.unstructured.collector.common.config.BoramiDbRouter;
 import egovframework.unstructured.collector.common.config.BoramiDbRouter.DbTarget;

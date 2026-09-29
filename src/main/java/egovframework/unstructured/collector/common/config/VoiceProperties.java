@@ -126,7 +126,9 @@ public record VoiceProperties(
             /** 공통파일기본 — 실제 {@code sm} (2026-09-12 기준 borami-db 에 테이블 자체가 없음) */
             @DefaultValue("") String smsm,
             /** XVARM 콘텐츠 메타 — 실제 스키마 미확인 (borami-db 에 없음) */
-            @DefaultValue("") String xvarm
+            @DefaultValue("") String xvarm,
+            /** 수용자 이미지 내역 {@code TB_IRIM_BSIF_DS} — 실제 {@code ir}(2026-09-29 개발계 확인) */
+            @DefaultValue("") String irim
     ) {}
 
     /**

@@ -81,6 +81,7 @@ voice:
       rerd: ${VOICE_SCHEMA_RERD:}            # 녹취파일내역
       smsm: ${VOICE_SCHEMA_SMSM:}            # 공통파일기본 (REAL 모드에서만 쓴다)
       xvarm: ${VOICE_SCHEMA_XVARM:}          # XVARM 콘텐츠 메타 (REAL 모드에서만 쓴다)
+      irim: ${VOICE_SCHEMA_IRIM:}            # 수용자 이미지 내역 TB_IRIM_BSIF_DS (실제 ir)
 
     # ── 조회 대상 DB 두 개 — 드롭다운이 곧 어느 DB 에 붙는지 ─────────────────
     #   MOCK (로컬 H2)  → local-h2  : 인메모리 H2 Mock 보라미 (기동 시 스키마·필터 검증 행 + 시뮬레이션 10건)
@@ -224,3 +225,28 @@ agent-connector:
   #   true        = 비식별 수행: 커넥터가 개인정보를 마스킹하고 T5 에 solution_cd=AIR 로 남긴다
   #   어느 쪽이든 T2 에 DEIDENT 단계가, T5 에 파일마다 한 행이 남는다. 시뮬레이터·API 는 요청마다 덮어쓸 수 있다.
   deidentification-enabled: ${AGENT_DEID_ENABLED:false}
+
+# ══════════════════════════════════════════════════════════════════════════
+#  수용자 이미지 수집 (image.*)
+#    보라미 TB_IRIM_BSIF_DS(사진, IMAGE_SE_CD='1' 중 수용자별 최신) → TB_SMSM_CMFI_BS(DOC_ID)
+#    → ASYSCONTENTELEMENT(FILEKEY) → 브로커 수신 → 복호화(접견과 같은 RVS 키) → 저장 → Admin DB 매핑
+#    원천 DB · 브로커 · 복호화 모드 · 수신 폴더는 음성(voice.*)과 같은 것을 쓴다.
+# ══════════════════════════════════════════════════════════════════════════
+image:
+  image-se-cd: ${IMAGE_SE_CD:1}
+  output-dir: ${IMAGE_OUTPUT_DIR:}          # 사진 저장소. 비우면 {ROOT_DIR}/image
+  workers: ${IMAGE_WORKERS:4}
+  page-size: 500
+  max-per-run: ${IMAGE_MAX_PER_RUN:2000}
+  update-photo-ref: ${IMAGE_UPDATE_PHOTO_REF:false}   # 매핑과 함께 TB_SRC_INMATE_BS.PHOTO_REF 도 갱신(기본 끔 — 정형 수집기와 순서 꼬임)
+  # Admin DB — 매핑 테이블 kcais.TB_SRC_INMATE_PHOTO. 기본은 로컬 H2(테이블 자동 생성).
+  #   개발계·운영 PostgreSQL 은 DDL(db/admin/V1__tb_src_inmate_photo.sql)을 관리자가 먼저 적용한다.
+  #   풀은 스프링 빈이 아니다(보라미 DataSource 자동 구성과 섞이지 않게) — AdminDb 참고.
+  admin-db:
+    url: ${ADMIN_DB_URL:jdbc:h2:mem:admin;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${ADMIN_DB_USERNAME:sa}
+    password: ${ADMIN_DB_PASSWORD:}
+    schema: ${ADMIN_DB_SCHEMA:kcais}
+    max-pool-size: ${ADMIN_DB_POOL_MAX:10}
+    connect-timeout-ms: ${ADMIN_DB_CONNECT_TIMEOUT_MS:3000}
+    leak-detection-threshold-ms: ${ADMIN_DB_LEAK_DETECTION_MS:30000}

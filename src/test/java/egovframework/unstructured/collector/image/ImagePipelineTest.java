@@ -33,8 +33,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>로컬 H2(보라미 · Admin) · 브로커 MOCK · 복호화 REAL(테스트 키). SIM 데이터는 수용자마다 사진 2장(순번 1·2)과
  * 사진 아닌 이미지 1장(구분 '2', 순번 3)이라 <b>순번 2</b>가 골라져야 맞다.</p>
+ *
+ * <p><b>Admin DB 는 여기서 H2 로 못 박는다</b> — Jenkins 빌드는 dev 프로파일이 켜진 채 테스트를 돌려
+ * {@code application-dev.yml} 의 개발계 Admin DB 주소를 읽는다(빌드 에이전트에서는 그 호스트가 풀리지 않아
+ * 2026-09-29 첫 빌드가 UnknownHost 로 실패했다). 테스트 속성은 프로파일 설정보다 우선한다.</p>
  */
 @SpringBootTest(properties = {
+        "image.admin-db.url=jdbc:h2:mem:admin-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
+        "image.admin-db.username=sa",
+        "image.admin-db.password=",
         "voice.source.mode=MOCK",
         "voice.broker.mode=MOCK",
         "voice.decrypt.mode=REAL",

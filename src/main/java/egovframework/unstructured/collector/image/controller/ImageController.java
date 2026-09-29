@@ -6,6 +6,7 @@ import egovframework.unstructured.collector.common.config.VoiceModeState;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
 import egovframework.unstructured.collector.image.config.AdminDb;
 import egovframework.unstructured.collector.image.config.ImageProperties;
+import egovframework.unstructured.collector.image.sim.ImageSimulationService;
 import egovframework.unstructured.collector.image.source.ImageSourceService;
 import egovframework.unstructured.collector.image.store.ImageFileStore;
 import egovframework.unstructured.collector.image.store.InmatePhotoRepository;
@@ -46,6 +47,7 @@ public class ImageController {
     private final VoiceModeState modes;
     private final XvarmBrokerClient broker;
     private final DbKindDetector dbKind;
+    private final ImageSimulationService sim;
 
     @Operation(summary = "지금 구성 · Admin DB 상태",
             description = "원천(보라미) DB · 조회 테이블 · 브로커·복호화 모드 · 저장소 · Admin DB 연결과 매핑 테이블 존재 여부. "
@@ -66,6 +68,8 @@ public class ImageController {
         }
         m.put("admin", admin);
         m.put("mapTable", adminDb.table(AdminDb.PHOTO_TABLE));
+        m.put("upsertMode", photos.upsertMode());
+        m.put("sim", sim.residual());
         m.put("running", collect.isRunning());
         return m;
     }
@@ -76,13 +80,17 @@ public class ImageController {
 
                     - `corrNos` 를 주면 그 수용자만, 비우면 전체(최대 `image.max-per-run`)
                     - 매핑된 순번·FILEKEY 가 같고 저장 파일이 있으면 **건너뜀**(다시 받지 않음) — `force=true` 면 다시 받는다
+                    - 다시 받는 건은 매핑을 UPSERT 한다 — 몇 번 다시 돌려도 키 중복 없이 있으면 갱신 · 없으면 넣기(멱등)
                     - 더 최신 사진이 이미 매핑된 수용자는 덮지 않는다(STALE)
+                    - 한 건의 오류는 그 건만 실패로 남기고 다음 건을 계속한다
+                    - 6번 탭이 남겨 둔 SIM(`SIMIMG…`) 행은 대상에서 뺀다
                     - 409 — 이미 돌고 있음
                     """)
     @PostMapping("/batches")
     public ImageCollectService.ImageRunResult run(@RequestBody(required = false) ImageCollectService.ImageRunRequest req) {
         ImageCollectService.ImageRunRequest r = req == null ? null : new ImageCollectService.ImageRunRequest(
-                req.corrNos(), req.corrNoPrefix(), req.limit(), req.workers(), req.force(), req.virtualLatencyMs(), "API", false, false);
+                req.corrNos(), req.corrNoPrefix(), req.limit(), req.workers(), req.force(), req.virtualLatencyMs(), "API", false, false,
+                null);
         return collect.run(r);
     }
 

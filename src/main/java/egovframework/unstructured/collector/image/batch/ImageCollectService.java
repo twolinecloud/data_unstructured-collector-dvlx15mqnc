@@ -34,6 +34,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * <b>수용자 이미지 수집</b> — 보라미 조회 → FILEKEY 추출 → 브로커 수신 → 복호화(접견과 같은 모듈) → 저장 → Admin DB 매핑.
@@ -43,8 +44,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>건마다(워커 N개) — 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기 → 복호화 → 저장 → 매핑</li>
  * </ol>
  *
- * <p><b>변경 없는 건은 다시 받지 않는다</b> — 매핑 테이블의 순번·FILEKEY 가 같고 저장 파일이 있으면 '건너뜀'.
- * {@code force} 로 다시 받게 할 수 있다. 더 최신 사진이 이미 매핑된 수용자도 건너뛴다.</p>
+ * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·FILEKEY 가 같고 저장
+ * 파일이 있으면 '건너뜀'({@code force} 로 다시 받게 할 수 있다). 다시 받는 건은 저장 파일을 원자적으로 덮어쓰고
+ * 매핑을 UPSERT 한다 — 키 중복 오류 없이 있으면 갱신 · 없으면 넣기. 더 최신 사진이 이미 매핑된 수용자는 덮지 않는다.</p>
+ *
+ * <p><b>건마다 격리한다</b> — 한 건의 수신·복호화·저장·매핑 오류(Error 포함)는 그 건만 '실패'로 남기고 로그를 쓴 뒤
+ * 다음 건을 계속한다. 워커 스레드도, 배치 전체도 멈추지 않는다.</p>
  *
  * <p><b>커넥션을 잡고 기다리지 않는다</b>: 조회는 문장마다 원천 커넥션을 빌렸다 곧 돌려주고, 파일 수신·복호화·저장은
  * 트랜잭션 밖이다. 매핑만 Admin DB 에서 짧은 트랜잭션 하나다({@link InmatePhotoRepository#upsert}).</p>
@@ -57,10 +62,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class ImageCollectService {
 
-    private static final DateTimeFormatter EXEC_ID = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    /**
+     * 실행 ID 시각 — 밀리초까지. 초 단위면 연달아 돈 두 배치(신규 실행 → 곧바로 재실행)가 같은 ID 가 되어
+     * 매핑의 {@code last_batch_exec_id} 로 "이번 실행이 쓴 행"을 가릴 수 없고, 브로커 요청 키도 겹친다.
+     * {@code IMG-yyyyMMdd-HHmmssSSS-TST} = 26자(컬럼 30자).
+     */
+    private static final DateTimeFormatter EXEC_ID = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmssSSS");
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
     /** 결과에 싣는 건별 목록 상한 — 수천 건 배치의 응답이 커지지 않게. */
     private static final int OUTCOME_LIMIT = 300;
+    /** 키 중복 오류 — PostgreSQL · H2 · 스프링 예외 이름. 멱등 UPSERT 면 나오지 않아야 한다. */
+    private static final Pattern DUP_KEY = Pattern.compile(
+            "duplicate key|DuplicateKey|primary key violation|unique constraint|Unique index", Pattern.CASE_INSENSITIVE);
 
     private final ImageSourceService source;
     private final XvarmBrokerClient broker;
@@ -89,7 +102,9 @@ public class ImageCollectService {
             @Schema(hidden = true) String triggerBy,
             @Schema(hidden = true) Boolean testRun,
             /** SIM 검증 — 설정 브로커 대신 수집기 내장 Mock 브로커로 받는다(원본이 수집기 저장소에만 있다) */
-            @Schema(hidden = true) Boolean simBroker
+            @Schema(hidden = true) Boolean simBroker,
+            /** 의도적 실패(주입) — 교정번호 → 실패시킬 단계. 시험 실행({@code testRun})에서만 쓴다 */
+            @Schema(hidden = true) Map<String, ImageStage> injectFailures
     ) {}
 
     /** 한 번의 결과. */
@@ -99,7 +114,15 @@ public class ImageCollectService {
             List<Map<String, Object>> stages, List<ImageOutcome> outcomes, boolean outcomesTruncated,
             String outputRoot, String mapTable, Map<String, String> sourceTables,
             /** 실제로 받은 브로커 — 설정 모드, 또는 SIM 검증이면 수집기 내장 Mock */
-            String broker
+            String broker,
+            /** 실패 중 의도적 실패(주입) 건수 — 실제 오류는 {@code fail - injectedFail} */
+            int injectedFail,
+            /** 실패 단계별 건수(단계 순) */
+            Map<String, Integer> failByStage,
+            /** 키 중복(PK) 오류로 실패한 건수 — 멱등 UPSERT 면 늘 0 이어야 한다 */
+            int dupKeyFail,
+            /** 매핑 방식 — ON CONFLICT(PostgreSQL) 또는 행 잠금 + INSERT/UPDATE(H2) */
+            String upsertMode
     ) {}
 
     // 진행 — 화면이 폴링한다({@link #progress()})
@@ -154,7 +177,7 @@ public class ImageCollectService {
             throw new IllegalStateException("수용자 이미지 수집이 이미 돌고 있습니다 — " + execId);
         }
         try {
-            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null) : req);
+            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null, null) : req);
         } finally {
             running.set(false);
             current = null;
@@ -173,6 +196,8 @@ public class ImageCollectService {
         XvarmBrokerClient via = Boolean.TRUE.equals(req.simBroker()) ? mockBroker : broker;
         String brokerLabel = via == mockBroker && !"MOCK".equals(broker.mode())
                 ? "MOCK(SIM 검증 — 수집기 내장 · 설정 " + broker.mode() + " 는 쓰지 않음)" : via.mode();
+        // 의도적 실패(주입) — 시험 실행에서만. 실제 수집 API 로는 켤 수 없다
+        Map<String, ImageStage> inject = test && req.injectFailures() != null ? Map.copyOf(req.injectFailures()) : Map.of();
 
         execId = "IMG-" + LocalDateTime.now().format(EXEC_ID) + (test ? "-TST" : "");
         startedAt = t0;
@@ -184,9 +209,10 @@ public class ImageCollectService {
         active.set(0);
         total = 0;
         ImageMetrics m = new ImageMetrics();
-        log.info("[Image] 시작 — execId={} · 워커 {} · 브로커 {} · 조건 corrNos={} prefix={} limit={} force={}{}", execId, workers,
+        log.info("[Image] 시작 — execId={} · 워커 {} · 브로커 {} · 조건 corrNos={} prefix={} limit={} force={}{}{}", execId, workers,
                 brokerLabel, req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
-                virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "");
+                virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "",
+                inject.isEmpty() ? "" : " · 의도적 실패 주입 " + inject.size() + "건");
 
         // ── 1 · 최신 이미지 조회 ──────────────────────────────────────────
         long s = ImageMetrics.start();
@@ -231,7 +257,12 @@ public class ImageCollectService {
                         active.incrementAndGet();
                         current = t.shortId();
                         try {
-                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via));
+                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo())));
+                        } catch (Throwable e) {
+                            // processOne 은 예외를 밖으로 던지지 않는다 — 그래도 새면 이 건만 실패로 두고 다음 건을 계속한다
+                            log.error("[Image] 처리 중 예기치 못한 오류 — {} ({})", t.shortId(), e.toString(), e);
+                            return count(ImageOutcome.fail(t, ImageStage.ACQUIRE, e.getClass().getSimpleName() + ": "
+                                    + shorten(rootMessage(e)), 0L));
                         } finally {
                             active.decrementAndGet();
                         }
@@ -252,15 +283,25 @@ public class ImageCollectService {
         long ins = outcomes.stream().filter(o -> "INSERTED".equals(o.mapResult())).count();
         long upd = outcomes.stream().filter(o -> "UPDATED".equals(o.mapResult())).count();
         long stl = outcomes.stream().filter(o -> "STALE".equals(o.mapResult())).count();
+        long inj = outcomes.stream().filter(ImageOutcome::injected).count();
+        long dup = outcomes.stream().filter(o -> o.isFail() && o.errMsg() != null && DUP_KEY.matcher(o.errMsg()).find()).count();
+        Map<String, Integer> byStage = new LinkedHashMap<>();
+        for (ImageStage st : ImageStage.values()) {
+            int n = (int) outcomes.stream().filter(o -> o.isFail() && o.failedAt() == st).count();
+            if (n > 0) {
+                byStage.put(st.name(), n);
+            }
+        }
         long elapsed = System.currentTimeMillis() - t0;
-        log.info("[Image] 종료{} — execId={} · 대상 {} · 성공 {}(신규 {} · 갱신 {} · 옛 사진 {}) · 실패 {} · 건너뜀 {} · {}ms",
-                canceled ? "(중단됨)" : "", execId, outcomes.size(), ok, ins, upd, stl, ng, sk, elapsed);
+        log.info("[Image] 종료{} — execId={} · 대상 {} · 성공 {}(신규 {} · 갱신 {} · 옛 사진 {}) · 실패 {}{} · 건너뜀 {} · {}ms",
+                canceled ? "(중단됨)" : "", execId, outcomes.size(), ok, ins, upd, stl, ng,
+                inj > 0 ? "(주입 " + inj + " · 실제 " + (ng - inj) + ")" : "", sk, elapsed);
         boolean truncated = outcomes.size() > OUTCOME_LIMIT;
         return new ImageRunResult(execId, trigger, workers, outcomes.size(), (int) ok, (int) ng, (int) sk,
                 (int) ins, (int) upd, (int) stl, elapsed, canceled, m.snapshot(),
                 truncated ? List.copyOf(outcomes.subList(0, OUTCOME_LIMIT)) : outcomes, truncated,
                 store.outputRoot().toString().replace('\\', '/'), adminDb.table(AdminDb.PHOTO_TABLE), source.tables(),
-                brokerLabel);
+                brokerLabel, (int) inj, byStage, (int) dup, repo.upsertMode());
     }
 
     private ImageOutcome count(ImageOutcome o) {
@@ -273,9 +314,13 @@ public class ImageCollectService {
         return o;
     }
 
-    /** 한 건 — 받기 → (가상 지연) → 복호화 → 저장 → 매핑. 예외를 밖으로 던지지 않는다. */
+    /**
+     * 한 건 — 받기 → (가상 지연) → 복호화 → 저장 → 매핑. 예외(Error 포함)를 밖으로 던지지 않는다.
+     *
+     * @param injectAt 의도적 실패(주입) 단계 — 그 단계의 일을 한 뒤 실패시킨다(매핑은 커밋 전 롤백). 보통 null
+     */
     private ImageOutcome processOne(ImageTarget t, InmatePhotoRepository.Mapped cur, boolean force, long virtualMs,
-                                    ImageMetrics m, XvarmBrokerClient via) {
+                                    ImageMetrics m, XvarmBrokerClient via, ImageStage injectAt) {
         long t0 = System.currentTimeMillis();
         if (t.docId() == null) {
             m.error(ImageStage.FILEKEY);
@@ -308,6 +353,7 @@ public class ImageCollectService {
             });
             received = watcher.awaitFile(dir, fileNameOf(r.filePath(), t.receiveName()));
             m.add(ImageStage.ACQUIRE, s);
+            injectIf(injectAt, ImageStage.ACQUIRE);
 
             // ── 가상 처리 지연(성능 시험) ──
             if (virtualMs > 0) {
@@ -322,26 +368,35 @@ public class ImageCollectService {
             s = ImageMetrics.start();
             byte[] plain = store.decrypt(t, Files.readAllBytes(received));
             m.add(ImageStage.DECRYPT, s);
+            injectIf(injectAt, ImageStage.DECRYPT);
 
             // ── 저장 ──
             step = ImageStage.SAVE;
             s = ImageMetrics.start();
             ImageFileStore.Saved saved = store.save(t, plain);
             m.add(ImageStage.SAVE, s);
+            injectIf(injectAt, ImageStage.SAVE);   // 저장 파일은 남는다 — 재실행이 원자적으로 덮어쓴다
 
-            // ── DB 매핑 — 짧은 트랜잭션 하나 ──
+            // ── DB 매핑 — 짧은 트랜잭션 하나(UPSERT). 돌아오면 커밋·반납이 끝나 있다 ──
             step = ImageStage.MAP;
             s = ImageMetrics.start();
             String path = saved.path().toString().replace('\\', '/');
             InmatePhotoRepository.MapResult mr = repo.upsert(new InmatePhotoRepository.PhotoRow(
                     t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
-                    saved.ext(), execId));
+                    saved.ext(), execId), injectAt == ImageStage.MAP ? () -> injectIf(injectAt, ImageStage.MAP) : null);
             m.add(ImageStage.MAP, s);
             return ImageOutcome.success(t, mr.name(), path, saved.size(), saved.ext(), System.currentTimeMillis() - t0);
-        } catch (Exception e) {
+        } catch (InjectedFailureException e) {
+            m.error(step);
+            log.info("[Image] 의도적 실패(주입) [{}] — {}", step, t.shortId());
+            return ImageOutcome.injectedFail(t, step, e.getMessage(), System.currentTimeMillis() - t0);
+        } catch (Exception | Error e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             m.error(step);
             String reason = e.getClass().getSimpleName() + ": " + shorten(rootMessage(e));
-            log.warn("[Image] 처리 실패 [{}] — {} ({})", step, t.shortId(), reason);
+            log.warn("[Image] 처리 실패 [{}] — {} ({}) · 다음 건을 계속한다", step, t.shortId(), reason);
             return ImageOutcome.fail(t, step, reason, System.currentTimeMillis() - t0);
         } finally {
             // 받은 원본(암호문)은 성공·실패를 가리지 않고 지운다 — 사진은 저장소에만 남는다
@@ -352,6 +407,12 @@ public class ImageCollectService {
                     // 다음 요청 전 clearStale 이 치운다
                 }
             }
+        }
+    }
+
+    private static void injectIf(ImageStage injectAt, ImageStage here) {
+        if (injectAt == here) {
+            throw new InjectedFailureException(here);
         }
     }
 

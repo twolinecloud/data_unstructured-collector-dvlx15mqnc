@@ -37,14 +37,19 @@ import java.util.stream.Stream;
  *
  * <p>개발계 보라미 DB 에는 사진 원장({@code ir.tb_irim_bsif_ds})은 있지만 공통파일기본이 비어 있어 FILEKEY 까지
  * 이어지지 않는다(2026-09-29 확인 — 사진 있는 수용자 972명 중 공통파일 매칭 0). 그래서 음성과 같은 방식으로
- * {@code SIMIMG} 접두의 데이터를 만들었다가 지운다. 실제 수용자 행은 건드리지 않는다.</p>
+ * {@code SIMIMG} 접두의 데이터를 만든다. 실제 수용자 행은 건드리지 않는다.</p>
+ *
+ * <p><b>남겨 둔다</b> — 6번 탭의 재실행(멱등성) 검증이 같은 SIM 을 다시 처리해야 하므로, 검증이 끝나도 지우지 않는다.
+ * [초기화 후 신규 실행] 이 먼저 지우고 새로 만들며, [SIM 데이터 정리] 가 {@link #clean()} 을 부른다.
+ * 남아 있는 동안에도 실제 수집 배치는 SIM 행을 집어가지 않는다(조회가 접두로 뺀다).</p>
  *
  * <p>수용자마다 세 행을 만든다 — 사진 2장(순번 1 · 2)과 사진이 아닌 이미지 1장(구분 '2', 순번 3).
  * 파이프라인은 <b>순번 2</b>를 골라야 한다(구분이 '1' 인 것 중 최대). 순번 3 을 고르면 구분 필터가, 1 을 고르면
  * 최신 선택이 틀린 것이다 — 검증이 매핑된 순번으로 이것을 본다.</p>
  *
  * <p>더미 사진은 복호화가 REAL 이면 접견과 같은 RVS 키로 실제로 암호화해 둔다. 원문 해시를 기억해 두었다가
- * 저장된 사진과 비교한다 — 복호화가 정확했는지의 근거다.</p>
+ * 저장된 사진과 비교한다 — 복호화가 정확했는지의 근거다. 더미 원문은 교정번호로 정해지므로(같은 교정번호 → 같은
+ * 그림) 수집기가 다시 떠 해시를 잊었어도 다시 만들어 비교한다.</p>
  */
 @Log4j2
 @Service
@@ -55,7 +60,8 @@ public class ImageSimulationService {
     private static final String FILE_PREFIX = "SIMIMGF";
     private static final String DOC_PREFIX = "SIMIMGD";
     private static final String USR = "simadm";
-    public static final int MAX = 1000;
+    /** 한 번에 만드는 최대 수용자 수 — 부하 검증용(보라미 3테이블 × 3행 · 더미 파일 1개씩). */
+    public static final int MAX = 5000;
 
     private final JdbcTemplate jdbc;
     private final PlatformTransactionManager txManager;
@@ -191,11 +197,41 @@ public class ImageSimulationService {
         return m;
     }
 
-    /** 저장된 사진이 원문과 같은가 — 교정번호 → 일치 여부. 시딩하지 않은 수용자는 없다. */
+    /**
+     * 남아 있는 SIM 수용자 — 보라미 사진 원장({@code TB_IRIM_BSIF_DS})의 SIM 교정번호. 재실행 대상이다.
+     * 테이블이 아직 없으면(개발계 MOCK_DEV 첫 실행) 빈 목록.
+     */
+    public List<String> seededCorrNos() {
+        try {
+            return jdbc.queryForList("SELECT DISTINCT CORR_NO FROM " + tables.irimBsifDs() + " WHERE CORR_NO LIKE ? ORDER BY CORR_NO",
+                    String.class, PREFIX + "%");
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** 남아 있는 SIM 현황 — 수용자 수 · 매핑 행 수. 화면이 [기존 데이터로 재실행] 을 열지 정한다. */
+    public Map<String, Object> residual() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        try {
+            m.put("inmates", jdbc.queryForObject("SELECT COUNT(DISTINCT CORR_NO) FROM " + tables.irimBsifDs()
+                    + " WHERE CORR_NO LIKE ?", Long.class, PREFIX + "%"));
+        } catch (Exception e) {
+            m.put("inmates", 0L);
+        }
+        try {
+            m.put("mapped", photos.stats(PREFIX).get("sim"));
+        } catch (Exception e) {
+            m.put("mapped", null);   // Admin DB 에 매핑 테이블이 아직 없을 수 있다
+        }
+        return m;
+    }
+
+    /** 저장된 사진이 원문과 같은가 — 교정번호 → 일치 여부. SIM 이 아닌 수용자는 없다. */
     public Map<String, Boolean> verifyPlain(Map<String, String> savedPaths) {
         Map<String, Boolean> out = new LinkedHashMap<>();
         savedPaths.forEach((corr, path) -> {
-            String want = plainSha.get(corr);
+            String want = expectedSha(corr);
             if (want == null) {
                 return;
             }
@@ -206,6 +242,21 @@ public class ImageSimulationService {
             }
         });
         return out;
+    }
+
+    /** 원문 해시 — 시딩 때 기억한 값, 없으면(수집기가 다시 떴다) 교정번호로 더미 원문을 다시 만들어 잰다. */
+    private String expectedSha(String corr) {
+        String want = plainSha.get(corr);
+        if (want != null || !corr.startsWith(PREFIX)) {
+            return want;
+        }
+        try {
+            want = sha256(SampleImage.jpeg(corr));
+            plainSha.put(corr, want);
+            return want;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Object safeDelete(String table, String where) {

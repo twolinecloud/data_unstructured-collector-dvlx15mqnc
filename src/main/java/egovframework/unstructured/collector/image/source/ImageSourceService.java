@@ -4,6 +4,7 @@ import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.image.config.ImageProperties;
 import egovframework.unstructured.collector.image.model.ImageTarget;
+import egovframework.unstructured.collector.image.sim.ImageSimulationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -46,7 +47,7 @@ public class ImageSourceService {
      * 조회 조건.
      *
      * @param corrNos      이 수용자들만(비우면 전체)
-     * @param corrNoPrefix 이 접두의 수용자만 — 시뮬레이션 데이터({@code SIMIMG…})
+     * @param corrNoPrefix 이 접두의 수용자만 — 시뮬레이션 데이터({@code SIMIMG…}). 비우면 실제 수집이라 SIM 행을 뺀다
      * @param limit        최대 수용자 수(비우면 {@code image.max-per-run})
      */
     public record Selection(List<String> corrNos, String corrNoPrefix, Integer limit) {
@@ -89,6 +90,10 @@ public class ImageSourceService {
         if (prefix != null && !prefix.isBlank()) {
             sql.append(" AND B.CORR_NO LIKE :prefix");
             p.addValue("prefix", prefix + "%");
+        } else {
+            // 실제 수집 — 6번 탭이 재실행(멱등성) 검증을 위해 남겨 둔 SIM 행을 집어가지 않는다
+            sql.append(" AND B.CORR_NO NOT LIKE :simPrefix");
+            p.addValue("simPrefix", ImageSimulationService.PREFIX + "%");
         }
         if (corrNos != null) {
             sql.append(" AND B.CORR_NO IN (:corrNos)");

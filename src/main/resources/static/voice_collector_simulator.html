@@ -350,6 +350,19 @@
   .im-flow .st { border:1px solid #dee2e6; border-radius:.4rem; padding:.2rem .5rem; background:#fcfcfd; }
   .im-flow .st b { color:#495057; margin-right:.25rem; }
   .im-flow .ar { color:#adb5bd; }
+  .im-fail { min-width:11rem; }
+  .im-fail .form-range { height:1.1rem; }
+  .im-fail b { font-family:var(--mono); }
+  .im-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+  .im-actions .grp { display:inline-flex; flex-wrap:wrap; gap:.4rem; align-items:center; border:1px dashed #ced4da; border-radius:.45rem; padding:.2rem .4rem; }
+  .im-sim { font-size:.78rem; }
+  .im-note { font-size:.78rem; border:1px solid #cfe2ff; background:#f3f8ff; color:#084298; border-radius:.4rem; padding:.4rem .6rem; }
+  .im-note.ok { border-color:#badbcc; background:#f1f8f4; color:#0f5132; }
+  .im-note.ng { border-color:#f5c2c7; background:#fdf3f4; color:#842029; }
+  .im-mode { display:inline-block; font-size:.68rem; font-weight:600; border-radius:.3rem; padding:.05rem .35rem; border:1px solid #adb5bd; color:#495057; white-space:nowrap; }
+  .im-mode.NEW { border-color:#212529; color:#212529; }
+  .im-mode.RERUN { border-color:#0d6efd; color:#0d6efd; }
+  .im-inj { font-size:.65rem; border:1px solid #ffda6a; background:#fff8e1; color:#664d03; border-radius:.25rem; padding:0 .25rem; margin-right:.2rem; }
   .ok-t { color:#198754; font-weight:700; } .ng-t { color:#dc3545; font-weight:700; } .to-t { color:#fd7e14; font-weight:700; }
   .pf-table { font-size:.74rem; }
   .pf-table td, .pf-table th { white-space:nowrap; vertical-align:middle; }
@@ -946,7 +959,7 @@
   <div id="im-capture">
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>① 수용자 이미지 수집 검증 <span class="hint fw-normal">— SIM 사진 N명분을 만들어 <b>실제 이미지 파이프라인</b>으로 처리합니다. 끝나면 SIM 데이터를 지웁니다</span></strong>
+      <strong>① 수용자 이미지 수집 검증 <span class="hint fw-normal">— SIM 사진으로 <b>실제 이미지 파이프라인</b>을 돌려 부하와 <b>재실행(멱등성)</b>을 검증합니다. SIM 데이터는 재실행을 위해 남겨 둡니다</span></strong>
       <span id="im-engine" class="pf-engine">구성 확인 중…</span>
     </div>
     <div class="card-body py-2" id="im-box">
@@ -955,24 +968,47 @@
         <span class="st"><b>②</b>DOC_ID <span class="hint">TB_SMSM_CMFI_BS</span></span><span class="ar">→</span>
         <span class="st"><b>③</b>FILEKEY <span class="hint">ASYSCONTENTELEMENT</span></span><span class="ar">→</span>
         <span class="st"><b>④</b>브로커 수신 · 접견 복호화</span><span class="ar">→</span>
-        <span class="st"><b>⑤</b>저장 · DB 매핑 <span class="hint">TB_SRC_INMATE_PHOTO</span></span>
+        <span class="st"><b>⑤</b>저장 · DB 매핑 <span class="hint">TB_SRC_INMATE_PHOTO · UPSERT</span></span>
       </div>
       <div class="row g-2 align-items-end mb-2">
-        <div class="col-4 col-md-2"><label class="hint" for="im-count">이미지 수집 건수</label>
-          <input type="number" class="form-control form-control-sm" id="im-count" value="50" min="1" max="1000" step="1"></div>
-        <div class="col-4 col-md-2"><label class="hint" for="im-workers">이미지 워커 (동시성)</label>
+        <div class="col-4 col-md-2"><label class="hint" for="im-count">이미지 수집 건수 <span class="text-secondary">(1~5,000)</span></label>
+          <input type="number" class="form-control form-control-sm" id="im-count" value="50" min="1" max="5000" step="1"></div>
+        <div class="col-4 col-md-2"><label class="hint" for="im-workers">이미지 워커 (동시성 1~64)</label>
           <input type="number" class="form-control form-control-sm" id="im-workers" value="4" min="1" max="64" step="1"></div>
-        <div class="col-4 col-md-3"><label class="hint" for="im-latency">가상 이미지 처리 지연 (ms)</label>
+        <div class="col-4 col-md-2"><label class="hint" for="im-latency">가상 처리 지연 (ms)</label>
           <input type="number" class="form-control form-control-sm" id="im-latency" value="200" min="0" max="60000" step="50"></div>
-        <div class="col-12 col-md-5"><div class="pf-help" id="im-est"></div></div>
+        <div class="col-7 col-md-3 im-fail"><label class="hint" for="im-fail">의도적 실패 발생률 <b id="im-fail-v">0%</b></label>
+          <input type="range" class="form-range" id="im-fail" min="0" max="100" step="1" value="0"
+                 title="대상 건수 × 비율(반올림)만큼 정확히 골라 실패시킵니다 — 실제 오류와 나눠 셉니다"></div>
+        <div class="col-5 col-md-3"><label class="hint" for="im-fail-stage">실패 지점</label>
+          <select class="form-select form-select-sm" id="im-fail-stage" title="그 단계의 일을 한 뒤 실패시킵니다. DB 매핑은 UPSERT 뒤 커밋 전에 실패 → 롤백">
+            <option value="RANDOM">무작위 (수신·복호화·저장·매핑에 고르게)</option>
+            <option value="ACQUIRE">수신 (브로커)</option>
+            <option value="DECRYPT">복호화</option>
+            <option value="SAVE">저장 (파일은 남음 → 재실행이 덮어씀)</option>
+            <option value="MAP">DB 매핑 (커밋 전 롤백)</option>
+          </select></div>
       </div>
+      <div class="row mb-2"><div class="col-12"><div class="pf-help" id="im-est"></div></div></div>
       <div class="row mb-2"><div class="col-12 pf-help">건수만큼 수용자를 만들고 수용자마다 사진 2장(순번 1·2)과 사진이 아닌 이미지 1장(구분 2)을 둡니다 —
         파이프라인이 <b>순번 2</b>를 골라야 정합성이 맞습니다. 더미 사진은 접견과 같은 RVS 키로 암호화되어 있고, 저장된 사진을 원문 해시와 대조해 복호화가 정확했는지 봅니다.
-        가상 지연은 건마다 <b>실제로</b> 기다립니다(워커가 나눠 기다립니다).</div></div>
-      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-        <button class="btn btn-dark fw-semibold px-3" id="im-start">수용자 이미지 수집 검증 시작</button>
-        <button class="btn btn-outline-danger d-none" id="im-cancel" title="처리 중인 건만 끝내고 멈춥니다. SIM 데이터는 지웁니다">중지</button>
+        가상 지연은 건마다 <b>실제로</b> 기다립니다(워커가 나눠 기다립니다). 매핑은 수용자당 한 행 UPSERT 라 몇 번 다시 돌려도 키 중복 오류가 나지 않아야 합니다.</div></div>
+      <div class="im-actions mb-2">
+        <button class="btn btn-dark fw-semibold px-3" id="im-start" title="남아 있는 SIM 을 지우고 건수만큼 새로 만든 뒤 처리합니다">초기화 후 신규 실행</button>
+        <span class="grp">
+          <button class="btn btn-outline-primary fw-semibold" id="im-rerun" disabled title="남아 있는 SIM 을 그대로 다시 처리합니다 — 건수 입력은 쓰지 않습니다">기존 데이터로 재실행 (멱등성)</button>
+          <select class="form-select form-select-sm w-auto" id="im-scope" title="운영 배치는 '실패·누락분만'(변경 없는 건 건너뜀)과 같습니다">
+            <option value="ALL">전체 덮어쓰기 (UPSERT)</option>
+            <option value="MISSING">실패·누락분만 (변경 없는 건 건너뜀)</option>
+          </select>
+          <label class="small text-nowrap"><input type="checkbox" class="form-check-input me-1" id="im-rerun-fail">재실행에도 실패 주입</label>
+        </span>
+        <button class="btn btn-sm btn-outline-danger" id="im-clean" disabled title="SIMIMG… 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진을 지웁니다">SIM 데이터 정리</button>
+        <button class="btn btn-outline-danger d-none" id="im-cancel" title="처리 중인 건만 끝내고 멈춥니다. SIM 데이터는 남겨 둡니다">중지</button>
       </div>
+      <div class="im-sim mb-1" id="im-sim"></div>
+      <div class="hint mb-1">멱등성 시나리오 — ① 실패 발생률 10% 로 [초기화 후 신규 실행] → 90% 성공 · 10% 실패
+        ② [기존 데이터로 재실행] (전체 덮어쓰기 · 실패 주입 끔) → 실패했던 10% 는 신규 INSERT, 성공했던 90% 는 PK 중복 없이 UPSERT → 최종 100% 매핑.</div>
       <div class="pf-warn mb-1" id="im-warn">대상 DB 확인 중…</div>
       <div class="hint" id="im-modes"></div>
       <div id="iprog-wrap" class="prog-wrap mt-2 d-none">
@@ -994,7 +1030,7 @@
       <span class="small text-secondary font-monospace" id="im-last">—</span>
     </div>
     <div class="card-body py-2" id="im-report">
-      <div class="hint">아직 실행한 회차가 없습니다. ① 에서 [수용자 이미지 수집 검증 시작] 을 누르면 TPS · 평균 복호화 소요 · DB 매핑 처리시간 · 단계별 시간 · 정합성이 여기에 나옵니다.</div>
+      <div class="hint">아직 실행한 회차가 없습니다. ① 에서 [초기화 후 신규 실행] 을 누르면 TPS · 단계별 시간 · 신규 INSERT / UPSERT / 실패 · 커넥션 풀 · 정합성이 여기에 나옵니다.</div>
     </div>
   </div>
   </div><!-- /#im-capture -->
@@ -1008,9 +1044,9 @@
       <div class="table-responsive" style="max-height:320px">
         <table class="table table-sm table-hover mb-0 pf-table">
           <thead class="table-light sticky-top">
-            <tr><th>시각</th><th class="text-end">건수</th><th class="text-end">워커</th><th class="text-end">가상 지연</th>
-                <th class="text-end">총 소요</th><th>TPS</th><th class="text-end">평균 복호화</th><th class="text-end">평균 DB 매핑</th>
-                <th>성공 / 실패</th><th class="text-end">Hikari</th><th>정합성</th><th>EXEC_ID</th></tr>
+            <tr><th>시각</th><th>구분</th><th class="text-end">건수</th><th class="text-end">워커</th><th class="text-end">가상 지연</th>
+                <th class="text-end">실패율</th><th class="text-end">총 소요</th><th>TPS</th><th class="text-end">평균 복호화</th><th class="text-end">평균 DB 매핑</th>
+                <th>신규 / UPSERT / 실패</th><th class="text-end">풀 최고</th><th>정합성</th><th>EXEC_ID</th></tr>
           </thead>
           <tbody id="im-hist"></tbody>
         </table>
@@ -3660,8 +3696,9 @@ async function captureArea(areaId, fileName, title, sub, btn) {
 }
 
 // ── 6번 탭 — 수용자 이미지 수집 검증 ──────────────────────────────────────────
-//   서버: POST /api/v1/mock/image/perf/runs · GET …/current · POST …/cancel · GET/DELETE …/runs · GET /api/v1/image/status
-//   이관 전 서버(voice-collector)에는 이 API 가 없다 — 그때는 조용히 '이미지 API 없음' 을 보인다.
+//   서버: POST /api/v1/mock/image/perf/runs(mode NEW · RERUN) · GET …/current · POST …/cancel · GET/DELETE …/runs
+//         · DELETE /api/v1/mock/image/sim(SIM 정리) · GET /api/v1/image/status(sim = 남아 있는 SIM)
+//   이관 전 서버(voice-collector)에는 이 API 가 없다 — 그때는 '이미지 API 없음' 을 보이고 버튼을 막는다.
 let IM_HIST = [];
 let IM_TIMER = null;
 let IM_SEEN = '';
@@ -3669,29 +3706,52 @@ let IM_SHOWN = null;
 let IM_STATUS = null;
 let IM_FINISHING = false;
 
+const IM_STAGE = { QUERY: '조회', FILEKEY: 'FILEKEY', ACQUIRE: '수신', VIRTUAL: '가상 지연', DECRYPT: '복호화', SAVE: '저장', MAP: 'DB 매핑' };
+const IM_FAIL_STAGE = { RANDOM: '무작위(고르게)', ACQUIRE: '수신', DECRYPT: '복호화', SAVE: '저장', MAP: 'DB 매핑(롤백)' };
+const IM_NO_API = '이 서버에는 수용자 이미지 API 가 없습니다 — unstructured-collector 로 전환된 뒤에 쓸 수 있습니다';
+
 function imRequest() {
-  return { count: pfNum('im-count'), workers: pfNum('im-workers'), latencyMs: pfNum('im-latency') ?? 0 };
+  return { count: pfNum('im-count'), workers: pfNum('im-workers'), latencyMs: pfNum('im-latency') ?? 0,
+           failRatePct: Number($('im-fail').value) || 0, failStage: $('im-fail-stage').value };
+}
+
+/** 의도적 실패 지점 설명 — 확인 팝업용. */
+function imWhere(stage) {
+  return stage === 'RANDOM' ? '수신 · 복호화 · 저장 · DB 매핑 단계에 고르게 나눠' : `${IM_FAIL_STAGE[stage] || stage} 단계에서`;
+}
+
+/** 남아 있는 SIM — 상태 API 의 sim(수용자 수 · 매핑 행 수). */
+function imSim() { return IM_STATUS?.sim || { inmates: 0, mapped: 0 }; }
+
+function imFailSync() {
+  const v = Number($('im-fail').value) || 0;
+  $('im-fail-v').textContent = v + '%';
+  if (!IM_TIMER) $('im-fail-stage').disabled = v === 0;
+  imEstimate();
 }
 
 function imEstimate() {
   const q = imRequest();
   if (!q.count || !q.workers) { $('im-est').textContent = ''; return; }
   const sec = q.count * (q.latencyMs || 0) / Math.max(1, q.workers) / 1000;
-  $('im-est').textContent = `예상 — 가상 지연만 약 ${fmtSec(sec)} (${q.count}건 × ${q.latencyMs || 0}ms ÷ 워커 ${q.workers})`
-    + ' · 브로커 수신 · 복호화 · 저장 · 매핑 시간은 별도(준비·정리 제외)';
+  const k = Math.round(q.count * q.failRatePct / 100);
+  $('im-est').textContent = `예상(신규 실행) — 가상 지연만 약 ${fmtSec(sec)} (${q.count}건 × ${q.latencyMs || 0}ms ÷ 워커 ${q.workers})`
+    + (k ? ` · 의도적 실패 ${k}건 (${q.failRatePct}% · ${IM_FAIL_STAGE[q.failStage]})` : '')
+    + ' · 수신 · 복호화 · 저장 · 매핑 시간은 별도(준비 제외)';
 }
 
 async function imLoadStatus() {
   const s = await quietGet('/api/v1/image/status');
   IM_STATUS = s;
   const e = $('im-engine');
-  imStartAvailable(!!s);
+  imButtons();
   if (!s) {
     e.className = 'pf-engine';
     e.textContent = '이미지 API 없음';
     $('im-warn').innerHTML = '⚠ 이 서버에는 수용자 이미지 API 가 없습니다 — admin-fe 의 <code>/voice/</code> 가 아직 이관 전 서버(voice-collector)를 보고 있습니다.'
       + ' unstructured-collector 로 전환된 뒤에 쓸 수 있습니다(<code>docs/배포_전환_가이드_0929.md</code> 3절).';
     $('im-modes').textContent = '';
+    $('im-sim').textContent = '';
     return;
   }
   const a = s.admin || {};
@@ -3701,49 +3761,130 @@ async function imLoadStatus() {
   $('im-warn').innerHTML = (a.connected && !a.photoTable
       ? `⚠ Admin DB 에 <code>${esc(s.mapTable)}</code> 가 없습니다 — DDL(<code>db/admin/V1__tb_src_inmate_photo.sql</code>)을 먼저 적용하십시오. 적용 전에는 'DB 매핑' 단계가 실패합니다. `
       : !a.connected ? `⚠ Admin DB 에 붙지 못했습니다 — ${esc(a.error || '')}. 'DB 매핑' 단계가 실패합니다. ` : '')
-    + `원천 ${esc(s.source)} 에 SIM 사진(SIMIMG…)을 만들었다가 끝나면 <b>자동으로 지웁니다</b>. 실제 수용자 행은 손대지 않습니다.`
+    + `원천 ${esc(s.source)} 에 SIM 사진(SIMIMG…)을 만들고, 재실행(멱등성) 검증을 위해 <b>끝나도 남겨 둡니다</b> — [SIM 데이터 정리] 로 지웁니다.`
+    + ' 남아 있어도 실제 수집 배치는 SIM 행을 집어가지 않습니다. 실제 수용자 행은 손대지 않습니다.'
     + (sharedDb() ? ' 공용 DB 이므로 다른 작업자와 시간이 겹치지 않게 하십시오.' : '');
   const t = s.tables || {};
   $('im-modes').textContent = `지금 구성 — 조회 ${t.image || ''} → ${t.cmfi || ''} → ${t.xvarm || ''} · 브로커 ${s.broker} · 복호화 ${s.decrypt}`
-    + ` · 저장소 ${s.outputRoot} · 매핑 ${s.mapTable} (${a.h2 ? '로컬 H2' : esc(a.product || '')})`
+    + ` · 저장소 ${s.outputRoot} · 매핑 ${s.mapTable} (${a.h2 ? '로컬 H2' : (a.product || '')}) · 매핑 방식 ${s.upsertMode || ''}`
     + (a.mapping ? ` · 매핑 ${a.mapping.total}행` : '') + ` · PHOTO_REF 동시 갱신 ${s.updatePhotoRef ? '켬' : '끔'}`
     + (s.broker !== 'MOCK' ? ` · 이 검증의 받기는 수집기 내장 Mock 브로커(SIM 원본이 수집기 저장소에만 있다 — 설정 브로커 ${s.broker} 는 실제 수집 API 가 쓴다)` : '');
+  imSimLine();
 }
 
-/** 이미지 API 가 없는 서버(이관 전)면 시작 버튼을 막는다 — 눌러 봐야 404 다. */
-function imStartAvailable(ok) {
-  const b = $('im-start');
+function imSimLine() {
+  const m = imSim();
+  const n = Number(m.inmates) || 0;
+  const mapped = Number(m.mapped) || 0;
+  $('im-sim').innerHTML = n
+    ? `남아 있는 SIM — 수용자 <b>${n}</b>명 · 매핑 <b>${m.mapped ?? '?'}</b>행${n > mapped ? ` · 미매핑 <b class="ng-t">${n - mapped}</b>명` : ' · <span class="ok-t">전건 매핑</span>'}`
+      + ' → [기존 데이터로 재실행] 대상'
+    : '<span class="text-secondary">남아 있는 SIM 없음 — [초기화 후 신규 실행] 으로 만듭니다</span>';
+}
+
+/** 버튼 — 이미지 API 가 없으면(이관 전) 모두 막고, 남은 SIM 이 없으면 재실행·정리를 막는다. */
+function imButtons() {
   if (IM_TIMER) return;
-  b.disabled = !ok;
-  b.title = ok ? '' : '이 서버에는 수용자 이미지 API 가 없습니다 — unstructured-collector 로 전환된 뒤에 쓸 수 있습니다';
+  const ok = !!IM_STATUS;
+  const has = (Number(imSim().inmates) || 0) > 0;
+  $('im-start').disabled = !ok;
+  $('im-start').title = ok ? '남아 있는 SIM 을 지우고 건수만큼 새로 만든 뒤 처리합니다' : IM_NO_API;
+  $('im-rerun').disabled = !ok || !has;
+  $('im-rerun').title = !ok ? IM_NO_API : has ? '남아 있는 SIM 을 그대로 다시 처리합니다 — 건수 입력은 쓰지 않습니다'
+    : '남아 있는 SIM 이 없습니다 — [초기화 후 신규 실행] 을 먼저 하십시오';
+  $('im-clean').disabled = !ok || !has;
 }
 
-async function imStart() {
-  const q = imRequest();
+/** 이미지 API 가 있는가 — 없으면 404 대신 이유를 보인다. */
+async function imReady() {
   if (!IM_STATUS) await imLoadStatus();
-  if (!IM_STATUS) {
-    showPopup('수용자 이미지 수집 검증을 시작할 수 없습니다', `<div class="pop-lead">이 서버에는 수용자 이미지 API 가 없습니다.</div>
-      <div class="hint mt-2">admin-fe 의 <code>/voice/</code> 가 아직 이관 전 서버(voice-collector)를 보고 있습니다. unstructured-collector 로 전환된 뒤에 쓸 수 있습니다.</div>`);
+  if (IM_STATUS) return true;
+  showPopup('수용자 이미지 수집 검증을 시작할 수 없습니다', `<div class="pop-lead">이 서버에는 수용자 이미지 API 가 없습니다.</div>
+    <div class="hint mt-2">admin-fe 의 <code>/voice/</code> 가 아직 이관 전 서버(voice-collector)를 보고 있습니다. unstructured-collector 로 전환된 뒤에 쓸 수 있습니다.</div>`);
+  return false;
+}
+
+function imBrokerNote(s) {
+  return `수신(수집기 내장 Mock 브로커${s.broker && s.broker !== 'MOCK' ? ` — 설정 ${esc(s.broker)} 는 SIM 원본을 못 읽어 쓰지 않음` : ''})`;
+}
+
+/** [초기화 후 신규 실행] */
+async function imStart() {
+  if (!await imReady()) return;
+  const q = imRequest();
+  const s = IM_STATUS;
+  const k = Math.round((q.count || 0) * q.failRatePct / 100);
+  const left = Number(imSim().inmates) || 0;
+  const ok = await confirmPopup('초기화 후 신규 실행', `
+    <div class="pop-lead">SIM 사진 ${q.count}명분 · 워커 ${q.workers}개 · 건당 가상 지연 ${fmtMs(q.latencyMs || 0)}${k ? ` · 의도적 실패 ${k}건` : ''}</div>
+    <ul class="pop-list">
+      <li><span class="lbl">초기화:</span> ${left ? `남아 있는 SIM ${left}명(매핑·저장 사진 포함)을 지우고 ` : ''}보라미 3테이블 SIM 행 + 암호화된 더미 사진 생성 · ${esc(s.source || '')}</li>
+      <li><span class="lbl">측정:</span> 조회 → FILEKEY 추출 → ${imBrokerNote(s)} → 복호화(${esc(s.decrypt || '?')}) → 저장 → DB 매핑(UPSERT)</li>
+      ${k ? `<li><span class="lbl">의도적 실패:</span> ${k}건(${q.failRatePct}%)을 무작위로 골라 ${esc(imWhere(q.failStage))} 실패 — 실제 오류와 나눠 셉니다${q.failStage === 'MAP' || q.failStage === 'RANDOM' ? ' · DB 매핑 실패는 커밋 전 롤백' : ''}</li>` : ''}
+      <li><span class="lbl">검증:</span> 기대값(신규 · 실패 · 최종 매핑) 대조 · 롤백 · 최신 순번(2) · 원문 해시 · PK 중복 0 · 커넥션 풀 반납</li>
+      <li><span class="lbl">끝나면:</span> SIM 데이터를 남겨 둡니다 — 이어서 [기존 데이터로 재실행] 으로 복구(멱등성)를 검증할 수 있습니다</li>
+    </ul>
+    ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '실행', '취소');
+  if (!ok) return;
+  await imPost(Object.assign({ mode: 'NEW' }, q), `초기화 후 신규 실행 — ${q.count}건 · 워커 ${q.workers}${k ? ` · 의도적 실패 ${k}건` : ''}`);
+}
+
+/** [기존 데이터로 재실행 (멱등성)] */
+async function imRerun() {
+  if (!await imReady()) return;
+  await imLoadStatus();
+  const m = imSim();
+  const n = Number(m.inmates) || 0;
+  if (!n) {
+    showPopup('재실행할 SIM 데이터가 없습니다', '<div class="pop-lead">[초기화 후 신규 실행] 을 먼저 하십시오.</div>');
     return;
   }
-  const s = IM_STATUS || {};
-  const ok = await confirmPopup('수용자 이미지 수집 검증 시작', `
-    <div class="pop-lead">SIM 사진 ${q.count}명분 · 워커 ${q.workers}개 · 건당 가상 지연 ${fmtMs(q.latencyMs || 0)}</div>
+  const q = imRequest();
+  const scope = $('im-scope').value;
+  const rate = $('im-rerun-fail').checked ? q.failRatePct : 0;
+  const mapped = Number(m.mapped) || 0;
+  const miss = Math.max(0, n - mapped);
+  const k = Math.round((scope === 'ALL' ? n : miss) * rate / 100);
+  const ok = await confirmPopup('기존 데이터로 재실행 (멱등성)', `
+    <div class="pop-lead">남아 있는 SIM ${n}명 · 매핑 ${mapped}행 · 워커 ${q.workers}개 · ${scope === 'ALL' ? '전체 덮어쓰기(UPSERT)' : '실패·누락분만'}</div>
     <ul class="pop-list">
-      <li><span class="lbl">준비:</span> 보라미 3테이블 SIM 행 + 암호화된 더미 사진 생성 · ${esc(s.source || '')}</li>
-      <li><span class="lbl">측정:</span> 조회 → FILEKEY 추출 → 수신(수집기 내장 Mock 브로커${s.broker && s.broker !== 'MOCK' ? ` — 설정 ${esc(s.broker)} 는 SIM 원본을 못 읽어 쓰지 않음` : ''}) → 복호화(${esc(s.decrypt || '?')}) → 저장 → DB 매핑</li>
-      <li><span class="lbl">검증:</span> 매핑 행 수 = 성공 수 · 최신 순번(2) 선택 · 원문 해시 일치 · Hikari 반납</li>
-      <li><span class="lbl">끝나면:</span> SIM 행 · 매핑 · 더미 · 저장 사진 자동 삭제</li>
-    </ul>
-    ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '시작', '취소');
+      ${scope === 'ALL'
+        ? `<li><span class="lbl">기대:</span> 매핑 없는 ${miss}명 → 신규 INSERT · 매핑된 ${mapped}명 → 키 중복 없이 UPSERT(덮어쓰기)</li>`
+        : `<li><span class="lbl">기대:</span> 매핑 없는 ${miss}명만 처리 → 신규 INSERT · 매핑된 ${mapped}명 → 변경 없음으로 건너뜀(운영 배치와 같다)</li>`}
+      <li><span class="lbl">의도적 실패:</span> ${k ? `${k}건 (${rate}%) — ${esc(imWhere(q.failStage))} 실패` : '없음 — 최종 100% 매핑을 기대합니다'}</li>
+      <li><span class="lbl">측정:</span> ${imBrokerNote(IM_STATUS)} → 복호화 → 저장(원자적 덮어쓰기) → DB 매핑(UPSERT)</li>
+      <li><span class="lbl">검증:</span> 실행 전 매핑 스냅샷으로 계산한 기대값 대조 · PK 중복 오류 0 · 최종 매핑 · 원문 해시 · 커넥션 풀 반납</li>
+    </ul>`, '재실행', '취소');
   if (!ok) return;
-  const info = await callFull('POST', '/api/v1/mock/image/perf/runs', `수용자 이미지 수집 검증 시작 — ${q.count}건 · 워커 ${q.workers}`, { json: q });
+  await imPost({ mode: 'RERUN', workers: q.workers, latencyMs: q.latencyMs, rerunScope: scope, failRatePct: rate, failStage: q.failStage },
+    `기존 데이터로 재실행 — ${n}명 · ${scope === 'ALL' ? '전체 덮어쓰기' : '실패·누락분만'}${k ? ` · 의도적 실패 ${k}건` : ''}`);
+}
+
+async function imPost(body, label) {
+  const info = await callFull('POST', '/api/v1/mock/image/perf/runs', label, { json: body });
   if (!info.ok) {
     showPopup('수용자 이미지 수집 검증을 시작하지 못했습니다',
       `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
     return;
   }
   imWatch();
+}
+
+/** [SIM 데이터 정리] */
+async function imClean() {
+  if (!await imReady()) return;
+  const m = imSim();
+  const ok = await confirmPopup('SIM 데이터 정리', `<div class="pop-lead">남아 있는 SIM 수용자 ${m.inmates}명 · 매핑 ${m.mapped ?? '?'}행을 지웁니다.</div>
+    <div class="hint mt-2">보라미 3테이블의 SIMIMG… 행 · Admin 매핑 · 더미 원본 · 저장 사진. 실제 수용자 행은 손대지 않습니다.
+      지우면 [기존 데이터로 재실행] 은 다음 신규 실행 뒤에 쓸 수 있습니다.</div>`, '지우기', '취소');
+  if (!ok) return;
+  const d = await call('DELETE', '/api/v1/mock/image/sim', 'SIM 데이터 정리');
+  if (d) {
+    const c = d.counts || {};
+    log(`  └ SIM 정리 — 이미지 ${c.imageRows ?? 0}행 · 공통파일 ${c.cmfiRows ?? 0}행 · XVARM ${c.xvarmRows ?? 0}행 · 매핑 ${c.photoRows ?? 0}행`
+      + ` · 더미 ${c.originalFiles ?? 0}개 · 저장 사진 ${c.savedFiles ?? 0}개`, 'ok');
+  }
+  await imLoadStatus();
 }
 
 async function imCancel() {
@@ -3756,14 +3897,15 @@ async function imCancel() {
 }
 
 function imLock(on) {
-  document.querySelectorAll('#im-box input').forEach(el => el.disabled = on);
+  document.querySelectorAll('#im-box input, #im-box select').forEach(el => el.disabled = on);
   const b = $('im-start');
-  b.disabled = on || !IM_STATUS;
   b.innerHTML = on ? '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>실행 중…'
-    : '수용자 이미지 수집 검증 시작';
+    : '초기화 후 신규 실행';
+  if (on) ['im-start', 'im-rerun', 'im-clean'].forEach(id => { $(id).disabled = true; });
   const c = $('im-cancel');
   c.classList.toggle('d-none', !on);
   if (on) { c.disabled = false; c.textContent = '중지'; }
+  if (!on) { imButtons(); imFailSync(); }
 }
 
 function imWatch() {
@@ -3793,8 +3935,13 @@ function imWatch() {
       await imFinish(c);
     }
   };
-  tick();
   IM_TIMER = setInterval(tick, 1000);
+  tick();
+}
+
+function imModeLabel(r) {
+  if (r.mode === 'RERUN') return `재실행 · ${r.rerunScopeLabel || ''}`;
+  return r.mode === 'NEW' ? '신규 실행' : '검증';
 }
 
 async function imFinish(c) {
@@ -3804,54 +3951,84 @@ async function imFinish(c) {
   if (r) {
     imRenderReport(r);
     const k = r.checks || {};
-    log(`✔ 수용자 이미지 수집 검증 완료 — ${r.count}건 · 워커 ${r.workers} · ${fmtSec(r.totalSec)} · ${fmtTps(r.tps)} TPS`
-      + ` · 평균 복호화 ${fmtMs(r.decryptAvgMs)} · 평균 DB 매핑 ${fmtMs(r.mapAvgMs)} · 성공 ${r.success} / 실패 ${r.fail}`, 'ok');
-    showPopup('수용자 이미지 수집 검증 완료', `<div class="pop-lead">${r.count}건 · 워커 ${r.workers}개 · 가상 지연 ${fmtMs(r.latencyMs)}</div>
+    const cov = r.coverage || {};
+    const inj = r.injectedFail ?? 0;
+    const real = r.realFail ?? ((r.fail || 0) - inj);
+    log(`✔ 수용자 이미지 ${imModeLabel(r)} 완료 — ${r.count}건 · 워커 ${r.workers} · ${fmtSec(r.totalSec)} · ${fmtTps(r.tps)} TPS`
+      + ` · 신규 ${r.inserted ?? 0} · UPSERT ${r.updated ?? 0} · 건너뜀 ${r.skipped ?? 0} · 실패 ${r.fail ?? 0}${inj ? `(의도적 ${inj} · 실제 ${real})` : ''}`
+      + ` · 최종 매핑 ${cov.mapped ?? '?'}/${cov.total ?? '?'} · 정합성 ${k.ok ? '✓' : '✗'}`, k.ok ? 'ok' : 'wr');
+    const next = r.mode === 'NEW' && (r.fail || 0) > 0
+      ? `<div class="im-note mt-2">다음 — [기존 데이터로 재실행] (전체 덮어쓰기 · 실패 주입 끔) 을 누르면 실패한 ${r.fail}건은 신규 INSERT, 성공한 ${r.success}건은 UPSERT 로 처리되어 100% 로 복구되는지 봅니다.</div>`
+      : '';
+    const rec = r.mode === 'RERUN' && r.expected
+      ? `<li><span class="lbl">재처리:</span> 실행 전 매핑 ${r.expected.beforeMapped}명 · 미매핑 ${r.expected.beforeUnmapped}명 → 신규 ${r.inserted} · UPSERT ${r.updated}${r.skipped ? ` · 건너뜀 ${r.skipped}` : ''} · PK 중복 오류 ${r.dupKeyFail ?? 0}</li>` : '';
+    showPopup(`수용자 이미지 ${imModeLabel(r)} 완료`, `<div class="pop-lead">${r.count}건 · 워커 ${r.workers}개 · 가상 지연 ${fmtMs(r.latencyMs)}${r.failRatePct ? ` · 실패율 ${r.failRatePct}%` : ''}</div>
       <ul class="pop-list">
         <li><span class="lbl">처리량:</span> <span class="n">${fmtTps(r.tps)}</span> TPS · 총 ${fmtSec(r.totalSec)}</li>
-        <li><span class="lbl">복호화 · 매핑:</span> 평균 복호화 ${fmtMs(r.decryptAvgMs)} · 평균 DB 매핑 ${fmtMs(r.mapAvgMs)}</li>
-        <li><span class="lbl">결과:</span> 성공 <span class="ok-t">${r.success}</span> · 실패 <span class="ng-t">${r.fail}</span> · 건너뜀 ${r.skipped}</li>
-        <li><span class="lbl">정합성:</span> ${k.available === false ? '<span class="vf-b x">확인 불가</span>' : k.ok ? '<span class="vf-b SUCCESS">정합성 ✓</span>' : '<span class="vf-b FAIL">정합성 ✗</span>'}</li>
-      </ul>
+        <li><span class="lbl">처리 결과:</span> 신규 INSERT <span class="ok-t">${r.inserted ?? 0}</span> · UPSERT ${r.updated ?? 0} · 건너뜀 ${r.skipped ?? 0}
+          · 실패 <span class="ng-t">${r.fail ?? 0}</span>${inj ? ` (의도적 ${inj} · 실제 오류 ${real})` : ''}</li>
+        ${rec}
+        <li><span class="lbl">최종 매핑:</span> ${cov.mapped ?? '?'} / ${cov.total ?? '?'} (${cov.pct ?? '?'}%)</li>
+        <li><span class="lbl">커넥션 풀:</span> ${hikariAfter(r.hikari || {})?.returned ? '<span class="ok-t">반납 완료</span>' : '<span class="ng-t">반납 안 됨</span>'}</li>
+        <li><span class="lbl">정합성:</span> ${k.available === false ? '<span class="vf-b x">확인 불가</span>' : k.ok ? '<span class="vf-b SUCCESS">기대값 일치 ✓</span>' : '<span class="vf-b FAIL">불일치 ✗</span>'}</li>
+      </ul>${next}
       <div class="sub mt-2">② 결과 리포트 · ③ 실행 이력에 남았습니다. [📸 전체 리포트 저장] 으로 ①·② 를 한 장의 이미지로 남길 수 있습니다.</div>`);
   } else {
     log(`✖ 수용자 이미지 수집 검증 실패 — ${c.error || c.message}`, 'er');
     showPopup('수용자 이미지 수집 검증 실패', `<div class="pop-lead">${esc(c.error || c.message || '')}</div>
-      <div class="hint mt-2">SIM 데이터 정리는 시도했습니다. 남아 있으면 Swagger 의 <code>DELETE /api/v1/mock/image/sim</code> 으로 지우십시오.</div>`);
+      <div class="hint mt-2">SIM 데이터는 남아 있습니다 — [SIM 데이터 정리] 로 지우거나 [기존 데이터로 재실행] 으로 다시 돌릴 수 있습니다.</div>`);
   }
 }
 
 function imRenderReport(r) {
   if (!r) return;
   IM_SHOWN = r;
-  $('im-last').textContent = `${r.runId} · EXEC_ID ${r.execId || '—'}`;
+  $('im-last').textContent = `${imModeLabel(r)} · ${r.runId} · EXEC_ID ${r.execId || '—'}`;
   const tile = (key, n, sub) => `<div class="pf-tile"><div class="k">${key}</div><div class="n">${n}</div>${sub
     ? `<div class="s" title="${esc(String(sub).replace(/<[^>]+>/g, ''))}">${sub}</div>` : ''}</div>`;
   const k = r.hikari || {};
   const h = hikariAfter(k);
   const env = r.env || {};
+  const inj = r.injectedFail ?? 0;
+  const real = r.realFail ?? ((r.fail || 0) - inj);
+  const cov = r.coverage;
+  const pools = k.pools || [];
+  const admin = pools.find(p => p.pool === 'admin-db');
+  const poolSub = (admin ? `대기 최대 ${admin.waitingPeak} · 최대 대기 ${fmtMs(admin.maxWaitMs)} · ` : '')
+    + (h ? (h.returned ? '<span class="ok-t">✓ 반납 완료</span>' : `<span class="ng-t">⚠ 사용 ${h.active} — 반납 안 됨</span>`) : esc(k.pool || ''));
   const tiles = [
+    // 1행 — 성능
     tile('총 소요 시간', esc(fmtSec(r.totalSec)), `준비 ${r.prepareSec}초 제외 · 가상 지연 포함`),
     tile('TPS', fmtTps(r.tps), '처리 건수 ÷ 총 소요'),
+    tile('평균 수신', esc(fmtMs(r.acquireAvgMs)), '수집기 내장 Mock 브로커'),
     tile('평균 복호화 소요', esc(fmtMs(r.decryptAvgMs)), `접견과 같은 RVS 복호화 · ${esc(env.decrypt || '')}`),
-    tile('평균 DB 매핑 처리', esc(fmtMs(r.mapAvgMs)), 'Admin DB · 행 잠금 + UPSERT 한 트랜잭션'),
-    tile('전체 / 성공 / 실패', `${r.total} / <span class="ok-t">${r.success}</span> / <span class="ng-t">${r.fail}</span>`,
-      `신규 ${r.inserted ?? 0} · 갱신 ${r.updated ?? 0}${r.skipped ? ' · 건너뜀 ' + r.skipped : ''}`),
-    tile('Hikari Peak 연결', `${k.peak ?? 0}`, h
-      ? (h.returned ? `종료 후 사용 0 · 유휴 ${h.idle} <span class="ok-t">✓ 반납</span>` : `<span class="ng-t">⚠ 종료 후 사용 ${h.active} — 반납 안 됨</span>`)
-      : esc(k.pool || '')),
+    tile('평균 DB 매핑 처리', esc(fmtMs(r.mapAvgMs)), 'UPSERT 한 트랜잭션 · 커밋 즉시 반납'),
+    tile(admin ? '커넥션 풀 (admin-db)' : 'Hikari Peak 연결', admin ? `${admin.peak} / ${admin.max}` : `${k.peak ?? 0}`, poolSub),
+    // 2행 — 처리 결과
+    tile('대상 / 성공', `${r.total} / <span class="ok-t">${r.success}</span>`, imModeLabel(r)),
+    tile('신규 INSERT', `<span class="ok-t">${r.inserted ?? 0}</span>`, r.expected ? `기대 ${r.expected.inserted}` : ''),
+    tile('UPSERT (덮어쓰기)', `${r.updated ?? 0}`, (r.expected ? `기대 ${r.expected.updated} · ` : '') + `PK 중복 오류 ${r.dupKeyFail ?? 0}`
+      + (r.stale ? ` · 옛 사진 ${r.stale}` : '')),
+    tile('건너뜀 (변경 없음)', `${r.skipped ?? 0}`, r.expected ? `기대 ${r.expected.skipped}` : ''),
+    tile('실패', r.fail ? `<span class="ng-t">${r.fail}</span>` : '0',
+      r.fail || inj ? `의도적 ${inj} · 실제 오류 <span class="${real ? 'ng-t' : 'ok-t'}">${real}</span>` : '없음'),
+    tile('최종 매핑', cov ? `${cov.mapped} / ${cov.total}` : `${r.checks?.mappedRows ?? '—'}`,
+      cov ? `${cov.pct}%${cov.pct >= 100 ? ' <span class="ok-t">✓ 전건</span>' : ''}` : ''),
   ].join('');
   const st = r.stages || [];
   const max = Math.max(1, ...st.map(x => Number(x.avgMs) || 0));
   const bars = st.map(x => `<div class="pf-stage"><span class="lb">${esc(x.label)}</span>
       <div class="bo"><div class="b ${esc(x.key)}" style="width:${Math.max(0.5, (Number(x.avgMs) || 0) * 100 / max)}%"></div></div>
-      <span class="v">${esc(fmtMs(x.avgMs))}${x.count > 1 || x.key === 'QUERY' || x.key === 'FILEKEY' ? '' : ''}</span></div>`).join('');
+      <span class="v">${esc(fmtMs(x.avgMs))}</span></div>`).join('');
   const c = r.checks || {};
-  const b = (ok, txt) => `<span class="vf-b ${ok ? 'SUCCESS' : 'FAIL'}">${ok ? '✓' : '✗'} ${txt}</span>`;
+  const b = (ok, txt) => `<span class="vf-b ${ok ? 'SUCCESS' : 'FAIL'}">${ok ? '✓' : '✗'} ${esc(txt)}</span>`;
   let checks;
   if (c.available === false) {
     checks = `<span class="vf-b x">확인 불가</span> <span class="hint">${esc(c.reason || '')}</span>`;
+  } else if (Array.isArray(c.items)) {
+    checks = c.items.map(i => b(i.ok, i.label)).join(' ');
   } else {
+    // 이전 형식(항목 목록이 없던 회차)
     checks = [
       b(c.mappedRows === c.mappedExpected, `매핑 ${c.mappedRows}행 = 성공 ${c.mappedExpected}건`),
       b(c.latestChosen === c.mappedRows, `최신 순번 선택 ${c.latestChosen}/${c.mappedRows}`),
@@ -3860,29 +4037,51 @@ function imRenderReport(r) {
       h ? b(h.returned, h.returned ? 'Hikari 반납 (사용 0)' : `Hikari 사용 중 ${h.active}`) : '',
     ].join(' ');
   }
+  // 재처리(멱등성) · 의도적 실패 요약
+  const e = r.expected;
+  const byStage = obj => Object.entries(obj || {}).map(([s2, n]) => `${IM_STAGE[s2] || s2} ${n}`).join(' · ');
+  let note = '';
+  if (r.mode === 'RERUN' && e) {
+    const full = cov && cov.pct >= 100;
+    note = `<div class="im-note ${c.ok ? (full ? 'ok' : '') : 'ng'} mb-2"><b>재처리(멱등성) 검증</b> — 실행 전 매핑 ${e.beforeMapped}명 · 미매핑 ${e.beforeUnmapped}명
+      → 신규 INSERT ${r.inserted}/${e.inserted} · UPSERT ${r.updated}/${e.updated}${e.skipped ? ` · 건너뜀 ${r.skipped}/${e.skipped}` : ''}
+      · PK 중복 오류 ${r.dupKeyFail ?? 0} → 최종 매핑 ${cov ? `${cov.mapped}/${cov.total} (${cov.pct}%)` : '?'}${full ? ' — 100% 복구 ✓' : ''}</div>`;
+  } else if (r.mode === 'NEW' && inj) {
+    note = `<div class="im-note mb-2"><b>의도적 실패 ${inj}건</b> (${r.failRatePct}% · ${esc(IM_FAIL_STAGE[r.failStage] || '')}) — ${esc(byStage(r.injectedByStage))}
+      · 매핑 미반영(롤백) 확인 → 이어서 [기존 데이터로 재실행] 으로 복구를 검증하십시오</div>`;
+  }
+  const poolLine = pools.length ? `<div class="hint mb-2"><b>커넥션 풀</b> — ${pools.map(p => `${esc(p.pool)} 최고 ${p.peak}/${p.max} · 빌림 ${p.borrows}회 · 대기 최대 ${p.waitingPeak}`
+      + ` · 최대 대기 ${esc(fmtMs(p.maxWaitMs))}`).join(' | ')}. 트랜잭션 경계 — 매핑 1건 = 트랜잭션 1개(UPSERT), 파일 수신·복호화·저장은 트랜잭션 밖.
+      종료 후 ${h ? (h.returned ? `사용 0 · 대기 0 → <span class="ok-t">반납 완료</span>` : `<span class="ng-t">사용 ${h.active} · 대기 ${h.waiting}</span>`) : '—'}</div>` : '';
   const sample = (c.sample || []).map(x => `<tr><td class="font-monospace">${esc(x.corr_no)}</td><td class="text-end">${x.image_sn}</td>
       <td class="font-monospace small">${esc(x.filekey || '')}</td><td class="font-monospace small">${esc(x.photo_path || '')}</td>
-      <td class="text-end">${x.file_size ?? ''}</td><td>${esc(x.file_ext || '')}</td></tr>`).join('');
-  const fails = (r.failures || []).map(f => `<li><code>${esc(f.corrNo)}</code> [${esc(f.step)}] ${esc(f.error)}</li>`).join('');
-  const cl = r.cleanup || {};
-  const cc = cl.counts || {};
-  const clean = cl.ok === false ? `<span class="text-danger">SIM 정리 실패 — ${esc(cl.error || '')}</span>`
-    : `SIM 정리 — 이미지 ${cc.imageRows ?? 0}행 · 공통파일 ${cc.cmfiRows ?? 0}행 · XVARM ${cc.xvarmRows ?? 0}행 · 매핑 ${cc.photoRows ?? 0}행 · 저장 사진 ${cc.savedFiles ?? 0}개`;
-  const cond = [`${r.count}건`, `워커 ${r.workers}`, `가상 지연 ${fmtMs(r.latencyMs)}`, `브로커 ${esc(env.broker || '')}`,
-    `복호화 ${esc(env.decrypt || '')}${env.encrypted ? '(암호화 더미)' : ''}`, `원천 ${esc(env.db || '')}`, `Admin ${esc(env.adminDb || '')}`,
-    `저장소 ${esc(env.outputRoot || '')}`].join(' · ');
+      <td class="text-end">${x.file_size ?? ''}</td><td>${esc(x.file_ext || '')}</td><td class="font-monospace small">${esc(x.last_batch_exec_id || '')}</td></tr>`).join('');
+  const fails = (r.failures || []).map(f => `<li>${f.injected ? '<span class="im-inj">의도적</span>' : ''}<code>${esc(f.corrNo)}</code>
+      [${esc(IM_STAGE[f.step] || f.step)}] ${esc(f.error)}</li>`).join('');
+  const failHead = r.failByStage && Object.keys(r.failByStage).length ? ` <span class="fw-normal">— 단계별 ${esc(byStage(r.failByStage))}</span>` : '';
+  const cl = r.cleanup;
+  const kept = r.simKept;
+  const tail = kept ? `SIM 데이터 남김 — 수용자 ${kept.inmates}명 · 매핑 ${kept.mapped ?? '?'}행 (재실행 가능 · [SIM 데이터 정리] 로 지움)`
+    : cl ? (cl.ok === false ? `<span class="text-danger">SIM 정리 실패 — ${esc(cl.error || '')}</span>`
+      : `SIM 정리 — 이미지 ${cl.counts?.imageRows ?? 0}행 · 매핑 ${cl.counts?.photoRows ?? 0}행 · 저장 사진 ${cl.counts?.savedFiles ?? 0}개`) : '';
+  const cond = [imModeLabel(r), `${r.count}건`, `워커 ${r.workers}`, `가상 지연 ${fmtMs(r.latencyMs)}`,
+    r.failRatePct ? `실패율 ${r.failRatePct}% (${IM_FAIL_STAGE[r.failStage] || ''})` : '실패 주입 없음',
+    `브로커 ${env.broker || ''}`, `복호화 ${env.decrypt || ''}${env.encrypted ? '(암호화 더미)' : ''}`, `원천 ${env.db || ''}`,
+    `Admin ${env.adminDb || ''}`, env.upsert ? `매핑 ${env.upsert}` : '', `저장소 ${env.outputRoot || ''}`].filter(Boolean).map(esc).join(' · ');
   $('im-report').innerHTML = `
-    <div class="hint mb-2">${cond}</div>
+    <div class="hint mb-2"><span class="im-mode ${esc(r.mode || '')}">${esc(imModeLabel(r))}</span> ${cond}</div>
     <div class="pf-tiles">${tiles}</div>
+    ${note}
+    ${poolLine}
     <div class="d-flex flex-wrap align-items-baseline gap-2 mb-1"><b class="small">단계별 평균 소요 시간</b>
       <span class="hint">조회·FILEKEY 는 배치 앞에서 한 번(페이지 단위), 나머지는 건마다</span></div>
     <div class="pf-stages im">${bars}</div>
     <div class="d-flex flex-wrap align-items-center gap-1 mb-2"><b class="small me-1">정합성</b>${checks}</div>
-    ${fails ? `<div class="small text-danger mb-2"><b>실패 건</b><ul class="mb-0">${fails}</ul></div>` : ''}
+    ${fails ? `<div class="small mb-2 ${real ? 'text-danger' : 'text-secondary'}"><b>실패 건 (최대 10)</b>${failHead}<ul class="mb-0">${fails}</ul></div>` : ''}
     ${sample ? `<div class="table-responsive mb-2"><table class="table table-sm mb-0 pf-table"><thead class="table-light"><tr>
-      <th>CORR_NO</th><th class="text-end">IMAGE_SN</th><th>FILEKEY</th><th>저장 경로(photo_path)</th><th class="text-end">크기</th><th>형식</th></tr></thead>
-      <tbody>${sample}</tbody></table><div class="hint">매핑 테이블 표본(최대 5행) — 검증 시점, 정리 전</div></div>` : ''}
-    <div class="d-flex flex-wrap align-items-center gap-2"><span class="hint">${clean} · 실행 ${esc(String(r.at || '').replace('T', ' '))}</span>
+      <th>CORR_NO</th><th class="text-end">IMAGE_SN</th><th>FILEKEY</th><th>저장 경로(photo_path)</th><th class="text-end">크기</th><th>형식</th><th>LAST_BATCH_EXEC_ID</th></tr></thead>
+      <tbody>${sample}</tbody></table><div class="hint">매핑 테이블 표본(최대 5행) — 검증 시점</div></div>` : ''}
+    <div class="d-flex flex-wrap align-items-center gap-2"><span class="hint">${tail} · 실행 ${esc(String(r.at || '').replace('T', ' '))}</span>
       <span class="ms-auto d-flex flex-wrap gap-2" data-cap-hide>
         <button class="btn btn-sm btn-outline-primary" type="button" data-im-capture="1" title="① 설정부터 ② 결과 리포트까지 한 장의 PNG 로 저장합니다">📸 전체 리포트 저장</button>
       </span></div>`;
@@ -3893,8 +4092,9 @@ function imRenderReport(r) {
 function imCapture(btn) {
   const r = IM_SHOWN;
   if (!r) { log('저장할 수용자 이미지 검증 리포트가 없습니다', 'wr'); return; }
-  const name = `비정형수집기_이미지수집검증_${r.count}건_${capStamp(r.at)}.png`;
-  const title = `비정형 데이터 수집기 · 수용자 이미지 수집 검증 — ${r.count}건 · 워커 ${r.workers}`;
+  const kind = r.mode === 'RERUN' ? '재실행' : '신규';
+  const name = `비정형수집기_이미지수집검증_${kind}_${r.count}건_${capStamp(r.at)}.png`;
+  const title = `비정형 데이터 수집기 · 수용자 이미지 수집 검증(${imModeLabel(r)}) — ${r.count}건 · 워커 ${r.workers}`;
   const sub = `실행 ${String(r.at || '').replace('T', ' ').slice(0, 16)} · EXEC_ID ${r.execId || '—'}`;
   captureArea('im-capture', name, title, sub, btn);
 }
@@ -3905,21 +4105,25 @@ async function imLoadHistory() {
   $('im-hist-file').textContent = h ? `— ${h.total}회 · ${h.file}` : '— 이력을 읽지 못했습니다(이미지 API 없음)';
   const body = $('im-hist');
   if (!IM_HIST.length) {
-    body.innerHTML = '<tr><td colspan="12" class="hint text-center py-3">아직 이력이 없습니다</td></tr>';
+    body.innerHTML = '<tr><td colspan="14" class="hint text-center py-3">아직 이력이 없습니다</td></tr>';
     return;
   }
   const maxTps = Math.max(0.001, ...IM_HIST.map(x => Number(x.tps) || 0));
   body.innerHTML = IM_HIST.map((x, i) => {
     const c = x.checks || {};
     const ck = c.available === false ? '<span class="vf-b x">확인 불가</span>' : c.ok ? '<span class="vf-b SUCCESS">✓</span>' : '<span class="vf-b FAIL">✗</span>';
+    const kind = x.mode === 'RERUN' ? `<span class="im-mode RERUN">재실행 · ${x.rerunScope === 'MISSING' ? '누락분' : '전체'}</span>`
+      : x.mode === 'NEW' ? '<span class="im-mode NEW">신규</span>' : '<span class="im-mode">—</span>';
+    const pool = (x.hikari?.pools || []).find(p => p.pool === 'admin-db');
     return `<tr data-i="${i}" title="눌러서 ② 리포트에 표시">
-      <td class="font-monospace">${esc(String(x.at || '').replace('T', ' ').slice(5, 16))}</td>
+      <td class="font-monospace">${esc(String(x.at || '').replace('T', ' ').slice(5, 16))}</td><td>${kind}</td>
       <td class="text-end">${x.count}</td><td class="text-end">${x.workers}</td><td class="text-end">${esc(fmtMs(x.latencyMs))}</td>
+      <td class="text-end">${x.failRatePct ? x.failRatePct + '%' : '—'}</td>
       <td class="text-end">${esc(fmtSec(x.totalSec))}</td>
       <td><div class="pf-tps"><div class="b" style="width:${(Number(x.tps) || 0) * 100 / maxTps}%"></div><span>${fmtTps(x.tps)}</span></div></td>
       <td class="text-end">${esc(fmtMs(x.decryptAvgMs))}</td><td class="text-end">${esc(fmtMs(x.mapAvgMs))}</td>
-      <td><span class="ok-t">${x.success}</span> / <span class="ng-t">${x.fail}</span></td>
-      <td class="text-end">${x.hikari?.peak ?? ''}</td><td>${ck}</td>
+      <td><span class="ok-t">${x.inserted ?? 0}</span> / ${x.updated ?? 0} / <span class="ng-t">${x.fail ?? 0}</span>${x.injectedFail ? `<span class="hint">(의도적 ${x.injectedFail})</span>` : ''}</td>
+      <td class="text-end">${pool ? `${pool.peak}/${pool.max}` : (x.hikari?.peak ?? '')}</td><td>${ck}</td>
       <td class="font-monospace">${esc(x.execId || '')}</td></tr>`;
   }).join('');
 }
@@ -3938,7 +4142,7 @@ async function imOnShow() {
 }
 
 async function imInit() {
-  imEstimate();
+  imFailSync();
   await imLoadHistory();
   const c = await quietGet('/api/v1/mock/image/perf/runs/current');
   if (c && c.active) {
@@ -3950,8 +4154,11 @@ async function imInit() {
   else if (IM_HIST.length) imRenderReport(IM_HIST[0]);
 }
 
-['im-count', 'im-workers', 'im-latency'].forEach(id => ['input', 'change'].forEach(ev => $(id).addEventListener(ev, imEstimate)));
+['im-count', 'im-workers', 'im-latency', 'im-fail-stage'].forEach(id => ['input', 'change'].forEach(ev => $(id).addEventListener(ev, imEstimate)));
+$('im-fail').addEventListener('input', imFailSync);
 $('im-start').onclick = imStart;
+$('im-rerun').onclick = imRerun;
+$('im-clean').onclick = imClean;
 $('im-cancel').onclick = imCancel;
 $('im-hist-clear').onclick = imClearHistory;
 $('im-hist').onclick = (e) => {

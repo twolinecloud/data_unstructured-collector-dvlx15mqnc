@@ -584,6 +584,9 @@ PL 요구사항(2026-09-29) — 단순 메타 조회가 아니라 **실제 파�
 - **복호화 확인** — 결과가 이미지(매직 넘버)가 아니면 저장하지 않고 실패. 공통파일기본의 `CMMN_FILE_ENC_YN='N'` 이면 복호화하지 않는다
 - **처리 이력** — 아직 로그 컬렉터(T1·T2·T4)에 남기지 않는다. 이미지용 작업 코드가 로그 컬렉터에 먼저 정해져야 한다
 
+> 배포·전환 순서와 확인 방법: [`docs/배포_전환_가이드_0929.md`](docs/배포_전환_가이드_0929.md)
+> (개발계 DDL 적용 완료 · 차트 `data_HelmChart` f60994b — Admin DB Secret · RVS 키 · 데이터 PV)
+
 ### Admin DB DDL — 배포 전에 관리자가 적용
 
 `src/main/resources/db/admin/V1__tb_src_inmate_photo.sql` (PostgreSQL · `correction_ai.kcais`).

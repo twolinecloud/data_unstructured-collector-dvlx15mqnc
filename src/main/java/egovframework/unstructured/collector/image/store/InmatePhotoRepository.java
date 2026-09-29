@@ -13,22 +13,29 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 수용자 사진 매핑({@code kcais.TB_SRC_INMATE_PHOTO} · PK {@code CORR_NO}) — Admin DB.
  *
- * <p><b>배치 순서 꼬임(Race Condition) 방지</b></p>
+ * <p><b>멱등(Idempotent) UPSERT</b> — 배치를 몇 번 다시 돌려도 키 중복 오류 없이 "있으면 갱신 · 없으면 넣기" 다.</p>
  * <ul>
- *   <li>정형 수집기가 다시 쓰는 {@code TB_SRC_INMATE_BS} 가 아니라 <b>수용자당 한 행</b>인 별도 테이블에 쓴다</li>
- *   <li>같은 수용자를 두 배치(또는 두 워커)가 동시에 매핑해도 행을 잠그고({@code SELECT … FOR UPDATE}) 순서대로 쓴다</li>
- *   <li>늦게 도착한 <b>옛 사진</b>(IMAGE_SN 이 더 작은 것)은 덮지 않는다 — {@link MapResult#STALE}</li>
- *   <li>처음 들어오는 수용자를 두 워커가 동시에 INSERT 하면 한쪽이 키 중복으로 실패한다 — 그쪽은 갱신 경로로 한 번 더 한다</li>
+ *   <li><b>PostgreSQL</b>(개발계·운영) — {@code INSERT … ON CONFLICT (corr_no) DO UPDATE … WHERE 기존 순번 <= 새 순번
+ *       RETURNING (xmax = 0)} 한 문장. 원자적이라 두 워커·두 배치가 같은 수용자를 동시에 써도 키 중복이 나지 않고,
+ *       돌아온 값으로 신규(INSERT)·갱신(UPDATE)을, 행이 안 돌아오면 옛 사진(STALE)을 가린다</li>
+ *   <li><b>H2</b>(로컬·테스트) — {@code ON CONFLICT DO UPDATE} 가 없어 행 잠금({@code SELECT … FOR UPDATE}) 후 INSERT/UPDATE.
+ *       처음 들어오는 수용자를 두 워커가 동시에 INSERT 하면 한쪽이 키 중복 — 그쪽은 갱신 경로로 한 번 더 한다</li>
+ *   <li>늦게 도착한 <b>옛 사진</b>(IMAGE_SN 이 더 작은 것)은 덮지 않는다 — {@link MapResult#STALE}.
+ *       갱신은 경로·크기·형식·처리일시·수정일시({@code mod_dtm})를 바꾸고 등록일시({@code reg_dtm})는 남긴다</li>
+ *   <li>정형 수집기가 다시 쓰는 {@code TB_SRC_INMATE_BS} 가 아니라 <b>수용자당 한 행</b>인 별도 테이블에 쓴다(배치 순서 꼬임 방지)</li>
  * </ul>
  *
- * <p>트랜잭션은 매핑 한 건(조회 · INSERT/UPDATE · 선택적 PHOTO_REF 갱신)만 감싼다 — 파일 I/O 는 호출자가 트랜잭션 밖에서 끝낸 뒤 부른다.</p>
+ * <p><b>트랜잭션 경계</b>: 매핑 한 건(UPSERT · 선택적 PHOTO_REF 갱신)만 감싼다 — {@link AdminDb#inTx} 가 돌아오면 커밋(또는
+ * 롤백)과 커넥션 반납이 끝나 있다. 파일 I/O 는 호출자가 트랜잭션 밖에서 끝낸 뒤 부른다.</p>
  */
 @Log4j2
 @Repository
@@ -61,16 +68,70 @@ public class InmatePhotoRepository {
      * @return INSERTED · UPDATED · STALE(더 최신 사진이 이미 매핑돼 있어 손대지 않음)
      */
     public MapResult upsert(PhotoRow r) {
+        return upsert(r, null);
+    }
+
+    /**
+     * 매핑을 넣거나 갱신한다 — 한 트랜잭션.
+     *
+     * @param beforeCommit 같은 트랜잭션에서 UPSERT 뒤 · 커밋 전에 부른다. 여기서 던지면 매핑이 롤백된다
+     *                     (6번 탭 실패 주입 — 'DB 매핑' 실패의 롤백 · 커넥션 반납을 실제로 확인한다). 보통은 null
+     */
+    public MapResult upsert(PhotoRow r, Runnable beforeCommit) {
         try {
-            return db.inTx(() -> upsertInTx(r));
+            return db.inTx(() -> upsertInTx(r, beforeCommit));
         } catch (DuplicateKeyException e) {
-            // 같은 수용자를 다른 워커·배치가 방금 INSERT 했다 — 이제 행이 있으니 갱신 경로로 한 번 더
+            // (H2 경로) 같은 수용자를 다른 워커·배치가 방금 INSERT 했다 — 이제 행이 있으니 갱신 경로로 한 번 더
             log.debug("[Image] 매핑 INSERT 경합 — {} · 갱신으로 다시 한다", r.corrNo());
-            return db.inTx(() -> upsertInTx(r));
+            return db.inTx(() -> upsertInTx(r, beforeCommit));
         }
     }
 
-    private MapResult upsertInTx(PhotoRow r) {
+    /** 매핑 방식 — 리포트·상태 화면용. */
+    public String upsertMode() {
+        return db.isPostgres() ? "INSERT … ON CONFLICT DO UPDATE (PostgreSQL · 한 문장)"
+                : "행 잠금 + INSERT/UPDATE (" + (db.isH2() ? "H2" : "범용") + ")";
+    }
+
+    private MapResult upsertInTx(PhotoRow r, Runnable beforeCommit) {
+        MapResult result = db.isPostgres() ? upsertOnConflict(r) : upsertLocked(r);
+        if (result != MapResult.STALE && props.updatePhotoRef()) {
+            // 선택 — 수용자 기본의 PHOTO_REF 도 같은 트랜잭션에서. 그 수용자가 아직 없으면 0행(정형 수집기가 나중에 넣는다)
+            db.jdbc().update("UPDATE " + inmate() + " SET photo_ref = ? WHERE corr_no = ?", r.photoPath(), r.corrNo());
+        }
+        if (beforeCommit != null) {
+            beforeCommit.run();
+        }
+        return result;
+    }
+
+    /**
+     * PostgreSQL — 한 문장 UPSERT. {@code xmax = 0} 이면 이 문장이 새로 넣은 행, 아니면 기존 행을 갱신한 것이다.
+     * 기존 순번이 더 크면 {@code WHERE} 가 막아 행이 돌아오지 않는다 — STALE.
+     */
+    private MapResult upsertOnConflict(PhotoRow r) {
+        Timestamp now = Timestamp.valueOf(LocalDateTime.now().withNano(0));
+        List<Boolean> inserted = db.jdbc().query("INSERT INTO " + photo() + " AS p"
+                        + " (corr_no, image_sn, image_cmmn_file_id, doc_id, filekey, photo_path, file_size, file_ext,"
+                        + "  proc_dtm, last_batch_exec_id, reg_dtm, mod_dtm) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                        + " ON CONFLICT (corr_no) DO UPDATE SET image_sn = EXCLUDED.image_sn,"
+                        + "     image_cmmn_file_id = EXCLUDED.image_cmmn_file_id, doc_id = EXCLUDED.doc_id,"
+                        + "     filekey = EXCLUDED.filekey, photo_path = EXCLUDED.photo_path, file_size = EXCLUDED.file_size,"
+                        + "     file_ext = EXCLUDED.file_ext, proc_dtm = EXCLUDED.proc_dtm,"
+                        + "     last_batch_exec_id = EXCLUDED.last_batch_exec_id, mod_dtm = EXCLUDED.mod_dtm"
+                        + "   WHERE p.image_sn <= EXCLUDED.image_sn"
+                        + " RETURNING (xmax = 0) AS inserted",
+                (rs, i) -> rs.getBoolean("inserted"),
+                r.corrNo(), r.imageSn(), r.imageCmmnFileId(), r.docId(), r.fileKey(), r.photoPath(), r.fileSize(),
+                r.fileExt(), now, r.execId(), now, now);
+        if (inserted.isEmpty()) {
+            return MapResult.STALE;   // 더 최신 사진이 이미 있다 — 덮지 않았다
+        }
+        return Boolean.TRUE.equals(inserted.get(0)) ? MapResult.INSERTED : MapResult.UPDATED;
+    }
+
+    /** H2 · 그 밖 — 행 잠금 후 INSERT/UPDATE. */
+    private MapResult upsertLocked(PhotoRow r) {
         Timestamp now = Timestamp.valueOf(LocalDateTime.now().withNano(0));
         List<Integer> cur = db.jdbc().queryForList(
                 "SELECT image_sn FROM " + photo() + " WHERE corr_no = ? FOR UPDATE", Integer.class, r.corrNo());
@@ -92,10 +153,6 @@ public class InmatePhotoRepository {
                     now, r.execId(), now, r.corrNo());
             result = MapResult.UPDATED;
         }
-        if (props.updatePhotoRef()) {
-            // 선택 — 수용자 기본의 PHOTO_REF 도 같은 트랜잭션에서. 그 수용자가 아직 없으면 0행(정형 수집기가 나중에 넣는다)
-            db.jdbc().update("UPDATE " + inmate() + " SET photo_ref = ? WHERE corr_no = ?", r.photoPath(), r.corrNo());
-        }
         return result;
     }
 
@@ -116,6 +173,12 @@ public class InmatePhotoRepository {
                     });
         }
         return out;
+    }
+
+    /** 접두로 시작하는 매핑된 교정번호 — 재실행 전 스냅샷(무엇이 신규 · 무엇이 갱신이어야 하는지)의 근거. */
+    public Set<String> mappedCorrNos(String prefix) {
+        return new HashSet<>(db.jdbc().queryForList("SELECT corr_no FROM " + photo() + " WHERE corr_no LIKE ?",
+                String.class, prefix + "%"));
     }
 
     /** 한 수용자의 매핑 — 없으면 빈 맵. */

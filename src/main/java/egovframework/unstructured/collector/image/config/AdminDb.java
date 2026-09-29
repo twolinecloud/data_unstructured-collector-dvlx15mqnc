@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
  * 시딩·조회가 엉뚱한 DB 로 갈 수 있다. 그래서 풀·JdbcTemplate·트랜잭션을 이 안에만 둔다.</p>
  *
  * <p><b>트랜잭션은 짧게</b>: {@link #inTx} 로만 연다 — 파일 수신·복호화·저장 같은 I/O 는 절대 안에 넣지 않는다.
- * 매핑 한 건 = 조회(행 잠금) + INSERT/UPDATE 뿐이라 수 ms 에 커넥션을 돌려준다. 워커를 늘려도 풀이 고갈되지 않는다.</p>
+ * 매핑 한 건 = UPSERT 한 문장(PostgreSQL {@code ON CONFLICT} · H2 는 행 잠금 + INSERT/UPDATE)뿐이라 수 ms 에
+ * 커넥션을 돌려준다. 워커가 풀보다 많으면 잠깐 줄을 설 뿐 고갈되지 않는다 — 리포트의 풀 대기 지표로 본다.</p>
  *
  * <p>풀은 {@link SourcePoolPeak} 에 붙인다 — 성능 리포트의 Hikari 최고 연결 수 · 종료 후 반납 현황에 같이 잡힌다.</p>
  */
@@ -88,13 +89,21 @@ public class AdminDb implements DisposableBean {
         return jdbc;
     }
 
-    /** 짧은 트랜잭션 하나 — 끝나면 커밋하고 커넥션을 바로 돌려준다. */
+    /**
+     * 짧은 트랜잭션 하나 — {@code work} 가 끝나면 커밋하고, 예외(Error 포함)면 롤백한다. 어느 쪽이든 이 메서드가
+     * 돌아오기 전에 커넥션은 풀에 반납된다 — 트랜잭션이 이 메서드 밖으로 새지 않는다.
+     */
     public <T> T inTx(Supplier<T> work) {
         return tx.execute(status -> work.get());
     }
 
     public boolean isH2() {
         return h2;
+    }
+
+    /** PostgreSQL 이면 매핑을 {@code INSERT … ON CONFLICT} 한 문장으로 한다. */
+    public boolean isPostgres() {
+        return url.startsWith("jdbc:postgresql:");
     }
 
     public String url() {

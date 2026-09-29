@@ -35,17 +35,31 @@ public class ImageMockController {
     @Operation(summary = "SIM 사진 데이터 생성", description = "수용자마다 사진 2장(순번 1·2) + 사진 아닌 이미지 1장(구분 2). 파이프라인은 순번 2를 골라야 한다.")
     @PostMapping("/sim")
     public Map<String, Object> seed(@RequestParam(defaultValue = "10") int count) {
-        return sim.seed(count);
+        return perf.seedSim(count);
     }
 
-    @Operation(summary = "SIM 사진 데이터 삭제", description = "SIMIMG 접두의 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진. 실제 수용자 행은 손대지 않는다.")
+    @Operation(summary = "SIM 사진 데이터 삭제 — 6번 탭 [SIM 데이터 정리]",
+            description = "SIMIMG 접두의 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진. 실제 수용자 행은 손대지 않는다. "
+                    + "검증·수집이 도는 중에는 409.")
     @DeleteMapping("/sim")
     public Map<String, Object> clean() {
-        return sim.clean();
+        return perf.cleanSim();
+    }
+
+    @Operation(summary = "남아 있는 SIM 현황", description = "SIM 수용자 수 · 매핑 행 수 — [기존 데이터로 재실행] 대상.")
+    @GetMapping("/sim")
+    public Map<String, Object> residual() {
+        return sim.residual();
     }
 
     @Operation(summary = "수용자 이미지 수집 검증 시작 (비동기)",
-            description = "준비(SIM 생성) → 측정(워커 N · 건당 가상 지연) → 검증(매핑 행 · 최신 순번 · 원문 해시) → 정리. 진행은 `GET /perf/runs/current`.")
+            description = """
+                    진행은 `GET /perf/runs/current`. SIM 데이터는 끝나도 남긴다(재실행용) — 지우려면 `DELETE /sim`.
+                    - `mode=NEW` — 남은 SIM 을 지우고 `count` 명분을 새로 만들어 처리
+                    - `mode=RERUN` — 남아 있는 SIM 을 다시 처리(멱등성). `rerunScope=ALL` 전건 UPSERT · `MISSING` 실패·누락분만
+                    - `failRatePct` · `failStage` — 대상 × 비율만큼 정확히 의도적으로 실패(MAP 은 커밋 전 롤백)
+                    - 검증: 스냅샷·주입 목록으로 계산한 기대값(신규·UPSERT·건너뜀·실패·최종 매핑) 대조 · 롤백 · PK 중복 0 · 풀 반납
+                    """)
     @PostMapping("/perf/runs")
     public ResponseEntity<Map<String, Object>> start(@RequestBody(required = false) ImagePerfService.ImagePerfRequest req) {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req));

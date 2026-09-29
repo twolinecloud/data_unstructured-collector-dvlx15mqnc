@@ -95,7 +95,7 @@ class ImagePipelineTest {
 
     private ImageCollectService.ImageRunResult runSim(boolean force) {
         return collect.run(new ImageCollectService.ImageRunRequest(null, ImageSimulationService.PREFIX, null, 2, force,
-                0L, "TEST", true, null));
+                0L, "TEST", true, null, null));
     }
 
     @Test
@@ -194,36 +194,133 @@ class ImagePipelineTest {
     }
 
     @Test
-    @DisplayName("수용자 이미지 검증(6번 탭) — 준비 → 측정 → 검증 → 정리, 정합성 OK · 끝나면 SIM 이 남지 않는다")
+    @DisplayName("실제 수집(접두 없음)은 6번 탭이 남겨 둔 SIM 행을 집어가지 않는다")
+    void realRunExcludesSimRows() {
+        sim.seed(2);
+
+        ImageCollectService.ImageRunResult r = collect.run(new ImageCollectService.ImageRunRequest(
+                null, null, 50, 2, false, 0L, "TEST", true, null, null));
+
+        assertThat(r.outcomes()).noneSatisfy(o -> assertThat(o.corrNo()).startsWith(ImageSimulationService.PREFIX));
+        assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("의도적 실패 주입은 시험 실행에서만 — 실제 수집 요청으로는 켤 수 없다")
+    void injectionOnlyInTestRun() {
+        sim.seed(2);
+        Map<String, ImageStage> inject = Map.of(ImageSimulationService.corrNo(1), ImageStage.MAP);
+
+        ImageCollectService.ImageRunResult r = collect.run(new ImageCollectService.ImageRunRequest(
+                null, ImageSimulationService.PREFIX, null, 2, false, 0L, "API", false, null, inject));
+
+        assertThat(r.success()).isEqualTo(2);
+        assertThat(r.injectedFail()).isZero();
+    }
+
+    @Test
+    @DisplayName("수용자 이미지 검증(6번 탭) 신규 실행 — 준비 → 측정 → 검증, 정합성 OK · SIM 은 재실행을 위해 남는다")
     @SuppressWarnings("unchecked")
     void perfRunEndToEnd() throws Exception {
         perf.clearHistory();
-        perf.start(new ImagePerfService.ImagePerfRequest(6, 3, 20L));
+        perf.start(ImagePerfService.ImagePerfRequest.fresh(6, 3, 20L, 0, ImagePerfService.FailStage.RANDOM));
 
         Map<String, Object> cur = waitDone();
         assertThat(cur.get("phase")).as("오류: %s", cur.get("error")).isEqualTo("DONE");
         Map<String, Object> r = (Map<String, Object>) cur.get("result");
+        assertThat(r.get("mode")).isEqualTo("NEW");
         assertThat(r.get("success")).isEqualTo(6);
+        assertThat(r.get("inserted")).isEqualTo(6);
         assertThat((Double) r.get("tps")).isPositive();
         assertThat((Double) r.get("decryptAvgMs")).isGreaterThanOrEqualTo(0d);
         Map<String, Object> checks = (Map<String, Object>) r.get("checks");
         assertThat(checks.get("ok")).as("정합성: %s", checks).isEqualTo(true);
         assertThat(checks.get("plainMatch")).isEqualTo(6L);
         assertThat(((Map<String, Object>) r.get("env")).get("broker")).as("SIM 검증은 내장 Mock 브로커").asString().startsWith("MOCK");
+        assertThat(((Map<String, Object>) r.get("env")).get("upsert")).asString().contains("H2");
         Map<String, Object> hikari = (Map<String, Object>) r.get("hikari");
         assertThat(((Map<String, Object>) hikari.get("after")).get("returned")).as("풀 반납").isEqualTo(true);
+        assertThat((List<Map<String, Object>>) hikari.get("pools")).as("풀별 지표")
+                .anySatisfy(p -> assertThat(p.get("pool")).isEqualTo("admin-db"));
         // 가상 지연 20ms 가 단계에 잡힌다
         List<Map<String, Object>> stages = (List<Map<String, Object>>) r.get("stages");
         assertThat(stages).anySatisfy(s -> {
             assertThat(s.get("key")).isEqualTo("VIRTUAL");
             assertThat(((Number) s.get("avgMs")).doubleValue()).isGreaterThanOrEqualTo(20d);
         });
-        // 정리 — SIM 이 남지 않는다
+        // SIM 은 남는다(재실행용) — [SIM 데이터 정리] 가 지운다
+        assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(6L);
+        assertThat(((Map<String, Object>) r.get("simKept")).get("inmates")).isEqualTo(6L);
+        assertThat(perf.history().get("total")).isEqualTo(1);
+        assertThat(pools.state().get("returned")).isEqualTo(true);
+
+        perf.cleanSim();
         assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(0L);
         assertThat(boramiJdbc.queryForObject("SELECT COUNT(*) FROM " + tables.irimBsifDs() + " WHERE CORR_NO LIKE 'SIMIMG%'",
                 Integer.class)).isZero();
-        assertThat(perf.history().get("total")).isEqualTo(1);
-        assertThat(pools.state().get("returned")).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("멱등성 — 신규 실행 30% 의도적 실패 → 재실행(전체 UPSERT) 으로 실패분은 신규 · 성공분은 갱신, 최종 100%")
+    @SuppressWarnings("unchecked")
+    void rerunRecoversInjectedFailures() throws Exception {
+        perf.clearHistory();
+        perf.start(ImagePerfService.ImagePerfRequest.fresh(10, 4, 0L, 30, ImagePerfService.FailStage.RANDOM));
+        Map<String, Object> first = (Map<String, Object>) waitDone().get("result");
+
+        assertThat(first.get("fail")).isEqualTo(3);
+        assertThat(first.get("injectedFail")).isEqualTo(3);
+        assertThat(first.get("realFail")).isEqualTo(0);
+        assertThat(first.get("inserted")).isEqualTo(7);
+        assertThat((Map<String, Object>) first.get("injectedByStage")).as("고르게 — 수신·복호화·저장")
+                .containsOnlyKeys("ACQUIRE", "DECRYPT", "SAVE");
+        Map<String, Object> c1 = (Map<String, Object>) first.get("checks");
+        assertThat(c1.get("ok")).as("신규 실행 정합성(주입 반영): %s", c1).isEqualTo(true);
+        assertThat(c1.get("mappedRows")).isEqualTo(7);
+
+        perf.start(ImagePerfService.ImagePerfRequest.rerun(4, 0L, ImagePerfService.Scope.ALL, 0, ImagePerfService.FailStage.RANDOM));
+        Map<String, Object> cur = waitDone();
+        assertThat(cur.get("phase")).as("오류: %s", cur.get("error")).isEqualTo("DONE");
+        Map<String, Object> again = (Map<String, Object>) cur.get("result");
+
+        assertThat(again.get("mode")).isEqualTo("RERUN");
+        assertThat(again.get("inserted")).as("실패했던 3건은 신규").isEqualTo(3);
+        assertThat(again.get("updated")).as("성공했던 7건은 키 중복 없이 UPSERT").isEqualTo(7);
+        assertThat(again.get("fail")).isEqualTo(0);
+        assertThat(again.get("dupKeyFail")).isEqualTo(0);
+        assertThat(((Map<String, Object>) again.get("coverage")).get("pct")).isEqualTo(100.0);
+        Map<String, Object> c2 = (Map<String, Object>) again.get("checks");
+        assertThat(c2.get("ok")).as("재실행 정합성: %s", c2).isEqualTo(true);
+        assertThat(c2.get("mappedRows")).isEqualTo(10);
+        assertThat(c2.get("plainMatch")).isEqualTo(10L);
+        assertThat(perf.history().get("total")).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("DB 매핑 단계 의도적 실패는 커밋 전 롤백 — 매핑 없음 · 풀 반납, 재실행(실패·누락분만)은 나머지를 건너뛴다")
+    @SuppressWarnings("unchecked")
+    void mapFailureRollsBackAndMissingRerunSkipsRest() throws Exception {
+        perf.clearHistory();
+        perf.start(ImagePerfService.ImagePerfRequest.fresh(6, 3, 0L, 50, ImagePerfService.FailStage.MAP));
+        Map<String, Object> first = (Map<String, Object>) waitDone().get("result");
+
+        assertThat(first.get("injectedFail")).isEqualTo(3);
+        assertThat((Map<String, Object>) first.get("failByStage")).containsEntry("MAP", 3);
+        Map<String, Object> c1 = (Map<String, Object>) first.get("checks");
+        assertThat(c1.get("ok")).as("정합성: %s", c1).isEqualTo(true);
+        assertThat(c1.get("mappedRows")).as("롤백 — 주입 3건은 매핑이 없다").isEqualTo(3);
+        assertThat(c1.get("injectedTouched")).isEqualTo(0L);
+        assertThat(pools.state().get("returned")).as("롤백 뒤에도 커넥션 반납").isEqualTo(true);
+
+        perf.start(ImagePerfService.ImagePerfRequest.rerun(3, 0L, ImagePerfService.Scope.MISSING, 0, ImagePerfService.FailStage.RANDOM));
+        Map<String, Object> again = (Map<String, Object>) waitDone().get("result");
+
+        assertThat(again.get("inserted")).isEqualTo(3);
+        assertThat(again.get("skipped")).as("이미 매핑된 3건은 변경 없음으로 건너뜀").isEqualTo(3);
+        assertThat(again.get("updated")).isEqualTo(0);
+        Map<String, Object> c2 = (Map<String, Object>) again.get("checks");
+        assertThat(c2.get("ok")).as("정합성: %s", c2).isEqualTo(true);
+        assertThat(c2.get("mappedRows")).isEqualTo(6);
     }
 
     private Map<String, Object> waitDone() throws InterruptedException {

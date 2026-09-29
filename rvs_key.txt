@@ -1,0 +1,22 @@
+# 접견 음성 복호화 키 — ⚠ 로컬 시뮬레이션 전용 테스트 값이다. 운영 키가 아니다.
+#
+# 이 파일은 레포에 들어 있다. 실제 R플레이어 키를 여기 적지 말 것 —
+# 커밋되는 순간 GitHub 에 그대로 남는다.
+#
+# 로컬에서 이 값으로 앞뒤가 맞는 이유: 복호화를 REAL 로 올리면 Mock 이 같은 키로 암호화해서
+# 떨군다 — 접견은 MockXvarmBrokerClient.maybeEncrypt, 전화는 MockPhoneFileProvider.maybeEncrypt.
+# 그래서 실제 키가 없어도 수집 → 복호화 → STT 전 구간을 REAL 로 돌려 볼 수 있다.
+#
+# 전화의 실제 복호화 사양(ARIA-128 등)은 아직 미확정이다(Q13). 로컬에서 푸는 것은
+# PhoneSimAesDecryptor 이고 phone.mode=MOCK 일 때만 걸린다 — 실물 연계(ESB)에서는
+# PhoneAriaDecryptor 가 "사양 미확정" 으로 막는다.
+#
+# 실제 암호화 파일을 풀어야 하는 환경에서는 실 키를 따로 주입한다:
+#   로컬  VOICE_RVS_KEY_PATH=C:/경로/rvs_key.txt
+#   K8s   차트가 Secret 을 마운트하고 VOICE_RVS_KEY_PATH 로 그 경로를 준다
+secretkey=LOCAL_TEST_KEY_0123456789abcdefg
+iv=0000000000000000
+algorithm=AES
+ciphermode=CBC
+padding=PKCS5Padding
+charset=UTF-8

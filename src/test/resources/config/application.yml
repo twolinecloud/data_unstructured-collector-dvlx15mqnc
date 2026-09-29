@@ -1,0 +1,7 @@
+# 테스트 전용 — 운영 설정(src/main/resources/application.yml)에 겹쳐 얹힌다(classpath:/config/ 가 우선).
+#
+# 비식별 커넥터를 끈다. 배치가 건마다 커넥터(/api/v1/pipeline/deident/voice)를 부르는데, 테스트에는 커넥터가 없고
+# 기본 주소(localhost:8080)에는 개발 PC 의 다른 서비스가 떠 있을 수 있다 — 테스트가 그쪽에 T5 를 남기면 안 된다.
+# 꺼져 있으면 수집기가 단순 전달(비식별 없이 그대로)로 DEIDENT 단계를 지난다(T5 미적재).
+agent-connector:
+  enabled: false

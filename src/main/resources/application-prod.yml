@@ -1,0 +1,47 @@
+# ── 운영 ───────────────────────────────────────────────────────────────────
+#   ⚠ Mock 스키마 자동 적재를 반드시 끈다. 실제 보라미(또는 I/F 뷰)에 붙는 환경에서
+#     schema-borami-mock.sql 이 돌면 DROP TABLE 이 실행된다.
+spring:
+  sql:
+    init:
+      mode: never
+
+voice:
+  source:
+    mode: ${VOICE_SOURCE_MODE:ESB_HTTP2DB}
+    # DIRECT_JDBC 로 내릴 때 붙는 실 보라미(Oracle). 원장 DB 직접 접근은 금지되어 있어 I/F 뷰 확정 전에는 쓰지 않는다.
+    direct-db:
+      url: ${DB_URL}
+      driver-class-name: ${DB_DRIVER:oracle.jdbc.OracleDriver}
+      username: ${DB_USER}
+      password: ${DB_PASSWORD}
+  broker:
+    mode: ${VOICE_BROKER_MODE:REST}
+  stt:
+    mode: ${VOICE_STT_MODE:NPU}
+  decrypt:
+    mode: ${VOICE_DECRYPT_MODE:REAL}
+
+  # ROOT_DIR 자동(Linux /k8s/voice_collector) 아래 표준 배치. 환경변수로 개별 덮어쓰기 가능.
+  dirs:
+    base-dir: ${VOICE_BASE_DIR:}
+    xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}
+    receive-meet: ${VOICE_MEET_DIR:}
+    receive-phone: ${VOICE_PHONE_DIR:}
+    work: ${VOICE_WORK_DIR:}
+    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
+    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
+
+  batch:
+    schedule-enabled: ${VOICE_SCHEDULE_ENABLED:true}
+    retain-source-file: false     # 복호화된 원본 음성은 STT 후 지운다
+    acquire-workers: 1            # XVARM 확보 워커 — 운영은 1 고정(원천 부하 최소화)
+    concurrency: 1                # STT 처리 워커 — 운영은 순차 고정(환경변수로도 바꾸지 않는다). 성능 테스트 결과로 정한다
+
+log-collector:
+  enabled: true
+  base-url: ${LOG_COLLECTOR_BASE_URL}
+
+logging:
+  level:
+    egovframework.unstructured.collector: INFO

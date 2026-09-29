@@ -17,4 +17,21 @@ eclipse-launch-profiles
 .DS_Store
 Thumbs.db
 
+#Log Files
+logs
 
+# Python 바이트코드 — static/loadtest 의 송신단 클라이언트를 실행·검사하면 생긴다
+__pycache__/
+*.pyc
+
+
+
+# Mock 실행 시 생기는 음성 작업 디렉터리 (수신 파일·복호화 산출물·멱등 표식)
+/work
+
+# 참고자료 — 형상관리 대상이 아니다.
+#   docs/  공유해야 하는 산출물(인수인계·SQL·ConfigMap 렌더본)   → 형상관리 O
+#   ref/   출처 자료·캡처·초안(설계서 PDF·메일·이미지 등)        → 형상관리 X
+#   예전에는 .git/info/exclude 에만 있어 이 PC 에서만 적용됐다. clone 한 사람은
+#   규칙이 없어 ref/ 를 그대로 커밋할 수 있었으므로 레포로 옮긴다.
+/ref

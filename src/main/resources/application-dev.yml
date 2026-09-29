@@ -1,0 +1,149 @@
+# ══════════════════════════════════════════════════════════════════════════
+#  개발계(K8s data-pipeline) 배포 프로파일
+# ══════════════════════════════════════════════════════════════════════════
+#  모든 접속 정보는 ConfigMap · Secret 의 환경변수로 주입받는다.
+#  이 파일에는 <b>기본값만</b> 둔다 — 주소·계정을 코드에 박으면 환경이 바뀔 때마다 재배포해야 한다.
+#
+#  ── 로그 컬렉터는 실물, 상류는 준비되는 대로 ───────────────────────────
+#    로그 컬렉터는 이미 K8s 에 떠 있으므로 처음부터 실물에 붙인다.
+#    보라미·XVARM·STT 는 아직이라 MOCK 으로 두고, 환경변수만 바꿔 하나씩 전환한다.
+#    (런타임 전환도 가능하지만 파드 재시작 시 이 값으로 돌아온다)
+# ══════════════════════════════════════════════════════════════════════════
+
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  sql:
+    init:
+      mode: never   # H2 적재는 BoramiDataSourceConfig 가 H2 에만 한다 — 개발계 DB 에 DROP TABLE 이 갈 일이 없다
+
+# ── 로그 컬렉터 (T1·T2·T4) ────────────────────────────────────────────────
+#   같은 네임스페이스(data-pipeline)라 K8s 서비스명으로 닿는다.
+#   base-url 에는 context-path(/logc)까지 포함한다.
+log-collector:
+  enabled: ${LOG_COLLECTOR_ENABLED:true}
+  base-url: ${LOG_COLLECTOR_BASE_URL:}     # 비우면 환경 프리셋(K8s http://log-collector-a2z96kgyrm:8080/logc)
+  auth-token: ${LOG_COLLECTOR_TOKEN:}
+  connect-timeout-sec: ${LOG_COLLECTOR_CONNECT_TIMEOUT:5}
+  read-timeout-sec: ${LOG_COLLECTOR_READ_TIMEOUT:30}
+
+voice:
+  # ── 4개 스위치 — 준비되는 순서대로 환경변수로 전환 ──────────────────────
+  source:
+    mode: ${VOICE_SOURCE_MODE:DIRECT_JDBC}          # MOCK(파드 안 H2) → DIRECT_JDBC(개발계 borami-db) → ESB_HTTP2DB (Q2·Q15 확정 후)
+    # 개발계 DB — 같은 네임스페이스(data-pipeline)의 borami-db 서비스. 계정은 차트가 Backing secret 에서
+    # POSTGRES_USERNAME·POSTGRES_PASSWORD 로 넣어 준다(DB_USER/DB_PASSWORD 를 명시하면 그게 이긴다).
+    direct-db:
+      url: ${BORAMI_DB_URL:${DB_URL:jdbc:postgresql://borami-db-gijoxearrw:5432/borami}}
+      username: ${BORAMI_DB_USER:${DB_USER:${POSTGRES_USERNAME:borami}}}
+      password: ${BORAMI_DB_PASSWORD:${DB_PASSWORD:${POSTGRES_PASSWORD:}}}
+      max-pool-size: ${DB_POOL_MAX:40}   # 고동시성 여유 — 최소 유휴 0 이라 쓰지 않으면 열지 않는다(application.yml 참고)
+    esb-base-url: ${VOICE_ESB_BASE_URL:}
+    interface-id: ${VOICE_ESB_IF_ID:}
+    # 실제 보라미 스키마 배치(2026-09-12 확인). I/F 뷰로 바뀌면 이 값만 고친다(Q15).
+    schema:
+      imsc: ${VOICE_SCHEMA_IMSC:im}
+      rerd: ${VOICE_SCHEMA_RERD:re}
+      smsm: ${VOICE_SCHEMA_SMSM:sm}
+      xvarm: ${VOICE_SCHEMA_XVARM:}          # 실 XVARM 테이블 미확인 — REAL 모드로 올리기 전에 채운다
+    # 개발계 DB 에는 공통파일기본·XVARM 테이블이 없다(2026-09-12). 기본 MOCK_DEV 가 sm.tb_smsm_cmfi_bs ·
+    # xvarm.asyscontentelement 를 만들어 시딩하고, 실 테이블이 생기면 VOICE_XVARM_MODE=REAL 로 올린다.
+    xvarm-mode: ${VOICE_XVARM_MODE:MOCK_DEV}
+    xvarm-mock:
+      schema-smsm: ${VOICE_XVARM_MOCK_SCHEMA_SMSM:sm}
+      schema-xvarm: ${VOICE_XVARM_MOCK_SCHEMA_XVARM:xvarm}
+    flag:
+      recorded-yes: ${VOICE_FLAG_RECORDED_YES:Y}
+      ptcr-yes: ${VOICE_FLAG_PTCR_YES:Y}     # 실DB 관측값은 '0' — 의미 확정 후 조정
+      not-deleted: ${VOICE_FLAG_NOT_DELETED:N}
+      encrypted: ${VOICE_FLAG_ENCRYPTED:Y}
+  broker:
+    # 개발계에는 브로커가 K8s 파드로 떠 있다(borami-xvarm-broker, DUMMY 어댑터).
+    # 주소는 미리 꽂아 두고 스위치만 REST 로 올리면 붙는다.
+    #   MOCK → 수집 서비스 안에서 더미 파일을 만든다(브로커 없이 기동 가능)
+    #   REST → 위 파드의 POST /api/v1/xvarm/extract 를 실제로 호출한다
+    # 기본을 MOCK 으로 두는 것은 Fail-fast 정책이다 — 실물 전환은 항상 명시적으로 한다.
+    # 브로커가 개발계에 떠 있으므로 기본을 REST 로 둔다. MOCK 이면 접견이 실물 경로를 타지 않아
+    # "배포했는데 왜 Mock 이냐" 가 된다. 브로커 없이 돌려야 하면 화면에서 내리거나 VOICE_BROKER_MODE=MOCK.
+    mode: ${VOICE_BROKER_MODE:REST}          # MOCK | REST
+    # 주소를 명시한다 — 비워 두면 DeployEnvPreset 이 정하는데, 그 판정은 'Windows 이거나 local
+    #   프로파일이면 LOCAL' 이라 Windows 에서 dev 로 띄우면 localhost:8082 로 떨어진다.
+    #   컨테이너에서는 어차피 K8s 로 가지만, 기본값이 OS 에 따라 달라지면 확인이 어렵다.
+    #   차트 ConfigMap 이 VOICE_BROKER_BASE_URL 을 주면 그것이 이긴다.
+    base-url: ${VOICE_BROKER_BASE_URL:http://borami-xvarm-broker-1joiuorqhl:8080}
+    # 시뮬레이터의 원클릭 주소 프리셋. 환경마다 브로커가 사는 곳이 달라
+    # 매번 손으로 치지 않게 둔다. 주소가 바뀌면 여기만 고치면 화면에 그대로 반영된다.
+    presets:
+      - label: "개발계 K8s"
+        url: "http://borami-xvarm-broker-1joiuorqhl:8080"
+      - label: "로컬 PC"
+        url: "http://localhost:8082"
+    # 브로커의 추출 지연(BROKER_DELAY_MS)이 1.5초다. 폴링이 2초면 그 지연을 거의 두 배로
+    #   불린다 — 건당 손해가 배치 전체에 곱해진다.
+    poll-interval-ms: ${VOICE_BROKER_POLL_MS:500}
+    poll-timeout-sec: ${VOICE_BROKER_TIMEOUT_SEC:120}
+  # ── 전화 파일 연계 ──────────────────────────────────────────────────────
+  #   ⚠ 브로커(XVARM)와 <b>별개 스위치</b>다. 전화는 XVARM 을 타지 않는다 —
+  #     보라미가 아닌 별도 서버에 파일이 있고 ESB 가 전화 전용 프로바이더를 구성해 준다.
+  #   MOCK : 내부에서 더미 전화 음성을 수신 폴더에 만든다(외부 의존 없음)
+  #   ESB  : 연계 프로바이더가 떨궈 주기를 기다린다. 로컬·개발계에는 ESB 가 없어 타임아웃 난다
+  phone:
+    mode: ${VOICE_PHONE_MODE:MOCK}          # MOCK | ESB
+  stt:
+    mode: ${VOICE_STT_MODE:MOCK}             # → NPU (사양 확정 후, Q9)
+    base-url: ${VOICE_STT_BASE_URL:}
+    timeout-sec: ${VOICE_STT_TIMEOUT_SEC:300}
+  decrypt:
+    # 접견 복호화 상시 ON — K8s Secret 의 키(/etc/voice/secret/rvs_key.txt)를 쓴다.
+    #   ⚠ 전화 실사양은 아직 미확정(Q13)이라 phone.mode 는 MOCK 이어야 한다.
+    mode: ${VOICE_DECRYPT_MODE:REAL}
+    # 차트가 RVS 키 Secret 을 /etc/voice/secret 에 마운트하고 이 경로를 준다
+    #   (이관 전 voice-collector 는 Secret voice-collector-rvs-key — unstructured-collector 차트에도 같은 마운트가 필요하다).
+    #   키를 ConfigMap 에 적으면 평문으로 남는다 — 반드시 Secret 이어야 한다.
+    rvs-key-path: ${VOICE_RVS_KEY_PATH:/etc/voice/secret/rvs_key.txt}
+
+  sync:
+    # 쓰기 완료 판정 대기. 이 값이 건당 그대로 곱해진다(10건이면 ×10).
+    #   1.5초는 '느린 ESB 가 큰 파일을 망 너머로 쓴다' 를 가정한 값이었는데, 지금 개발계는
+    #   브로커가 같은 볼륨에 복사한다 — 그 가정이 성립하지 않는다.
+    #   ⚠ 실제 ESB 가 붙어 큰 파일이 천천히 들어오면 VOICE_STABLE_CHECK_MS 로 다시 올린다.
+    stable-check-ms: ${VOICE_STABLE_CHECK_MS:400}
+    wait-timeout-sec: ${VOICE_WAIT_TIMEOUT_SEC:300}
+    naming-policy: ${VOICE_NAMING_POLICY:ORIGINAL}   # ORIGINAL | ESB_DAT (Q7)
+
+  # ── PVC 마운트 지점 — ROOT_DIR 자동: Linux /k8s/voice_collector ──────────────
+  #   차트 dataMountPath /k8s 아래 voice_collector/ 가 표준 배치로 자동 생성된다(esb · xvram · xenon).
+  #   브로커 파드가 같은 PV 를 마운트하므로 브로커 BROKER_OUTPUT_DIR=/k8s/voice_collector/esb/meet 로 맞춘다.
+  dirs:
+    base-dir: ${VOICE_BASE_DIR:}
+    xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}
+    receive-meet: ${VOICE_MEET_DIR:}
+    receive-phone: ${VOICE_PHONE_DIR:}
+    work: ${VOICE_WORK_DIR:}
+    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
+    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
+
+  # 개발계는 기동 시 자동 생성하지 않는다 — 시뮬레이터 [시뮬레이션 데이터 생성] 으로만 만든다(남의 시험 보호).
+  sim:
+    seed-on-startup: ${VOICE_SIM_SEED_ON_STARTUP:false}
+
+  batch:
+    # 스케줄은 기본으로 꺼 둔다. 개발계에서 예고 없이 배치가 돌면 대상이 소진되어
+    # 다른 사람의 시험을 방해한다. 켤 때는 VOICE_SCHEDULE_ENABLED=true.
+    schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
+    daily-cron: ${VOICE_DAILY_CRON:0 0 2 * * *}
+    periodic-cron: ${VOICE_PERIODIC_CRON:0 */10 * * * *}
+    periodic-lag-min: ${VOICE_PERIODIC_LAG_MIN:20}
+    specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
+    max-files-per-run: ${VOICE_MAX_FILES:2000}
+    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum — VOICE_ANALYSIS → 작업코드 VOC (VOICE_BATCH 는 enum 에 없어 VOI 로 채번됐다)
+    retain-source-file: ${VOICE_RETAIN_SOURCE:false}
+
+  inmate-pid:
+    # 같은 수용자가 항상 같은 PID 를 갖도록 환경마다 고정한다. Secret 으로 주입할 것.
+    salt: ${VOICE_PID_SALT:kcais-voice-collector}
+
+logging:
+  level:
+    egovframework.unstructured.collector: ${LOG_LEVEL:INFO}

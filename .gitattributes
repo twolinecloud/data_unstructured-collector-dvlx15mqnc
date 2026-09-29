@@ -1,0 +1,9 @@
+# 셸 스크립트는 어느 OS 로 체크아웃하든 LF 를 유지한다.
+#   CRLF 로 받으면 리눅스/Git Bash 에서 'bash: \r: command not found' 로 죽는다.
+#   이 서비스의 스크립트는 리눅스(파드·작업 서버)에서 도는 것을 전제한다.
+*.sh text eol=lf
+
+# 스크립트가 source 하는 설정 파일도 마찬가지다.
+#   CRLF 로 받으면 값 끝에 CR 이 붙어 docker login 이나 kubectl 인자가
+#   조용히 어긋난다. 구문 오류가 아니라 더 나쁘다.
+*.env text eol=lf

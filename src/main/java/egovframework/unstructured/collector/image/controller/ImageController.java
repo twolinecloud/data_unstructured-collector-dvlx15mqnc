@@ -82,7 +82,7 @@ public class ImageController {
     @PostMapping("/batches")
     public ImageCollectService.ImageRunResult run(@RequestBody(required = false) ImageCollectService.ImageRunRequest req) {
         ImageCollectService.ImageRunRequest r = req == null ? null : new ImageCollectService.ImageRunRequest(
-                req.corrNos(), req.corrNoPrefix(), req.limit(), req.workers(), req.force(), req.virtualLatencyMs(), "API", false);
+                req.corrNos(), req.corrNoPrefix(), req.limit(), req.workers(), req.force(), req.virtualLatencyMs(), "API", false, false);
         return collect.run(r);
     }
 

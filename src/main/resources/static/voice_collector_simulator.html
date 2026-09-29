@@ -3685,10 +3685,12 @@ async function imLoadStatus() {
   const s = await quietGet('/api/v1/image/status');
   IM_STATUS = s;
   const e = $('im-engine');
+  imStartAvailable(!!s);
   if (!s) {
     e.className = 'pf-engine';
     e.textContent = '이미지 API 없음';
-    $('im-warn').innerHTML = '⚠ 이 서버에는 수용자 이미지 API 가 없습니다 — unstructured-collector 로 전환된 뒤에 쓸 수 있습니다(이관 전 voice-collector).';
+    $('im-warn').innerHTML = '⚠ 이 서버에는 수용자 이미지 API 가 없습니다 — admin-fe 의 <code>/voice/</code> 가 아직 이관 전 서버(voice-collector)를 보고 있습니다.'
+      + ' unstructured-collector 로 전환된 뒤에 쓸 수 있습니다(<code>docs/배포_전환_가이드_0929.md</code> 3절).';
     $('im-modes').textContent = '';
     return;
   }
@@ -3704,17 +3706,32 @@ async function imLoadStatus() {
   const t = s.tables || {};
   $('im-modes').textContent = `지금 구성 — 조회 ${t.image || ''} → ${t.cmfi || ''} → ${t.xvarm || ''} · 브로커 ${s.broker} · 복호화 ${s.decrypt}`
     + ` · 저장소 ${s.outputRoot} · 매핑 ${s.mapTable} (${a.h2 ? '로컬 H2' : esc(a.product || '')})`
-    + (a.mapping ? ` · 매핑 ${a.mapping.total}행` : '') + ` · PHOTO_REF 동시 갱신 ${s.updatePhotoRef ? '켬' : '끔'}`;
+    + (a.mapping ? ` · 매핑 ${a.mapping.total}행` : '') + ` · PHOTO_REF 동시 갱신 ${s.updatePhotoRef ? '켬' : '끔'}`
+    + (s.broker !== 'MOCK' ? ` · 이 검증의 받기는 수집기 내장 Mock 브로커(SIM 원본이 수집기 저장소에만 있다 — 설정 브로커 ${s.broker} 는 실제 수집 API 가 쓴다)` : '');
+}
+
+/** 이미지 API 가 없는 서버(이관 전)면 시작 버튼을 막는다 — 눌러 봐야 404 다. */
+function imStartAvailable(ok) {
+  const b = $('im-start');
+  if (IM_TIMER) return;
+  b.disabled = !ok;
+  b.title = ok ? '' : '이 서버에는 수용자 이미지 API 가 없습니다 — unstructured-collector 로 전환된 뒤에 쓸 수 있습니다';
 }
 
 async function imStart() {
   const q = imRequest();
+  if (!IM_STATUS) await imLoadStatus();
+  if (!IM_STATUS) {
+    showPopup('수용자 이미지 수집 검증을 시작할 수 없습니다', `<div class="pop-lead">이 서버에는 수용자 이미지 API 가 없습니다.</div>
+      <div class="hint mt-2">admin-fe 의 <code>/voice/</code> 가 아직 이관 전 서버(voice-collector)를 보고 있습니다. unstructured-collector 로 전환된 뒤에 쓸 수 있습니다.</div>`);
+    return;
+  }
   const s = IM_STATUS || {};
   const ok = await confirmPopup('수용자 이미지 수집 검증 시작', `
     <div class="pop-lead">SIM 사진 ${q.count}명분 · 워커 ${q.workers}개 · 건당 가상 지연 ${fmtMs(q.latencyMs || 0)}</div>
     <ul class="pop-list">
       <li><span class="lbl">준비:</span> 보라미 3테이블 SIM 행 + 암호화된 더미 사진 생성 · ${esc(s.source || '')}</li>
-      <li><span class="lbl">측정:</span> 조회 → FILEKEY 추출 → 브로커(${esc(s.broker || '?')}) 수신 → 복호화(${esc(s.decrypt || '?')}) → 저장 → DB 매핑</li>
+      <li><span class="lbl">측정:</span> 조회 → FILEKEY 추출 → 수신(수집기 내장 Mock 브로커${s.broker && s.broker !== 'MOCK' ? ` — 설정 ${esc(s.broker)} 는 SIM 원본을 못 읽어 쓰지 않음` : ''}) → 복호화(${esc(s.decrypt || '?')}) → 저장 → DB 매핑</li>
       <li><span class="lbl">검증:</span> 매핑 행 수 = 성공 수 · 최신 순번(2) 선택 · 원문 해시 일치 · Hikari 반납</li>
       <li><span class="lbl">끝나면:</span> SIM 행 · 매핑 · 더미 · 저장 사진 자동 삭제</li>
     </ul>
@@ -3741,7 +3758,7 @@ async function imCancel() {
 function imLock(on) {
   document.querySelectorAll('#im-box input').forEach(el => el.disabled = on);
   const b = $('im-start');
-  b.disabled = on;
+  b.disabled = on || !IM_STATUS;
   b.innerHTML = on ? '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>실행 중…'
     : '수용자 이미지 수집 검증 시작';
   const c = $('im-cancel');

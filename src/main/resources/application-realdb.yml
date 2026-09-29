@@ -1,0 +1,71 @@
+# ══════════════════════════════════════════════════════════════════════════
+#  실제 borami-db 조회 프로파일 (포트포워딩 전제)
+# ══════════════════════════════════════════════════════════════════════════
+#  local 과 <b>겹쳐서</b> 쓴다:
+#     mvn spring-boot:run -Dspring-boot.run.profiles=local,realdb
+#
+#  ── 선행 조건: 포트포워딩 ────────────────────────────────────────────────
+#     kubectl port-forward -n data-pipeline svc/borami-db-gijoxearrw 15433:5432
+#     (로그 컬렉터용 admin-db 는 별도)
+#     kubectl port-forward -n service-core  svc/admin-db-fy9tjq4tsk  15432:5432
+#
+#  ── 왜 프로파일을 따로 두는가 ────────────────────────────────────────────
+#     local 은 H2 Mock 스키마를 매 기동 시 적재한다(schema-borami-mock.sql).
+#     그 파일에는 DROP TABLE 이 들어 있어, 실DB 를 바라보는 상태로 돌면 사고가 난다.
+#     그래서 실DB 전환을 환경변수 몇 개가 아니라 <b>프로파일 하나</b>로 묶고,
+#     여기서 sql.init 을 확실히 꺼 둔다.
+#
+#  ── 2026-09-12 실DB 확인 사항 ────────────────────────────────────────────
+#     · im.tb_imsc_ptpr_dt 636행 · re.tb_rerd_tfin_ds 106행 · im.tb_imph_ucdr_ds 25행
+#     · TB_SMSM_CMFI_BS · ASYSCONTENTELEMENT 는 <b>없음</b> → 접견 3·4단 조인 불가
+#       (접견은 voice.broker/source 를 MOCK 으로 두고 전화만 DIRECT_JDBC 로 본다)
+#     · TELP_PCALL_RECRD_YN 전부 'N', TELP_RECRD_FILE_ID 전부 NULL → 전화도 0건이 정상
+#     · TELP_PTCR_PRSR_YN 값이 '0' → 지름길 필터의 비교값을 맞춰야 한다
+#     · TELP_STT_FLPTH_NM 전부 NULL → 이 DB 기준 '보라미 기존 STT' 는 없다(계획서 Q1)
+# ══════════════════════════════════════════════════════════════════════════
+
+spring:
+  sql:
+    init:
+      mode: never
+
+# 이제 local 만으로도 드롭다운 [개발계 DB] 로 붙을 수 있다(direct-db). 이 프로파일은
+# "기동부터 개발계 DB 를 본다" + 실DB 플래그 값을 한 번에 켜는 편의 묶음이다.
+voice:
+  source:
+    mode: DIRECT_JDBC
+    direct-db:
+      url: ${BORAMI_DB_URL:jdbc:postgresql://localhost:15433/borami}
+      username: ${BORAMI_DB_USER:borami}
+      password: ${BORAMI_DB_PASSWORD:}
+
+    # 실제 보라미 스키마 배치
+    schema:
+      imsc: ${VOICE_SCHEMA_IMSC:im}
+      rerd: ${VOICE_SCHEMA_RERD:re}
+      smsm: ${VOICE_SCHEMA_SMSM:sm}
+      xvarm: ${VOICE_SCHEMA_XVARM:}     # 테이블이 없어 비워 둔다 — 접견 조회 시 오류가 난다
+      irim: ${VOICE_SCHEMA_IRIM:ir}     # 수용자 이미지 내역
+
+    # 실 borami-db 에도 공통파일기본·XVARM 이 없어 접견 4단 조인이 서지 않는다 — MOCK_DEV 가 sm/xvarm 스키마에 만든다.
+    # (borami 계정에 CREATE SCHEMA/TABLE 권한이 있어야 한다. 없으면 docs/borami_missing_tables.sql 을 DBA 가 돌린다)
+    xvarm-mode: ${VOICE_XVARM_MODE:MOCK_DEV}
+    flag:
+      recorded-yes: ${VOICE_FLAG_RECORDED_YES:Y}
+      # 관측값이 '0' 이었다. 이 컬럼의 의미가 확정되면 맞춰 넣는다.
+      ptcr-yes: ${VOICE_FLAG_PTCR_YES:0}
+      not-deleted: ${VOICE_FLAG_NOT_DELETED:N}
+      encrypted: ${VOICE_FLAG_ENCRYPTED:Y}
+
+  # 접견은 XVARM·공통파일 테이블이 없어 실DB 로 끝까지 못 간다.
+  # 브로커·STT 는 Mock 을 유지한 채 조회만 실DB 로 확인한다.
+  broker:
+    mode: MOCK
+  stt:
+    mode: MOCK
+  decrypt:
+    mode: SKIP
+
+logging:
+  level:
+    egovframework.unstructured.collector.voice.source: DEBUG

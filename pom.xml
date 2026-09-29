@@ -1,243 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">  
-    <modelVersion>4.0.0</modelVersion>  
-    <groupId>egovframework.unstructured.collector</groupId>  
-    <artifactId>unstructured-collector-dvlx15mqnc</artifactId>  
-    <version>0.0.1</version>  
-    <packaging>jar</packaging>  
-    <name>unstructured-collector-dvlx15mqnc-RESTful-Service</name>  
-    <description>unstructured-collector-dvlx15mqnc service</description>  
-    <properties> 
-        <java.version>17</java.version>  
-        <maven.compiler.source>17</maven.compiler.source>  
-        <maven.compiler.target>17</maven.compiler.target>  
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>  
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>  
-        <maven.build.timestamp.format>yyyyMMdd-HHmmss</maven.build.timestamp.format>  
-        <buildtime>${maven.build.timestamp}</buildtime>  
-        <group-name/>  
-        <final-name>unstructured-collector-dvlx15mqnc</final-name>  
-        <docker-registry/>  
-        <docker-name/>  
-        <docker-tag/>  
-        <spring-profile/> 
-    </properties>  
-    <parent> 
-        <groupId>org.springframework.boot</groupId>  
-        <artifactId>spring-boot-starter-parent</artifactId>  
-        <version>3.5.14</version>  
-        <relativePath/> 
-    </parent>  
-    <dependencies> 
-        <dependency> 
-            <groupId>org.springframework.boot</groupId>  
-            <artifactId>spring-boot-starter</artifactId>  
-            <exclusions> 
-                <exclusion> 
-                    <groupId>org.springframework.boot</groupId>  
-                    <artifactId>spring-boot-starter-logging</artifactId> 
-                </exclusion> 
-            </exclusions> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.springframework.boot</groupId>  
-            <artifactId>spring-boot-starter-web</artifactId> 
-        </dependency>  
-        <dependency> 
-            <groupId>com.nimbusds</groupId>  
-            <artifactId>nimbus-jose-jwt</artifactId>  
-            <version>10.9</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.projectlombok</groupId>  
-            <artifactId>lombok</artifactId> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.springframework.boot</groupId>  
-            <artifactId>spring-boot-starter-log4j2</artifactId>  
-            <exclusions> 
-                <exclusion> 
-                    <groupId>org.slf4j</groupId>  
-                    <artifactId>slf4j-log4j12</artifactId> 
-                </exclusion> 
-            </exclusions> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.springdoc</groupId>  
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>  
-            <version>2.8.17</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.springframework.boot</groupId>  
-            <artifactId>spring-boot-starter-test</artifactId>  
-            <scope>test</scope> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.assertj</groupId>  
-            <artifactId>assertj-core</artifactId> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.json</groupId>  
-            <artifactId>json</artifactId>  
-            <version>20260522</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.springframework.boot</groupId>  
-            <artifactId>spring-boot-starter-actuator</artifactId> 
-        </dependency>  
-        <dependency> 
-            <groupId>io.micrometer</groupId>  
-            <artifactId>micrometer-registry-prometheus</artifactId> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.mybatis.spring.boot</groupId>  
-            <artifactId>mybatis-spring-boot-starter</artifactId>  
-            <version>3.0.5</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.egovframe.rte</groupId>  
-            <artifactId>egovframe-rte-ptl-mvc</artifactId>  
-            <version>5.0.0</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.egovframe.rte</groupId>  
-            <artifactId>egovframe-rte-psl-dataaccess</artifactId>  
-            <version>5.0.0</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.egovframe.rte</groupId>  
-            <artifactId>egovframe-rte-fdl-idgnr</artifactId>  
-            <version>5.0.0</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.egovframe.rte</groupId>  
-            <artifactId>egovframe-rte-fdl-property</artifactId>  
-            <version>5.0.0</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.egovframe.rte</groupId>  
-            <artifactId>egovframe-rte-fdl-string</artifactId>  
-            <version>5.0.0</version> 
-        </dependency>  
-        <dependency> 
-            <groupId>org.postgresql</groupId>  
-            <artifactId>postgresql</artifactId> 
-        </dependency>
-    </dependencies>  
-    <profiles> 
-        <profile> 
-            <id>default</id>  
-            <properties> 
-                <profile-name>default</profile-name> 
-            </properties>  
-            <activation> 
-                <activeByDefault>true</activeByDefault> 
-            </activation> 
-        </profile>  
-        <profile> 
-            <id>local</id>  
-            <properties> 
-                <profile-name>local</profile-name> 
-            </properties> 
-        </profile> 
-    </profiles>  
-    <build> 
-        <finalName>${final-name}</finalName>  
-        <resources> 
-            <resource> 
-                <filtering>false</filtering>  
-                <directory>src/main/java</directory>  
-                <includes> 
-                    <include>**/*.xml</include> 
-                </includes> 
-            </resource>  
-            <resource> 
-                <directory>src/main/resources</directory> 
-            </resource> 
-        </resources>  
-        <plugins> 
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId>  
-                <artifactId>maven-enforcer-plugin</artifactId>  
-                <version>3.0.0-M3</version>  
-                <executions> 
-                    <execution> 
-                        <id>enforce-maven</id>  
-                        <goals> 
-                            <goal>enforce</goal> 
-                        </goals>  
-                        <configuration> 
-                            <rules> 
-                                <requireMavenVersion> 
-                                    <version>3.0.5</version> 
-                                </requireMavenVersion> 
-                            </rules> 
-                        </configuration> 
-                    </execution> 
-                </executions> 
-            </plugin>  
-            <plugin> 
-                <groupId>org.apache.maven.plugins</groupId>  
-                <artifactId>maven-compiler-plugin</artifactId>  
-                <configuration> 
-                    <annotationProcessorPaths> 
-                        <path> 
-                            <groupId>org.projectlombok</groupId>  
-                            <artifactId>lombok</artifactId>  
-                            <version>${lombok.version}</version> 
-                        </path> 
-                    </annotationProcessorPaths> 
-                </configuration> 
-            </plugin>  
-            <plugin> 
-                <groupId>org.springframework.boot</groupId>  
-                <artifactId>spring-boot-maven-plugin</artifactId>  
-                <executions> 
-                    <execution> 
-                        <goals> 
-                            <goal>repackage</goal> 
-                        </goals>  
-                        <configuration> 
-                            <mainClass>egovframework.unstructured.collector.Main</mainClass> 
-                        </configuration> 
-                    </execution> 
-                </executions> 
-            </plugin>  
-            <plugin> 
-                <groupId>org.codehaus.mojo</groupId>  
-                <artifactId>exec-maven-plugin</artifactId>  
-                <version>3.0.0</version> 
-            </plugin>  
-            <plugin> 
-                <groupId>org.codehaus.mojo</groupId>  
-                <artifactId>properties-maven-plugin</artifactId>  
-                <version>1.0.0</version> 
-            </plugin>  
-            <plugin> 
-                <groupId>com.spotify</groupId>  
-                <artifactId>dockerfile-maven-plugin</artifactId>  
-                <version>1.4.13</version>  
-                <configuration> 
-                    <repository>${docker-registry}</repository>  
-                    <dockerfile>./src/main/docker/Dockerfile</dockerfile>  
-                    <buildArgs> 
-                        <JAR_FILE>${final-name}.jar</JAR_FILE>  
-                        <SPRING_PROFILE>${spring-profile}</SPRING_PROFILE> 
-                    </buildArgs> 
-                </configuration> 
-            </plugin> 
-        </plugins> 
-    </build>  
-    <repositories> 
-        <repository> 
-            <id>egovframe</id>  
-            <url>https://maven.egovframe.go.kr/maven/</url>  
-            <releases> 
-                <enabled>true</enabled> 
-            </releases>  
-            <snapshots> 
-                <enabled>false</enabled> 
-            </snapshots> 
-        </repository> 
-    </repositories> 
+  <!--
+    ⚠ artifactId / final-name 은 투라코(Turaco) 서비스명과 반드시 같아야 한다.
+      Jenkinsfile 의 podman build 단계가 JAR_FILE 빌드인자를 "$SERVICE_NAME.jar" 로 넘기므로,
+      target/unstructured-collector-dvlx15mqnc.jar 가 나와야 이미지 빌드가 성공한다.
+      로컬에서 짧은 이름으로 뽑고 싶으면 -Dfinal-name=unstructured-collector 로 덮어쓴다.
+  -->
+  <groupId>egovframework.unstructured.collector</groupId>
+  <artifactId>unstructured-collector-dvlx15mqnc</artifactId>
+  <version>0.0.1</version>
+  <packaging>jar</packaging>
+
+  <name>unstructured-collector-dvlx15mqnc-RESTful-Service</name>
+  <description>unstructured-collector — 비정형 데이터(접견·전화 음성 · 수용자 사진) 수집 서비스</description>
+
+  <properties>
+    <java.version>17</java.version>
+
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <maven.build.timestamp.format>yyyyMMdd-HHmmss</maven.build.timestamp.format>
+    <buildtime>${maven.build.timestamp}</buildtime>
+
+    <group-name></group-name>
+    <final-name>unstructured-collector-dvlx15mqnc</final-name>
+
+    <docker-registry></docker-registry>
+    <docker-name></docker-name>
+    <docker-tag></docker-tag>
+    <spring-profile></spring-profile>
+
+    <!-- SonarQube 업로드 리포트 축소 — 정적 자산(static/simulator.html)·문서·리소스 JSON/CSV·스크립트는
+         Java 품질분석 대상이 아니다. 이들을 제외하면 리포트가 작아져 Sonar 앞단 nginx 업로드 한도
+         (client_max_body_size, 기본 1MB)를 넘지 않는다 → 413 Request Entity Too Large 방지.
+         근본 해결은 Sonar nginx 의 client_max_body_size 상향(예: 50m)이며, 아래는 in-repo 완화책이다. -->
+    <sonar.exclusions>src/main/resources/static/**,src/main/resources/**/*.json,src/main/resources/**/*.csv,docs/**,scripts/**</sonar.exclusions>
+    <sonar.cpd.exclusions>src/main/resources/static/**</sonar.cpd.exclusions>
+  </properties>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.14</version>
+    <relativePath/> <!-- lookup parent from repository -->
+  </parent>
+
+  <repositories>
+    <repository>
+      <id>egovframe</id>
+      <url>https://maven.egovframe.go.kr/maven/</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>3.24.2</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.googlecode.log4jdbc</groupId>
+      <artifactId>log4jdbc</artifactId>
+      <version>1.2</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-log4j2</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-log4j12</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- Swagger -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>2.8.17</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.json</groupId>
+      <artifactId>json</artifactId>
+      <version>20260522</version>
+    </dependency>
+    <dependency>
+      <groupId>com.intellij</groupId>
+      <artifactId>annotations</artifactId>
+      <version>9.0.4</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         데이터 접근 계층
+
+         보라미 4단 조인 조회(voice.source.mode=DIRECT_JDBC)를 위한 것이다.
+         mode=MOCK 이면 이 DataSource 는 쓰이지 않지만, H2 를 함께 넣어
+         DB 접속 정보가 없어도 기동이 되게 방어한다
+         (H2 가 없으면 'Failed to configure a DataSource' 로 기동 자체가 실패한다).
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- MyBatis : SQL 을 XML 로 분리해 관리하는 데이터 접근 프레임워크 (Spring Boot 3.x 대응) -->
+    <dependency>
+      <groupId>org.mybatis.spring.boot</groupId>
+      <artifactId>mybatis-spring-boot-starter</artifactId>
+      <version>3.0.5</version>
+    </dependency>
+
+    <!-- Oracle JDBC 드라이버 : 실제 보라미(Oracle) 접속용. 실행 시점에만 필요하므로 runtime -->
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc11</artifactId>
+      <version>23.4.0.24.05</version>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- PostgreSQL : 개발계 borami-db(Mock 보라미) 접속용 -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+    </dependency>
+
+    <!-- H2 인메모리 DB : 로컬 개발·테스트용 + DB 미설정 시 기동 실패 방지용 안전장치 -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.2.224</version>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- 전자정부 표준프레임워크 5.0 실행환경(RTE) -->
+    <dependency>
+      <groupId>org.egovframe.rte</groupId>
+      <artifactId>egovframe-rte-ptl-mvc</artifactId>
+      <version>5.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.egovframe.rte</groupId>
+      <artifactId>egovframe-rte-psl-dataaccess</artifactId>
+      <version>5.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.egovframe.rte</groupId>
+      <artifactId>egovframe-rte-fdl-idgnr</artifactId>
+      <version>5.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.egovframe.rte</groupId>
+      <artifactId>egovframe-rte-fdl-property</artifactId>
+      <version>5.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.egovframe.rte</groupId>
+      <artifactId>egovframe-rte-fdl-string</artifactId>
+      <version>5.0.0</version>
+    </dependency>
+
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>default</id>
+      <properties>
+        <profile-name>default</profile-name>
+      </properties>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+    </profile>
+    <profile>
+      <id>local</id>
+      <properties>
+        <profile-name>local</profile-name>
+      </properties>
+    </profile>
+    <profile>
+      <id>dev</id>
+      <properties>
+        <profile-name>dev</profile-name>
+      </properties>
+    </profile>
+    <profile>
+      <id>prod</id>
+      <properties>
+        <profile-name>prod</profile-name>
+      </properties>
+    </profile>
+  </profiles>
+
+  <build>
+    <finalName>${final-name}</finalName>
+    <resources>
+      <resource>
+        <filtering>false</filtering>
+        <directory>src/main/java</directory>
+        <includes>
+          <include>**/*.xml</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.0.0-M3</version>
+        <executions>
+          <execution>
+            <id>enforce-maven</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>3.0.5</version>
+                </requireMavenVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+            <configuration>
+              <mainClass>egovframework.unstructured.collector.Main</mainClass>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Create Build Time for TAG -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.0.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>properties-maven-plugin</artifactId>
+        <version>1.0.0</version>
+      </plugin>
+      <!-- Docker Image Build -->
+      <plugin>
+        <groupId>com.spotify</groupId>
+        <artifactId>dockerfile-maven-plugin</artifactId>
+        <version>1.4.13</version>
+        <configuration>
+          <repository>${docker-registry}</repository>
+          <dockerfile>./src/main/docker/Dockerfile</dockerfile>
+          <buildArgs>
+            <JAR_FILE>${final-name}.jar</JAR_FILE>
+            <SPRING_PROFILE>${spring-profile}</SPRING_PROFILE>
+          </buildArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.sonarsource.scanner.maven</groupId>
+        <artifactId>sonar-maven-plugin</artifactId>
+        <version>3.11.0.3922</version>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

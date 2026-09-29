@@ -1,7 +1,163 @@
-swagger-ui:
-  protocol: "http"
-  host: "localhost:8000"
+# ══════════════════════════════════════════════════════════════════════════
+#  로컬 개발·시연 프로파일
+# ══════════════════════════════════════════════════════════════════════════
+#  실행: mvn spring-boot:run -Dspring-boot.run.profiles=local
+#
+#  ── 로컬 포트 배치 ────────────────────────────────────────────────────────
+#    8080  agent-connector       (사내 타 서비스 — 이 서비스와 연동 없음)
+#    8082  borami-xvarm-broker   (XVARM 브로커, 접견 트랙)
+#    8085  unstructured-collector (이 서비스)     ← 시뮬레이터 http://localhost:8085/voice_collector_simulator.html
+#          (이관 전 voice-collector 와 같은 포트 — 둘을 동시에 띄우지 않는다. 브로커·시뮬레이터가 8085 를 본다)
+#    8090  log-collector         (context-path /logc)
+#
+#    8080·8090 은 각 프로젝트의 application-local.yml 에 이미 정해져 있고 8082 는 브로커가
+#    쓴다. 이 서비스는 8085 를 써서 넷을 동시에 띄워도 겹치지 않는다.
+# ══════════════════════════════════════════════════════════════════════════
+
+server:
+  port: ${SERVER_PORT:8085}
+
+spring:
+  sql:
+    init:
+      mode: never   # H2 적재는 BoramiDataSourceConfig 가 H2 에만 한다
+
+# ── 로그 컬렉터 (T1·T2·T4) ────────────────────────────────────────────────
+#   K8s 의 DB 만 포트포워딩하고 컬렉터 앱은 로컬에서 직접 띄우는 구성.
+#   base-url 에는 반드시 context-path(/logc)까지 포함한다 — 빼면 전부 404 가 난다.
+#
+#   ⚠ 컬렉터가 안 떠 있어도 이 서비스는 정상 동작한다. LogCollectorClient 는 호출 실패를
+#     경고만 남기고 넘어간다(이력 적재가 수집을 막지 않는다). 다만 EXEC_ID 를 못 받아
+#     로컬 임시 ID(…VOC-LOCAL)로 돌아간다.
+log-collector:
+  enabled: ${LOG_COLLECTOR_ENABLED:true}
+  base-url: ${LOG_COLLECTOR_BASE_URL:}     # 비우면 환경 프리셋(로컬 http://localhost:8090/logc)
+  auth-token: ${LOG_COLLECTOR_TOKEN:}
+
+# ── 실제 K8s DB 를 보려면 (포트포워딩 전제) ──────────────────────────────
+#   두 DB 는 네임스페이스가 다르다. -n 을 빠뜨리면 서비스를 찾지 못한다.
+#
+#     kubectl port-forward -n service-core  svc/admin-db-fy9tjq4tsk  15432:5432
+#     kubectl port-forward -n data-pipeline svc/borami-db-gijoxearrw 15433:5432
+#
+#   | 대상       | 포트  | database       | user   | 용도                         |
+#   |-----------|------|----------------|--------|------------------------------|
+#   | admin-db  | 15432| correction_ai  | kcais  | 로그 컬렉터(kcais 스키마)      |
+#   | borami-db | 15433| borami         | borami | 보라미 조회(DIRECT_JDBC)      |
+#
+#   borami-db 를 직접 조회하려면 <b>realdb 프로파일을 겹쳐서</b> 띄운다:
+#     mvn spring-boot:run -Dspring-boot.run.profiles=local,realdb
+#   (realdb 가 sql.init 을 끄고 스키마·플래그 값을 실DB 에 맞춘다.
+#    local 단독으로 datasource 만 바꾸면 Mock 스키마의 DROP TABLE 이 실DB 에서 실행된다)
+
+voice:
+  # ── 5개 스위치 ────────────────────────────────────────────────────────────
+  #   로컬 기본값: 보라미 조회 DIRECT_JDBC(개발계 DB) · 브로커 REST(내 PC 8082) · 전화 MOCK · 복호화 REAL · STT MOCK.
+  #   기동 후 시뮬레이터 화면이나 PUT /api/v1/mock/modes/{name} 으로 재시작 없이 바꿀 수 있다.
+  #
+  #   조회를 [개발계 DB] 로 올리면 direct-db(기본 localhost:15433 = borami-db 포트포워딩)에 붙는다:
+  #     kubectl port-forward -n data-pipeline svc/borami-db-gijoxearrw 15433:5432
+  #   계정은 BORAMI_DB_USER / BORAMI_DB_PASSWORD 환경변수로 준다. 스키마(im/re/sm)는 개발계 DB 에만 붙고 H2 는 평평하다.
+  #
+  #   ⚠ 브로커가 REST 라서 8082 에 브로커가 떠 있지 않으면 접견 배치가 바로 실패한다(의도된 동작 —
+  #     Fail-fast). 브로커 없이 돌리려면 화면에서 브로커를 MOCK 으로 내리거나 VOICE_BROKER_MODE=MOCK.
+  source:
+    mode: ${VOICE_SOURCE_MODE:DIRECT_JDBC}          # MOCK(로컬 H2) | DIRECT_JDBC(개발계 DB) | ESB_HTTP2DB(메타빌드)
+    direct-db:
+      url: ${BORAMI_DB_URL:jdbc:postgresql://localhost:15433/borami}
+      username: ${BORAMI_DB_USER:borami}
+      password: ${BORAMI_DB_PASSWORD:}
+    # 개발계 borami-db 의 실제 스키마 배치(2026-09-12 확인). H2 에는 붙지 않는다.
+    schema:
+      imsc: ${VOICE_SCHEMA_IMSC:im}
+      rerd: ${VOICE_SCHEMA_RERD:re}
+      smsm: ${VOICE_SCHEMA_SMSM:sm}
+      xvarm: ${VOICE_SCHEMA_XVARM:}
+      irim: ${VOICE_SCHEMA_IRIM:ir}
+  # ── XVARM 브로커 ────────────────────────────────────────────────────────
+  #   MOCK : 내부 Mock 컴포넌트가 수신 폴더에 더미 파일을 만든다(외부 의존 없음)
+  #   REST : 8082 의 borami-xvarm-broker 를 실제로 호출한다
+  #
+  #   기본이 REST 다. 브로커를 local 프로파일로 띄우면 출력 폴더가 아래 dirs.receive-meet 을 가리킨다
+  #   (로컬에는 ESB 가 없으므로 브로커가 수신 폴더에 직접 써서 그 구간을 생략한다):
+  #
+  #     cd C:\Projects\data_borami-xvarm-broker-1joiuorqhl
+  #     mvn spring-boot:run -Dspring-boot.run.profiles=local        # 또는 IntelliJ Active profiles: local
+  #
+  #   레포 위치가 다르면 브로커 쪽에 BROKER_OUTPUT_DIR=<이 레포>/work/voice_raw/meet 를 준다.
+  #   배치 전에 시뮬레이터 [브로커 연결 확인] 으로 두 경로가 같은지 대조할 것.
+  #   브로커 없이 돌리려면:
+  #     curl -X PUT "http://localhost:8085/api/v1/mock/modes/broker?value=MOCK"
+  broker:
+    mode: ${VOICE_BROKER_MODE:REST}
+    # 비우면 환경 프리셋이 잡는다 — 로컬은 <b>내 PC 의 브로커</b>(http://localhost:8082).
+    #   K8s 서비스명은 PC 에서 DNS 가 풀리지 않아 접견 건이 전부 COLLECT 에서 죽는다.
+    #   개발계 브로커를 쓰려면 포트포워딩 후 VOICE_BROKER_BASE_URL 로 준다.
+    base-url: ${VOICE_BROKER_BASE_URL:}
+    # 시뮬레이터의 원클릭 주소 프리셋. 환경마다 브로커가 사는 곳이 달라
+    # 매번 손으로 치지 않게 둔다. 주소가 바뀌면 여기만 고치면 화면에 그대로 반영된다.
+    presets:
+      - label: "개발계 K8s"
+        url: "http://borami-xvarm-broker-1joiuorqhl:8080"
+      - label: "로컬 PC"
+        url: "http://localhost:8082"
+    # 로컬 브로커는 추출 지연을 1.5초로 흉내 낸다(BROKER_DELAY_MS). 폴링을 촘촘히 해야 접견 5건이 10초 안에 끝난다.
+    poll-interval-ms: ${VOICE_BROKER_POLL_MS:250}
+    poll-timeout-sec: ${VOICE_BROKER_TIMEOUT_SEC:30}
+  # ── 전화 파일 연계 ──────────────────────────────────────────────────────
+  #   ⚠ 브로커(XVARM)와 <b>별개 스위치</b>다. 전화는 XVARM 을 타지 않는다 —
+  #     보라미가 아닌 별도 서버에 파일이 있고 ESB 가 전화 전용 프로바이더를 구성해 준다.
+  #   MOCK : 내부에서 더미 전화 음성을 수신 폴더에 만든다(외부 의존 없음)
+  #   ESB  : 연계 프로바이더가 떨궈 주기를 기다린다. 로컬·개발계에는 ESB 가 없어 타임아웃 난다
+  phone:
+    mode: ${VOICE_PHONE_MODE:MOCK}          # MOCK | ESB
+  stt:
+    mode: ${VOICE_STT_MODE:MOCK}
+  decrypt:
+    # 접견 복호화를 상시 켠다. 시뮬레이션 데이터 생성이 이 모드를 보고 더미 원본을 실제로
+    #   암호화하므로(SimulationDataService.writeDummy), 브로커가 REST 여도 앞뒤가 맞는다.
+    #   ⚠ 전화는 실사양 미확정이라 phone.mode 를 MOCK 으로 두어야 한다(ESB 로 올리면 실패).
+    mode: ${VOICE_DECRYPT_MODE:REAL}
+    # 프로젝트 안의 테스트 키를 기본으로 둔다 — 복호화를 REAL 로 올렸을 때 "키 경로가 비어 있다"
+    #   로 곧바로 막히지 않게. Mock 브로커가 같은 키로 암호화해 떨구므로 앞뒤가 맞는다.
+    #   ⚠ 실제 암호화 파일을 풀려면 실 키 경로를 VOICE_RVS_KEY_PATH 로 준다(이 파일은 테스트 값이다).
+    rvs-key-path: ${VOICE_RVS_KEY_PATH:rvs_key.txt}
+
+  sync:
+    # Mock 파일은 즉시 완성되므로 안정성 검사를 짧게 둔다.
+    # 이 값이 건당 그대로 곱해져 대용량 시험 시간을 좌우한다(1,000건 × 100ms ≈ 2분).
+    stable-check-ms: ${VOICE_STABLE_CHECK_MS:100}
+    wait-timeout-sec: ${VOICE_WAIT_TIMEOUT_SEC:20}
+    naming-policy: ORIGINAL
+
+  # ── 디렉터리 (로컬) — ROOT_DIR 자동: Windows C:/k8s/voice_collector ─────────
+  #   전부 비워 두면 표준 배치가 된다. 로컬 브로커(local 프로파일)는 기본으로 다른 폴더에 떨구므로
+  #   브로커에 BROKER_OUTPUT_DIR=C:/k8s/voice_collector/esb/meet 를 주거나 [브로커 연결 확인] 으로 대조한다.
+  dirs:
+    base-dir: ${VOICE_BASE_DIR:}
+    xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}
+    receive-meet: ${VOICE_MEET_DIR:}
+    receive-phone: ${VOICE_PHONE_DIR:}
+    work: ${VOICE_WORK_DIR:}
+    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
+    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
+
+  # 로컬 H2 는 매 기동마다 비어 있으므로 시뮬레이션 데이터(접견 5·전화 5 + 더미 파일)를 기동 시 자동 생성한다.
+  sim:
+    seed-on-startup: ${VOICE_SIM_SEED_ON_STARTUP:true}
+
+  batch:
+    # 로컬에서는 스케줄을 끈다. 원치 않는 시점에 배치가 돌아 대상을 소진하면
+    # 시연을 다시 준비해야 한다. 실행은 시뮬레이터 버튼이나 API 로 한다.
+    schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
+    max-files-per-run: ${VOICE_MAX_FILES:20000}
+    retain-source-file: false            # PII 즉시 삭제 정책 검증을 로컬에서도 그대로
 
 logging:
-  config: classpath:log4j2-spring.yml
+  level:
+    egovframework.unstructured.collector: ${LOG_LEVEL:DEBUG}
 
+# ── 수용자 이미지 — Admin DB 는 기본 로컬 H2(매핑 테이블 자동 생성) ───────────────
+#   개발계 Admin DB 로 붙어 보려면 포트포워딩 후 환경변수로 준다(DDL 이 적용돼 있어야 한다):
+#     kubectl -n service-core port-forward svc/admin-db-fy9tjq4tsk 15434:5432
+#     ADMIN_DB_URL=jdbc:postgresql://localhost:15434/correction_ai  ADMIN_DB_USERNAME=…  ADMIN_DB_PASSWORD=…

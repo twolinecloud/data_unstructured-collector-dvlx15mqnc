@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-collector-configmap-f2qt98vpzs
+  namespace: data-pipeline
+data:
+  # 타임존 KST 통일. 로그 컬렉터·커넥터와 같은 시계를 봐야 한 배치의 T1·T4 가 어긋나지 않는다.
+  TZ: "Asia/Seoul"
+
+  # ── 하류(이미 K8s 에 떠 있는 것) — 처음부터 실물에 붙인다 ────────────────
+  #   같은 네임스페이스라 K8s 서비스명으로 닿는다.
+  #   앱 기본값과 같지만 암묵적 의존을 없애기 위해 명시한다.
+  LOG_COLLECTOR_ENABLED: "true"
+  LOG_COLLECTOR_BASE_URL: "http://log-collector-a2z96kgyrm:8080/logc"
+  VOICE_SINK_ENABLED: "true"
+  VOICE_CONNECTOR_BASE_URL: "http://agent-connector-dp8qbi7xqh:8080"
+
+  # ── 4개 스위치 — 준비되는 것부터 하나씩 실물로 전환한다 ──────────────────
+  #   REAL 로 올린 뒤 실패하면 Mock 으로 빠지지 않고 그대로 멈춘다(Fail-fast).
+  #   Mock 결과가 실제인 양 섞이면 시연·검증이 통째로 무의미해지기 때문이다.
+  VOICE_SOURCE_MODE: "MOCK"      # MOCK | DIRECT_JDBC | ESB_HTTP2DB  (Q2·Q15 확정 후)
+  VOICE_BROKER_MODE: "MOCK"      # MOCK | REST   (브로커 파드가 떠 있으므로 전환 가능)
+  VOICE_STT_MODE: "MOCK"         # MOCK | NPU                        (Q9 확정 후)
+  VOICE_DECRYPT_MODE: "SKIP"     # SKIP | REAL                       (Q13 확정 후)
+
+  # 브로커 파드(borami-xvarm-broker-1joiuorqhl, DUMMY 어댑터)의 주소.
+  # 주소는 미리 꽂아 두고 VOICE_BROKER_MODE 만 REST 로 올리면 붙는다.
+  VOICE_BROKER_BASE_URL: "http://borami-xvarm-broker-1joiuorqhl:8080"
+
+  # ── ROOT_DIR — 표준 디렉터리 6종의 뿌리 ─────────────────────────────────
+  #   앱이 OS 로 자동 감지하는 값(Linux /k8s/voice_collector)과 같지만, deployment.yaml 의
+  #   PVC 마운트(/k8s) 아래여야 한다는 제약을 눈에 보이게 하려고 명시한다.
+  #   아래 6종은 이 값에서 파생된다 — 개별 VOICE_*_DIR 은 주지 않는다(주면 그게 이긴다):
+  #     /k8s/voice_collector/xvram/original_voice_files   XVARM 접견 원본
+  #     /k8s/voice_collector/esb/meet · esb/phone         ESB 수신 (브로커 BROKER_OUTPUT_DIR 과 같아야)
+  #     /k8s/voice_collector/xvram/decoding               복호화·작업
+  #     /k8s/voice_collector/xenon/meet · xenon/phone     최종 STT 저장 (하류가 읽는 곳)
+  #   마운트 밖으로 바꾸면 파일이 컨테이너 임시 계층에 쓰이고 파드 재기동 때 사라진다.
+  VOICE_BASE_DIR: "/k8s/voice_collector"
+
+  # ── 보라미 Mock DB (borami-db-gijoxearrw) ───────────────────────────────
+  #   VOICE_SOURCE_MODE=DIRECT_JDBC 일 때만 실제로 쓰인다.
+  #
+  #   계정은 여기 두지 않는다. deployment.yaml 이 Backing 차트의
+  #   secret-borami-db-gijoxearrw 에서 POSTGRES_USERNAME·POSTGRES_PASSWORD 를
+  #   이미 주입하고 있다. 계정을 이 ConfigMap 이나 서비스 Secret 에 또 적으면
+  #   사본이 둘이 되어 한쪽만 바뀌었을 때 조용히 어긋난다.
+  #   (앱이 POSTGRES_* 를 받도록 application-dev.yml 을 맞춰야 한다 — 아래 3번 항목)
+  DB_DRIVER: "org.postgresql.Driver"
+  DB_URL: "jdbc:postgresql://borami-db-gijoxearrw:5432/borami"
+
+  # ⚠ 반드시 never 다. schema-borami-mock.sql 에는 DROP TABLE 이 들어 있고,
+  #   DB_URL 이 borami-db 를 가리키는 이상 always 로 두면 파드가 뜰 때마다
+  #   borami-db 의 표본 데이터를 지우고 다시 만든다.
+  SQL_INIT_MODE: "never"
+
+  # 배치 스케줄은 꺼 둔다. 개발계에서 예고 없이 돌면 대상이 소진되어 다른 사람 시험을 방해한다.
+  # 수동 기동은 VoiceBatchController 로 가능하다.
+  VOICE_SCHEDULE_ENABLED: "false"
+
+  LOG_LEVEL: "INFO"

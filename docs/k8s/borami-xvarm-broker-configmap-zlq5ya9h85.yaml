@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: borami-xvarm-broker-configmap-zlq5ya9h85
+  namespace: data-pipeline
+data:
+  TZ: "Asia/Seoul"
+
+  # Dockerfile 의 EXPOSE, 차트의 container.port·targetPort 와 모두 같아야 한다.
+  # 하나만 어긋나면 파드는 뜨는데 probe 가 계속 실패해 CrashLoop 처럼 보인다.
+  SERVER_PORT: "8080"
+
+  # ── XVARM 어댑터 ────────────────────────────────────────────────────────
+  #   개발계에는 XVARM 솔루션이 없다. DUMMY 가 가짜 음성 파일을 만들어
+  #   voice-collector 의 파일 도착 감시·폴링 로직을 실제로 돌려볼 수 있게 한다.
+  #   REAL 은 호출 사양 미확정(계획서 Q3)이라 호출 시 NOT_IMPLEMENTED 로 명시적으로 실패한다.
+  BROKER_XVARM_MODE: "DUMMY"
+  BROKER_XVARM_ENDPOINT: ""
+
+  # ── 산출 디렉터리 ───────────────────────────────────────────────────────
+  #   개발계에는 메타빌드 ESB 가 없다. 그래서 브로커가 voice-collector 의
+  #   접견 수신 폴더에 직접 쓰게 해 ESB 구간을 생략한다
+  #   (두 파드가 pvc-voice-collector-x2daarjxe4 를 RWX 로 공유한다).
+  #
+  #   ⚠ voice-collector 의 ESB 수신(접견) 폴더 = {VOICE_BASE_DIR}/esb/meet 과 반드시 같아야 한다.
+  #     다르면 브로커는 파일을 만들고 수집 서비스는 "수신 폴더 밖" 으로 즉시 실패시킨다.
+  BROKER_OUTPUT_DIR: "/k8s/voice_collector/esb/meet"
+
+  # 추출이 즉시 끝나지 않는다는 사실을 흉내 낸다. 호출 측 폴링이 실제로 도는지
+  # 확인하려면 지연이 있어야 한다. 0 이면 즉시 완료.
+  BROKER_DELAY_MS: "1500"
+  BROKER_AUDIO_SEC: "2"
+  BROKER_JOB_RETENTION_MIN: "60"
+
+  LOG_LEVEL: "INFO"

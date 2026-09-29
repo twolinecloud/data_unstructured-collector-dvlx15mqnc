@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  보라미 음성 대상 조회 SQL.
+
+  ── 2026-09-12 실DB(borami-db) 확인 결과를 반영했다 ──────────────────────────
+    · 테이블이 스키마로 나뉘어 있다 : im.tb_imsc_ptpr_dt · re.tb_rerd_tfin_ds · im.tb_imph_ucdr_ds
+      (회의 축어록 [00:17:26] "TVG의 RE면 RE점, IM이면 IM점" 이 이것)
+    · TB_SMSM_CMFI_BS 와 ASYSCONTENTELEMENT 는 borami-db 에 없다 → 접견 3·4단 조인 불가
+    · 플래그 값 도메인이 문서와 다르다 : TELP_PTCR_PRSR_YN = '0' (문서엔 값 정의 없음)
+    그래서 테이블명(${p.t*})과 플래그 값(#{p.flag*})을 전부 밖에서 받는다.
+
+  ⚠ ${} 는 바인딩이 아니라 문자열 치환이다. 식별자는 SQL 문법상 바인딩할 수 없어 어쩔 수 없고,
+    대신 BoramiTableNames 가 형식을 검증한 값만 들어온다.
+
+  ⚠ 원장 DB 직접 접근은 금지되어 있다(2026-08-07 메타빌드 협의) — I/F 테이블/뷰가 확정되면
+    스키마·테이블명 설정만 바꾸면 되도록 조인 구조와 컬럼 별칭을 분리해 두었다(계획서 Q15).
+
+  ⚠ Oracle / PostgreSQL / H2 에서 모두 도는 표준 문법만 쓴다.
+-->
+<mapper namespace="egovframework.unstructured.collector.voice.mapper.BoramiVoiceMapper">
+
+    <resultMap id="voiceTargetMap" type="egovframework.unstructured.collector.common.model.VoiceTarget">
+        <constructor>
+            <arg column="KIND"            javaType="egovframework.unstructured.collector.common.model.VoiceKind"/>
+            <arg column="CORR_NO"         javaType="java.lang.String"/>
+            <arg column="IDEMPOTENCY_KEY" javaType="java.lang.String"/>
+            <arg column="DOC_ID"          javaType="java.lang.String"/>
+            <arg column="FILE_KEY"        javaType="java.lang.String"/>
+            <arg column="ENCRYPTED"       javaType="_boolean"/>
+            <arg column="DECRYPT_KEY"     javaType="java.lang.String"/>
+            <arg column="SRC_FILE_PATH"   javaType="java.lang.String"/>
+            <arg column="SRC_FILE_NAME"   javaType="java.lang.String"/>
+            <arg column="SOURCE_STT_PATH" javaType="java.lang.String"/>
+            <arg column="OCCURRED_AT"     javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+
+    <!--
+      접견 녹음 4단 조인.
+        ① ${p.tImsc}  특이수용자상세 : SPECL_MNG_SE_CD 로 대상 선별
+        ② ${p.tRerd}  녹취파일내역   : CORR_NO 로 녹취 건 → TBLT_VTR_FILE_ID
+        ③ ${p.tSmsm}  공통파일기본   : CMMN_FILE_ID = ②.TBLT_VTR_FILE_ID → DOC_ID
+        ④ ${p.tXvarm} XVARM         : ELEMENTID = ③.DOC_ID → FILEKEY
+
+      ※ 삭제 플래그가 셋이다(녹취 DEL_YN · 녹음파일 RECRD_FILE_DEL_YN · 공통파일 DEL_YN).
+         하나라도 놓치면 이미 지워진 파일을 XVARM 에 요청하게 된다.
+      ※ ③④ 테이블은 2026-09-12 기준 borami-db 에 없다. 실연동 전까지 접견은 MOCK 을 쓴다.
+    -->
+    <select id="selectMeetTargets" resultMap="voiceTargetMap">
+        SELECT
+              'MEET'                      AS KIND
+            , R.CORR_NO                   AS CORR_NO
+            , R.TARE_FILE_NO              AS IDEMPOTENCY_KEY
+            , F.DOC_ID                    AS DOC_ID
+            , X.FILEKEY                   AS FILE_KEY
+            , CASE WHEN F.CMMN_FILE_ENC_YN = #{p.flagEncrypted} THEN 1 ELSE 0 END AS ENCRYPTED
+            , CAST(NULL AS VARCHAR(1))    AS DECRYPT_KEY
+            , R.TARE_FLPTH_NM             AS SRC_FILE_PATH
+            , R.TARE_FILE_NM              AS SRC_FILE_NAME
+            , CAST(NULL AS VARCHAR(1))    AS SOURCE_STT_PATH
+            , R.CRT_DT                    AS OCCURRED_AT
+        FROM ${p.tRerd} R
+        INNER JOIN ${p.tImsc} P
+                ON P.CORR_NO = R.CORR_NO
+               AND P.PTCR_PRSR_RMV_YMD IS NULL
+               AND P.SPECL_MNG_SE_CD IN
+                   <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>
+        INNER JOIN ${p.tSmsm} F
+                ON F.CMMN_FILE_ID = R.TBLT_VTR_FILE_ID
+               AND F.DEL_YN = #{p.flagNotDeleted}
+        LEFT JOIN ${p.tXvarm} X
+               ON X.ELEMENTID = F.DOC_ID
+        WHERE R.CRT_DT &gt;= #{p.from}
+          AND R.CRT_DT &lt;  #{p.to}
+          AND R.DEL_YN = #{p.flagNotDeleted}
+          AND R.RECRD_FILE_DEL_YN = #{p.flagNotDeleted}
+          AND R.TBLT_VTR_FILE_ID IS NOT NULL
+        ORDER BY R.CRT_DT, R.TARE_FILE_NO
+        OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
+    </select>
+
+    <!--
+      전화 녹음 — 특이수용자 조인 방식(정공법).
+      ※ TELP_PCALL_RECRD_YN 이 '녹음됨' 값인 건만 파일이 존재한다.
+      ※ 2026-09-12 borami-db 에서는 이 컬럼이 전부 'N' 이고 TELP_RECRD_FILE_ID 도 전부 NULL 이었다.
+    -->
+    <select id="selectPhoneTargets" resultMap="voiceTargetMap">
+        SELECT
+              'PHONE'                     AS KIND
+            , U.CORR_NO                   AS CORR_NO
+            , U.VRFC_ESTL_ID              AS IDEMPOTENCY_KEY
+            , CAST(NULL AS VARCHAR(1))    AS DOC_ID
+            , CAST(NULL AS VARCHAR(1))    AS FILE_KEY
+            , 1                           AS ENCRYPTED
+            , U.TELP_RECRD_FILE_ID        AS DECRYPT_KEY
+            , U.TELP_RECRD_FLPTH_NM       AS SRC_FILE_PATH
+            , U.TELP_RECRD_FILE_NM        AS SRC_FILE_NAME
+            , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH
+            , U.CRT_DT                    AS OCCURRED_AT
+        FROM ${p.tImph} U
+        INNER JOIN ${p.tImsc} P
+                ON P.CORR_NO = U.CORR_NO
+               AND P.PTCR_PRSR_RMV_YMD IS NULL
+               AND P.SPECL_MNG_SE_CD IN
+                   <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>
+        WHERE U.CRT_DT &gt;= #{p.from}
+          AND U.CRT_DT &lt;  #{p.to}
+          AND U.TELP_PCALL_RECRD_YN = #{p.flagRecordedYes}
+          AND U.DEL_DT IS NULL
+          AND U.TELP_RECRD_FILE_ID IS NOT NULL
+        ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
+        OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
+    </select>
+
+    <!--
+      전화 녹음 — 지름길. TELP_PTCR_PRSR_YN 플래그만으로 거른다.
+      ⚠ 실DB 관측값이 '0' 이었다(문서엔 값 정의 없음). flagPtcrYes 를 맞춰 주지 않으면 늘 0건이다.
+    -->
+    <select id="selectPhoneTargetsByFlag" resultMap="voiceTargetMap">
+        SELECT
+              'PHONE'                     AS KIND
+            , U.CORR_NO                   AS CORR_NO
+            , U.VRFC_ESTL_ID              AS IDEMPOTENCY_KEY
+            , CAST(NULL AS VARCHAR(1))    AS DOC_ID
+            , CAST(NULL AS VARCHAR(1))    AS FILE_KEY
+            , 1                           AS ENCRYPTED
+            , U.TELP_RECRD_FILE_ID        AS DECRYPT_KEY
+            , U.TELP_RECRD_FLPTH_NM       AS SRC_FILE_PATH
+            , U.TELP_RECRD_FILE_NM        AS SRC_FILE_NAME
+            , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH
+            , U.CRT_DT                    AS OCCURRED_AT
+        FROM ${p.tImph} U
+        WHERE U.CRT_DT &gt;= #{p.from}
+          AND U.CRT_DT &lt;  #{p.to}
+          AND U.TELP_PTCR_PRSR_YN = #{p.flagPtcrYes}
+          AND U.TELP_PCALL_RECRD_YN = #{p.flagRecordedYes}
+          AND U.DEL_DT IS NULL
+          AND U.TELP_RECRD_FILE_ID IS NOT NULL
+        ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
+        OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
+    </select>
+
+    <!-- 진단: 특이수용자 테이블에 실제로 접근되는지. 스키마 설정이 틀리면 여기서 먼저 터진다. -->
+    <select id="probeImsc" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM ${p.tImsc}
+    </select>
+
+</mapper>

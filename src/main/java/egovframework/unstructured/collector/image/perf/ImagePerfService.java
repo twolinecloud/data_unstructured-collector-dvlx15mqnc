@@ -2,7 +2,6 @@ package egovframework.unstructured.collector.image.perf;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.DbKindDetector;
 import egovframework.unstructured.collector.common.config.SourcePoolPeak;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
@@ -45,6 +44,10 @@ import java.util.concurrent.Executors;
  *   <li><b>검증</b> — 매핑 행 수 = 성공 수, 매핑된 순번이 최신(2)인지, 저장된 사진이 원문과 같은지(복호화 정확성)</li>
  *   <li><b>정리</b> — SIM 행 · 매핑 · 더미 · 저장 사진을 지운다(실패·중단이어도)</li>
  * </ol>
+ *
+ * <p><b>브로커</b>: SIM 원본(암호화된 더미 사진)은 수집기 저장소에만 있어, 받기는 설정 브로커가 아니라 수집기 내장
+ * Mock 브로커로 한다 — 개발계 브로커는 별도 파드 · DUMMY 어댑터라 FILEKEY 와 무관한 가짜 음성을 자기 파드에 만든다.
+ * 리포트의 {@code env.broker} 에 그렇게 적힌다. 실제 수집({@code POST /api/v1/image/batches})은 설정 브로커를 쓴다.</p>
  *
  * <p>음성 성능 시험·배치와 겹쳐 돌지 않는다 — 풀 최고치 측정이 섞인다.</p>
  */
@@ -108,7 +111,6 @@ public class ImagePerfService {
     private final SourcePoolPeak poolPeak;
     private final VoiceDirState dirs;
     private final VoiceModeState modes;
-    private final XvarmBrokerClient broker;
     private final DbKindDetector dbKind;
     private final PerfRunService voicePerf;
     private final BatchProgress voiceProgress;
@@ -233,7 +235,8 @@ public class ImagePerfService {
             run.to(Phase.RUNNING, "워커 %d개 · 건당 가상 지연 %dms 로 %d명 처리 중".formatted(req.workers(), req.latencyMs(), req.count()));
             poolPeak.reset();
             ImageCollectService.ImageRunResult r = collect.run(new ImageCollectService.ImageRunRequest(
-                    null, ImageSimulationService.PREFIX, req.count(), req.workers(), true, req.latencyMs(), "PERF", true));
+                    null, ImageSimulationService.PREFIX, req.count(), req.workers(), true, req.latencyMs(), "PERF", true,
+                    true));   // SIM 원본은 수집기 저장소에만 있다 — 내장 Mock 브로커로 받는다
             Map<String, Object> hikari = new LinkedHashMap<>(poolPeak.snapshot());
             hikari.put("after", poolPeak.state());
 
@@ -332,7 +335,7 @@ public class ImagePerfService {
                 .map(o -> Map.of("corrNo", o.corrNo(), "step", String.valueOf(o.failedAt()), "error", String.valueOf(o.errMsg())))
                 .toList());
         Map<String, Object> env = new LinkedHashMap<>();
-        env.put("broker", broker.mode());
+        env.put("broker", r.broker());
         env.put("decrypt", modes.decrypt().name());
         env.put("db", dbKind.label());
         env.put("adminDb", adminDb.isH2() ? "로컬 H2" : adminDb.url());

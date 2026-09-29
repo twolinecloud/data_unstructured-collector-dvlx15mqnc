@@ -1,6 +1,7 @@
 package egovframework.unstructured.collector.image.batch;
 
 import egovframework.unstructured.collector.common.broker.BrokerOutputCheck;
+import egovframework.unstructured.collector.common.broker.MockXvarmBrokerClient;
 import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.model.VoiceKind;
@@ -63,6 +64,11 @@ public class ImageCollectService {
 
     private final ImageSourceService source;
     private final XvarmBrokerClient broker;
+    /**
+     * 수집기 내장 Mock 브로커 — SIM 검증(6번 탭)이 쓴다. SIM 원본은 수집기 저장소에만 있어 실제 브로커가 읽을 수 없다
+     * (개발계 브로커는 별도 파드 · DUMMY 어댑터라 FILEKEY 와 무관한 가짜 음성을 자기 파드에 만든다).
+     */
+    private final MockXvarmBrokerClient mockBroker;
     private final FileArrivalWatcher watcher;
     private final VoiceDirState dirs;
     private final ImageFileStore store;
@@ -81,7 +87,9 @@ public class ImageCollectService {
             @Schema(description = "변경 없는 건도 다시 받는다", example = "false") Boolean force,
             @Schema(description = "건당 가상 처리 지연(ms) — 성능 시험용. 실제로 기다린다", example = "0") Long virtualLatencyMs,
             @Schema(hidden = true) String triggerBy,
-            @Schema(hidden = true) Boolean testRun
+            @Schema(hidden = true) Boolean testRun,
+            /** SIM 검증 — 설정 브로커 대신 수집기 내장 Mock 브로커로 받는다(원본이 수집기 저장소에만 있다) */
+            @Schema(hidden = true) Boolean simBroker
     ) {}
 
     /** 한 번의 결과. */
@@ -89,7 +97,9 @@ public class ImageCollectService {
             String execId, String triggerBy, int workers, int total, int success, int fail, int skipped,
             int inserted, int updated, int stale, long elapsedMs, boolean canceled,
             List<Map<String, Object>> stages, List<ImageOutcome> outcomes, boolean outcomesTruncated,
-            String outputRoot, String mapTable, Map<String, String> sourceTables
+            String outputRoot, String mapTable, Map<String, String> sourceTables,
+            /** 실제로 받은 브로커 — 설정 모드, 또는 SIM 검증이면 수집기 내장 Mock */
+            String broker
     ) {}
 
     // 진행 — 화면이 폴링한다({@link #progress()})
@@ -144,7 +154,7 @@ public class ImageCollectService {
             throw new IllegalStateException("수용자 이미지 수집이 이미 돌고 있습니다 — " + execId);
         }
         try {
-            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null) : req);
+            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null) : req);
         } finally {
             running.set(false);
             current = null;
@@ -159,6 +169,10 @@ public class ImageCollectService {
         int workers = Math.max(1, Math.min(64, req.workers() != null ? req.workers() : props.workers()));
         long virtualMs = req.virtualLatencyMs() == null ? 0L : Math.max(0L, Math.min(600_000L, req.virtualLatencyMs()));
         boolean force = Boolean.TRUE.equals(req.force());
+        // SIM 검증이면 수집기 내장 Mock 브로커로 받는다 — 설정 브로커(개발계 REST·DUMMY)는 SIM 원본을 읽을 수 없다
+        XvarmBrokerClient via = Boolean.TRUE.equals(req.simBroker()) ? mockBroker : broker;
+        String brokerLabel = via == mockBroker && !"MOCK".equals(broker.mode())
+                ? "MOCK(SIM 검증 — 수집기 내장 · 설정 " + broker.mode() + " 는 쓰지 않음)" : via.mode();
 
         execId = "IMG-" + LocalDateTime.now().format(EXEC_ID) + (test ? "-TST" : "");
         startedAt = t0;
@@ -170,8 +184,8 @@ public class ImageCollectService {
         active.set(0);
         total = 0;
         ImageMetrics m = new ImageMetrics();
-        log.info("[Image] 시작 — execId={} · 워커 {} · 조건 corrNos={} prefix={} limit={} force={}{}", execId, workers,
-                req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
+        log.info("[Image] 시작 — execId={} · 워커 {} · 브로커 {} · 조건 corrNos={} prefix={} limit={} force={}{}", execId, workers,
+                brokerLabel, req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
                 virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "");
 
         // ── 1 · 최신 이미지 조회 ──────────────────────────────────────────
@@ -217,7 +231,7 @@ public class ImageCollectService {
                         active.incrementAndGet();
                         current = t.shortId();
                         try {
-                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m));
+                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via));
                         } finally {
                             active.decrementAndGet();
                         }
@@ -245,7 +259,8 @@ public class ImageCollectService {
         return new ImageRunResult(execId, trigger, workers, outcomes.size(), (int) ok, (int) ng, (int) sk,
                 (int) ins, (int) upd, (int) stl, elapsed, canceled, m.snapshot(),
                 truncated ? List.copyOf(outcomes.subList(0, OUTCOME_LIMIT)) : outcomes, truncated,
-                store.outputRoot().toString().replace('\\', '/'), adminDb.table(AdminDb.PHOTO_TABLE), source.tables());
+                store.outputRoot().toString().replace('\\', '/'), adminDb.table(AdminDb.PHOTO_TABLE), source.tables(),
+                brokerLabel);
     }
 
     private ImageOutcome count(ImageOutcome o) {
@@ -260,7 +275,7 @@ public class ImageCollectService {
 
     /** 한 건 — 받기 → (가상 지연) → 복호화 → 저장 → 매핑. 예외를 밖으로 던지지 않는다. */
     private ImageOutcome processOne(ImageTarget t, InmatePhotoRepository.Mapped cur, boolean force, long virtualMs,
-                                    ImageMetrics m) {
+                                    ImageMetrics m, XvarmBrokerClient via) {
         long t0 = System.currentTimeMillis();
         if (t.docId() == null) {
             m.error(ImageStage.FILEKEY);
@@ -286,7 +301,7 @@ public class ImageCollectService {
             // ── 브로커 수신 ──
             long s = ImageMetrics.start();
             watcher.clearStale(dir, t.receiveName());
-            XvarmBrokerClient.ExtractResult r = broker.extractFile(new XvarmBrokerClient.FileRequest(
+            XvarmBrokerClient.ExtractResult r = via.extractFile(new XvarmBrokerClient.FileRequest(
                     t.docId(), t.fileKey(), t.requestId(execId), t.receiveName()));
             BrokerOutputCheck.mismatch(r.filePath(), dirs.receiveMeet()).ifPresent(reason -> {
                 throw new IllegalStateException(reason);

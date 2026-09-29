@@ -95,7 +95,7 @@ class ImagePipelineTest {
 
     private ImageCollectService.ImageRunResult runSim(boolean force) {
         return collect.run(new ImageCollectService.ImageRunRequest(null, ImageSimulationService.PREFIX, null, 2, force,
-                0L, "TEST", true));
+                0L, "TEST", true, null));
     }
 
     @Test
@@ -209,6 +209,7 @@ class ImagePipelineTest {
         Map<String, Object> checks = (Map<String, Object>) r.get("checks");
         assertThat(checks.get("ok")).as("정합성: %s", checks).isEqualTo(true);
         assertThat(checks.get("plainMatch")).isEqualTo(6L);
+        assertThat(((Map<String, Object>) r.get("env")).get("broker")).as("SIM 검증은 내장 Mock 브로커").asString().startsWith("MOCK");
         Map<String, Object> hikari = (Map<String, Object>) r.get("hikari");
         assertThat(((Map<String, Object>) hikari.get("after")).get("returned")).as("풀 반납").isEqualTo(true);
         // 가상 지연 20ms 가 단계에 잡힌다

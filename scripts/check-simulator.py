@@ -15,7 +15,7 @@ import re
 import sys
 from html.parser import HTMLParser
 
-HTML = r"C:\Projects\data_unstructured-collector-dvlx15mqnc\src\main\resources\static\voice_collector_simulator.html"
+HTML = r"C:\Projects\data_unstructured-collector-dvlx15mqnc\src\main\resources\static\unstructured_collector_simulator.html"
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input",
         "link", "meta", "param", "source", "track", "wbr"}
 

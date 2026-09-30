@@ -6,7 +6,7 @@
 #  ── 로컬 포트 배치 ────────────────────────────────────────────────────────
 #    8080  agent-connector       (사내 타 서비스 — 이 서비스와 연동 없음)
 #    8082  borami-xvarm-broker   (XVARM 브로커, 접견 트랙)
-#    8085  unstructured-collector (이 서비스)     ← 시뮬레이터 http://localhost:8085/voice_collector_simulator.html
+#    8085  unstructured-collector (이 서비스)     ← 시뮬레이터 http://localhost:8085/unstructured_collector_simulator.html
 #          (이관 전 voice-collector 와 같은 포트 — 둘을 동시에 띄우지 않는다. 브로커·시뮬레이터가 8085 를 본다)
 #    8090  log-collector         (context-path /logc)
 #

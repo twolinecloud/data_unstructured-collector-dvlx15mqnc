@@ -55,7 +55,7 @@ public class OpenApiConfig {
                         접견 배치가 전건 실패로 T1·T4 에 남고, 주소를 되돌린 뒤 다시 실행하면 실패했던 건만
                         새 EXEC_ID 로 재처리됩니다(멱등 표식은 성공 건에만 남기 때문).
 
-                        > 시뮬레이터 화면: [/voice_collector_simulator.html](/voice_collector_simulator.html)
+                        > 시뮬레이터 화면: [/unstructured_collector_simulator.html](/unstructured_collector_simulator.html)
                         """)
                 .license(new License().name("내부 프로젝트 (KCAIS)")));
     }

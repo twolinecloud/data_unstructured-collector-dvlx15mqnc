@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
 /**
@@ -26,6 +27,10 @@ import java.util.stream.Stream;
  * 디렉터리 규약을 두고 있어 원칙적으로는 {@code rcv} 에 있는 것만 보면 되지만, 그 규약이
  * 실제로 적용되는지 확정되지 않았고(Q7·Q14) 로컬 Mock 에는 적용되지 않는다.
  * 그래서 <b>크기가 일정 시간 그대로인지</b>를 한 번 더 본다 — 규약과 무관하게 성립하는 안전장치다.</p>
+ *
+ * <p><b>중단은 대기 중에도 먹는다</b>: 호출자가 중단 여부({@link BooleanSupplier})를 넘기면 폴링마다 보고 곧바로
+ * 멈춘다. 넘기지 않으면 대기 제한(개발계 300초)까지 기다려서, 파일이 끝내 오지 않는 건(브로커와 저장소가 갈린
+ * 경우 등)에서는 배치 [중단] 이 '중단하는 중…' 으로 5분을 멈춰 있었다(2026-09-30).</p>
  */
 @Log4j2
 @Component
@@ -36,9 +41,16 @@ public class FileArrivalWatcher {
     private final VoiceDirState dirs;
     private final EsbFileNamingPolicy namingPolicy;
 
+    /** 중단 문구 — 배치·화면이 '중단' 으로 알아본다. */
+    public static final String CANCELED = "중단됨 — 수신 파일 대기 중 사용자가 멈췄습니다";
+
     /** 파일명을 정책으로 추측해 기다린다. 공급자가 이름을 알려주지 않는 경우(전화)에 쓴다. */
     public VoiceFile await(VoiceTarget target) {
         return await(target, null);
+    }
+
+    public VoiceFile await(VoiceTarget target, String hintFileName) {
+        return await(target, hintFileName, () -> false);
     }
 
     /**
@@ -49,10 +61,11 @@ public class FileArrivalWatcher {
      *                     추측한 이름과 다르면 영영 찾지 못하고 타임아웃이 난다 — Mock 브로커는
      *                     같은 정책을 써서 우연히 일치했을 뿐이다. 실제 XVARM 이 원본명을
      *                     어떻게 정하는지 모르므로(계획서 Q3), 알려준 이름이 있으면 그걸 믿는다.</p>
+     * @param canceled     중단 여부 — 폴링마다 보고, 참이면 곧바로 멈춘다
      * @return 도착·안정 확인된 파일
-     * @throws IllegalStateException 타임아웃
+     * @throws IllegalStateException 타임아웃 · 중단
      */
-    public VoiceFile await(VoiceTarget target, String hintFileName) {
+    public VoiceFile await(VoiceTarget target, String hintFileName, BooleanSupplier canceled) {
         Path dir = dirFor(target.kind());
         String name = StringUtils.hasText(hintFileName)
                 ? hintFileName
@@ -64,6 +77,7 @@ public class FileArrivalWatcher {
             if (arrived(dir, name) && isStable(file)) {
                 return describe(target, file);
             }
+            stopIfCanceled(canceled, name);
             sleep(Math.max(props.sync().stableCheckMs() / 2, 200));
         }
         // 무엇을 기다렸는지만 적으면 원인을 못 찾는다 — 폴더에 지금 무엇이 있는지까지 같이 남긴다.
@@ -105,16 +119,18 @@ public class FileArrivalWatcher {
     /**
      * 정해진 폴더에 정해진 이름의 파일이 도착해 안정될 때까지 기다린다 — 대상 모델 없이(수용자 이미지).
      *
+     * @param canceled 중단 여부 — 폴링마다 보고, 참이면 곧바로 멈춘다
      * @return 도착한 파일
-     * @throws IllegalStateException 타임아웃 — 폴더 현황을 같이 싣는다
+     * @throws IllegalStateException 타임아웃(폴더 현황을 같이 싣는다) · 중단
      */
-    public Path awaitFile(Path dir, String fileName) {
+    public Path awaitFile(Path dir, String fileName, BooleanSupplier canceled) {
         Path file = dir.resolve(fileName);
         long deadline = System.currentTimeMillis() + props.sync().waitTimeoutSec() * 1000L;
         while (System.currentTimeMillis() < deadline) {
             if (arrived(dir, fileName) && isStable(file)) {
                 return file;
             }
+            stopIfCanceled(canceled, fileName);
             sleep(Math.max(props.sync().stableCheckMs() / 2, 200));
         }
         List<String> present = StaleFiles.names(dir);
@@ -193,6 +209,13 @@ public class FileArrivalWatcher {
             return new VoiceFile(target, file, size, format, false);
         } catch (IOException e) {
             throw new IllegalStateException("수신 파일 확인 실패: " + file, e);
+        }
+    }
+
+    private static void stopIfCanceled(BooleanSupplier canceled, String name) {
+        if (canceled != null && canceled.getAsBoolean()) {
+            log.info("[Sync] 수신 대기 중단 — {} (사용자 중단 요청)", name);
+            throw new IllegalStateException(CANCELED + " (" + name + ")");
         }
     }
 

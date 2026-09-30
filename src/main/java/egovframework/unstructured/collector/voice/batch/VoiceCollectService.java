@@ -1160,12 +1160,13 @@ public class VoiceCollectService {
             //   추측한 이름으로 찾으면 브로커가 다른 이름으로 만들었을 때 영영 못 찾고 타임아웃이 난다.
             //   Mock 브로커는 우리와 같은 명명 정책을 써서 우연히 일치했을 뿐이고,
             //   실제 XVARM 이 파일명을 어떻게 정하는지는 아직 모른다(계획서 Q3).
-            return watcher.await(target, fileNameOf(extracted.filePath()));
+            // 중단 요청은 대기 중에도 곧바로 먹는다 — 파일이 끝내 오지 않는 건에서 대기 제한(300초)까지 멈춰 있지 않게
+            return watcher.await(target, fileNameOf(extracted.filePath()), progress::isCancelRequested);
         }
         log.info("[Track:PHONE] ② 전화 파일 연계 요청 — {} via {}", target.shortId(), phoneFileProvider.mode());
         phoneFileProvider.request(target);
         log.info("[Track:PHONE] ③ 수신 대기 — {}", target.shortId());
-        return watcher.await(target);
+        return watcher.await(target, null, progress::isCancelRequested);
     }
 
     /** 경로에서 파일명만 뽑는다. 경로가 비었으면 null — watcher 가 정책으로 되돌아간다. */

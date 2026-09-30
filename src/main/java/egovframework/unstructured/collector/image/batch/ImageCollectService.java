@@ -351,7 +351,7 @@ public class ImageCollectService {
             BrokerOutputCheck.mismatch(r.filePath(), dirs.receiveMeet()).ifPresent(reason -> {
                 throw new IllegalStateException(reason);
             });
-            received = watcher.awaitFile(dir, fileNameOf(r.filePath(), t.receiveName()));
+            received = watcher.awaitFile(dir, fileNameOf(r.filePath(), t.receiveName()), () -> cancelRequested);
             m.add(ImageStage.ACQUIRE, s);
             injectIf(injectAt, ImageStage.ACQUIRE);
 

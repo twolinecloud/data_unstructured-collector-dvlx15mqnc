@@ -22,7 +22,7 @@ voice:
   decrypt:
     mode: ${VOICE_DECRYPT_MODE:REAL}
 
-  # ROOT_DIR 자동(Linux /k8s/voice_collector) 아래 표준 배치. 환경변수로 개별 덮어쓰기 가능.
+  # ROOT_DIR 자동(Linux /k8s/unstructured_collector) 아래 표준 배치. 환경변수로 개별 덮어쓰기 가능.
   dirs:
     base-dir: ${VOICE_BASE_DIR:}
     xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}

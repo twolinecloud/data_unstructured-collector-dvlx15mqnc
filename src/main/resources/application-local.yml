@@ -130,9 +130,9 @@ voice:
     wait-timeout-sec: ${VOICE_WAIT_TIMEOUT_SEC:20}
     naming-policy: ORIGINAL
 
-  # ── 디렉터리 (로컬) — ROOT_DIR 자동: Windows C:/k8s/voice_collector ─────────
+  # ── 디렉터리 (로컬) — ROOT_DIR 자동: Windows C:/k8s/unstructured_collector ─────────
   #   전부 비워 두면 표준 배치가 된다. 로컬 브로커(local 프로파일)는 기본으로 다른 폴더에 떨구므로
-  #   브로커에 BROKER_OUTPUT_DIR=C:/k8s/voice_collector/esb/meet 를 주거나 [브로커 연결 확인] 으로 대조한다.
+  #   브로커에 BROKER_OUTPUT_DIR=C:/k8s/unstructured_collector/esb/meet 를 주거나 [브로커 연결 확인] 으로 대조한다.
   dirs:
     base-dir: ${VOICE_BASE_DIR:}
     xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}

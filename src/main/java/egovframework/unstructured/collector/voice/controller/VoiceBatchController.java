@@ -477,7 +477,7 @@ public class VoiceBatchController {
 
                     | | Windows / 로컬(local 프로파일) | Linux / 배포(K8s) |
                     |---|---|---|
-                    | ROOT_DIR | `C:/k8s/voice_collector` | `/k8s/voice_collector` |
+                    | ROOT_DIR | `C:/k8s/unstructured_collector` | `/k8s/unstructured_collector` |
                     | XVARM 브로커 | `http://localhost:8082` | `http://borami-xvarm-broker-1joiuorqhl:8080` |
                     | 로그 컬렉터 | `http://localhost:8090/logc` | `http://log-collector-a2z96kgyrm:8080/logc` |
 

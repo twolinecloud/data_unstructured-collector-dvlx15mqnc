@@ -17,7 +17,7 @@ import java.util.Map;
  * 디렉터리 6종의 <b>런타임 상태</b> — ROOT_DIR 아래 표준 배치. 서버를 재시작하지 않고 바꿀 수 있다.
  *
  * <pre>
- *   ROOT_DIR           Windows C:/k8s/voice_collector · Linux/K8s /k8s/voice_collector ({@link DeployEnvPreset})
+ *   ROOT_DIR           Windows C:/k8s/unstructured_collector · Linux/K8s /k8s/unstructured_collector ({@link DeployEnvPreset})
  *   xvarmOriginal      {ROOT}/xvram/original_voice_files   XVARM 접견 원본 (시뮬레이션 더미 파일)
  *   receiveMeet        {ROOT}/esb/meet                     ESB 원본 수신 (접견)
  *   receivePhone       {ROOT}/esb/phone                    ESB 원본 수신 (전화)
@@ -189,8 +189,8 @@ public class VoiceDirState {
      * 시뮬레이터 프리셋.
      * <ul>
      *   <li><b>이 환경 기본</b> — 기동 시 값(OS 자동 ROOT_DIR + 설정 덮어쓰기)</li>
-     *   <li><b>Windows 로컬</b> — {@code C:/k8s/voice_collector} 표준 배치</li>
-     *   <li><b>Linux / K8s PV</b> — {@code /k8s/voice_collector} 표준 배치</li>
+     *   <li><b>Windows 로컬</b> — {@code C:/k8s/unstructured_collector} 표준 배치</li>
+     *   <li><b>Linux / K8s PV</b> — {@code /k8s/unstructured_collector} 표준 배치</li>
      * </ul>
      */
     public List<Map<String, Object>> presets() {

@@ -591,7 +591,9 @@ PL 요구사항(2026-09-29) — 단순 메타 조회가 아니라 **실제 파�
 - **처리 이력** — 아직 로그 컬렉터(T1·T2·T4)에 남기지 않는다. 이미지용 작업 코드가 로그 컬렉터에 먼저 정해져야 한다
 
 > 배포·전환 순서와 확인 방법: [`docs/배포_전환_가이드_0929.md`](docs/배포_전환_가이드_0929.md)
-> (개발계 DDL 적용 완료 · 차트 `data_HelmChart` f60994b — Admin DB Secret · RVS 키 · 데이터 PV)
+> (개발계 DDL 적용 완료 · 차트 `data_HelmChart` f60994b — Admin DB Secret · RVS 키 · 데이터 PV,
+> 2026-09-30 164f8e2 — 데이터 PVC 를 옛 voice-collector 에서 독립: `pvc-unstructured-collector-data`(이 차트 소유 · 브로커가 함께 붙임),
+> RVS 키 Secret `unstructured-collector-rvs-key`)
 
 ### Admin DB DDL — 배포 전에 관리자가 적용
 

@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -242,7 +243,8 @@ public class SimulationDataService {
         out.put("dirs", Map.of("meet", slash(meetDir), "phone", slash(phoneDir)));
         out.put("tables", tables.describe());
         out.put("windows", Map.of(
-                "daily", "접견 %d · 전화 %d (어제 00:00:00~23:59:59 에 고르게)".formatted(dailyMeet, dailyPhone),
+                "daily", "접견 %d · 전화 %d (어제 00:00:00~23:59:59 에 고르게 · 자정 직후면 주기 창이 닿지 않는 앞까지)"
+                        .formatted(dailyMeet, dailyPhone),
                 "periodic", "접견 %s · 전화 %s (분 단위, 지금 기준)".formatted(
                         offsetText(VoiceKind.MEET), offsetText(VoiceKind.PHONE))));
         // 화면 팝업이 쓰는 건수 — 일배치용/주기용을 나눠 센다. rows 는 테이블별이라 이 구분이 나오지 않는다.
@@ -271,6 +273,7 @@ public class SimulationDataService {
 
         LocalDateTime now = LocalDateTime.now().withNano(0);
         Timestamp ts = Timestamp.valueOf(now);
+        int guardMin = midnightGuardMin();
         // 특이수용자 — 접견·전화가 같은 사람(001~)을 쓴다. 코드는 1/2/3/0/5 를 돌려 가며 준다
         List<Object[]> inmateRows = new ArrayList<>();
         for (int i = 1; i <= inmates; i++) {
@@ -284,7 +287,7 @@ public class SimulationDataService {
 
         // 접견 — re → im → sm → xvarm
         for (int i = 1; i <= meetCount; i++) {
-            LocalDateTime at = occurredAt(now, i, dailyMeet, VoiceKind.MEET);
+            LocalDateTime at = occurredAt(now, i, dailyMeet, VoiceKind.MEET, guardMin);
             Timestamp crt = Timestamp.valueOf(at);
             String fileNm = meetFileName(i);
             Path file = meetDir.resolve(fileNm);
@@ -313,7 +316,7 @@ public class SimulationDataService {
 
         // 전화 — im 통화내역 → im 특이수용자
         for (int i = 1; i <= phoneCount; i++) {
-            LocalDateTime at = occurredAt(now, i, dailyPhone, VoiceKind.PHONE);
+            LocalDateTime at = occurredAt(now, i, dailyPhone, VoiceKind.PHONE, guardMin);
             Timestamp crt = Timestamp.valueOf(at);
             String fileNm = phoneFileName(i);
             Path file = phoneDir.resolve(fileNm);
@@ -621,16 +624,44 @@ public class SimulationDataService {
      * 이다. 주기배치는 10분마다 돌지만 창은 20분({@code periodic-lag-min})이라, 뒤엣것은 <b>10분 창만 봤다면
      * 놓쳤을 지연 건</b>이 된다 — 20분 창이 실제로 주워 오는지 확인하는 표본이다. 트랙마다 분을 다르게 둬서
      * 로그에서 접견·전화가 섞이지 않는다.</p>
+     *
+     * <p><b>자정 직후에도 두 창이 섞이지 않게</b> — 주기 창은 {@code [min(지금-lag, 당일 00:00), 지금)} 이라 자정 직후에는
+     * 어제 끝자락까지 거슬러 간다. 그대로 두면 00:15 에 ① 주기용 '지금-18분'(어제 23:57)이 어제 일배치 창으로 넘어가고
+     * ② 일배치용 마지막 건(23:59:59)이 주기 창에 걸린다. 2026-09-30 Jenkins 빌드(00:15 UTC)가 이것으로 8건 실패했다 —
+     * 빌드 에이전트는 UTC 라 <b>한국 시각 09:00~09:20 푸시가 매일</b> 걸렸다. 그래서</p>
+     * <ul>
+     *   <li>일배치용은 {@code 지금 - guardMin} 보다 앞에서 끝낸다 — 끝이 당겨지는 것은 자정 직후뿐이다</li>
+     *   <li>주기용은 당일 00:00 아래로 내려가지 않는다 — 오래된 건이 먼저인 순서는 초 단위로 지킨다</li>
+     * </ul>
+     *
+     * @param guardMin 주기 창이 자정 너머로 거슬러 갈 수 있는 최대 분(lag) + 여유
      */
-    static LocalDateTime occurredAt(LocalDateTime now, int i, int daily, VoiceKind kind) {
+    static LocalDateTime occurredAt(LocalDateTime now, int i, int daily, VoiceKind kind, int guardMin) {
+        LocalDateTime today = now.toLocalDate().atStartOfDay();
         if (i <= daily) {
-            // 마지막 건이 23:59:59 에 닿도록 (daily-1) 등분한다. 1건이면 00:00:00.
-            long sec = daily <= 1 ? 0 : ((long) (i - 1) * (DAY_SECONDS - 1)) / (daily - 1);
-            return now.toLocalDate().minusDays(1).atStartOfDay().plusSeconds(sec);
+            LocalDateTime yesterday = today.minusDays(1);
+            // 끝 — 보통 23:59:59. 자정 직후면 주기 창이 닿지 않는 '지금-guard' 앞까지
+            LocalDateTime end = today.minusSeconds(1);
+            LocalDateTime guard = now.minusMinutes(guardMin).minusSeconds(1);
+            if (guard.isBefore(end)) {
+                end = guard;
+            }
+            // 마지막 건이 끝에 닿도록 (daily-1) 등분한다. 1건이면 00:00:00.
+            long span = Math.max(0L, Duration.between(yesterday, end).getSeconds());
+            long sec = daily <= 1 ? 0 : ((long) (i - 1) * span) / (daily - 1);
+            return yesterday.plusSeconds(sec);
         }
         int[] offsets = PERIODIC_OFFSET_MIN.get(kind);
         int k = Math.min(i - daily, offsets.length);            // 1, 2
-        return now.minusMinutes(offsets[k - 1]);
+        LocalDateTime at = now.minusMinutes(offsets[k - 1]);
+        // 자정을 넘기면 당일 00:00 으로 올린다 — 오래된 건(k 가 큰 쪽)이 앞서도록 초 단위로 벌린다
+        LocalDateTime floor = today.plusSeconds(offsets.length - k);
+        return at.isBefore(floor) ? floor : at;
+    }
+
+    /** 자정 직후 일배치용 건을 당기는 여유 — 주기 창이 거슬러 갈 수 있는 최대 분(lag, 시험은 최대 20) + 10분. */
+    private int midnightGuardMin() {
+        return Math.max(20, props.batch().periodicLagMin()) + 10;
     }
 
     /** "지금-6분 / 지금-18분" 처럼 트랙의 주기배치 오프셋을 읽을 수 있게 적는다. */

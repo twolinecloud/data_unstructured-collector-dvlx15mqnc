@@ -17,7 +17,7 @@ import java.util.Map;
  *
  * <pre>
  *                     Windows / 로컬(local 프로파일)          Linux / 배포(K8s)
- *   ROOT_DIR           C:/k8s/voice_collector                 /k8s/voice_collector
+ *   ROOT_DIR           C:/k8s/unstructured_collector                 /k8s/unstructured_collector
  *   XVARM 브로커       http://localhost:8082                  http://borami-xvarm-broker-1joiuorqhl:8080
  *   로그 컬렉터        http://localhost:8090/logc             http://log-collector-a2z96kgyrm:8080/logc
  * </pre>
@@ -28,7 +28,7 @@ import java.util.Map;
  * 환경에 맞게 자동으로 맞춘다.</p>
  *
  * <p>ROOT_DIR 은 <b>OS</b> 로, URL 은 <b>환경 종류</b>(LOCAL/K8S)로 정한다 — Linux 노트북에서 local 프로파일로 띄우면
- * 경로는 {@code /k8s/voice_collector}, 브로커·컬렉터는 localhost 다.</p>
+ * 경로는 {@code /k8s/unstructured_collector}, 브로커·컬렉터는 localhost 다.</p>
  */
 @Log4j2
 @Component
@@ -36,8 +36,8 @@ public class DeployEnvPreset {
 
     public enum Kind { LOCAL, K8S }
 
-    public static final String ROOT_WINDOWS = "C:/k8s/voice_collector";
-    public static final String ROOT_LINUX = "/k8s/voice_collector";
+    public static final String ROOT_WINDOWS = "C:/k8s/unstructured_collector";
+    public static final String ROOT_LINUX = "/k8s/unstructured_collector";
     public static final String BROKER_LOCAL = "http://localhost:8082";
     public static final String BROKER_K8S = "http://borami-xvarm-broker-1joiuorqhl:8080";
     public static final String LOGC_LOCAL = "http://localhost:8090/logc";
@@ -100,7 +100,7 @@ public class DeployEnvPreset {
     public boolean isWindows() { return windows; }
     public List<String> profiles() { return profiles; }
     public Kind kind() { return kind; }
-    /** ROOT_DIR — Windows {@code C:/k8s/voice_collector}, Linux/K8s {@code /k8s/voice_collector} (설정이 있으면 그 값). */
+    /** ROOT_DIR — Windows {@code C:/k8s/unstructured_collector}, Linux/K8s {@code /k8s/unstructured_collector} (설정이 있으면 그 값). */
     public String rootDir() { return rootDir; }
     public String brokerBaseUrl() { return brokerBaseUrl; }
     public String logCollectorBaseUrl() { return logCollectorBaseUrl; }

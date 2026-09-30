@@ -10,7 +10,7 @@
 > **이관 (2026-09-29)** — `data_voice-collector-x2daarjxe4`(voice-collector)에서 이 저장소로 옮기고 이름을 바꿨다.
 > 투라코 서비스명 `unstructured-collector-dvlx15mqnc` · `spring.application.name=unstructured-collector`.
 > 그대로 둔 것: 수용자 PID salt(`kcais-voice-collector` — 바꾸면 기존 T4·T5 이력과 PID 가 어긋난다) ·
-> 설정 접두 `voice.*` · 데이터 루트 `/k8s/voice_collector`(브로커 출력 경로와 맞물림) · 시뮬레이터 파일명
+> 설정 접두 `voice.*` · 데이터 루트 `/k8s/unstructured_collector`(브로커 출력 경로와 맞물림) · 시뮬레이터 파일명
 > `unstructured_collector_simulator.html`(admin-fe 링크·nginx 경로).
 >
 > 설계 근거: `data_agent-connector-dp8qbi7xqh/study/회의록/9_11/음성수집_서비스_개발계획_초안_v2.md`
@@ -195,7 +195,7 @@ log-collector:
 - **헤더** — [Swagger] · **[시뮬레이션 데이터 생성]**(`POST /api/v1/mock/sim-data`) · **[시뮬레이션 데이터 초기화]**(`DELETE /api/v1/mock/test-data` — 테스트 이력 + 시뮬레이션 데이터 전부) · [상태 새로고침].
   그 아래 "환경" 줄에 자동 감지 결과(LOCAL/K8S · OS · ROOT_DIR · 브로커 · 로그 컬렉터 주소와 출처)가 뜬다
 - **상단 서브헤더 — 디렉터리** — ROOT_DIR 과 표준 6종(XVARM 접견 원본 · ESB 수신 접견/전화 · XVARM 복호화(작업) · 최종 저장 접견/전화) 경로를 한 줄로 보여주고,
-  프리셋 버튼 `기본(자동 감지)` / `Windows C:/k8s/voice_collector` / `PV /k8s/voice_collector` 을 고르는 즉시 반영한다(현재 값과 같은 프리셋이 진하게).
+  프리셋 버튼 `기본(자동 감지)` / `Windows C:/k8s/unstructured_collector` / `PV /k8s/unstructured_collector` 을 고르는 즉시 반영한다(현재 값과 같은 프리셋이 진하게).
   [편집 ▾] 을 누르면 6종 입력칸과 ROOT_DIR 로 표준 배치 채우기가 펼쳐진다 — 로드될 때 OS 감지값으로 채워져 있다.
   ESB 수신(접견)을 바꾸면 로컬 브로커의 `BROKER_OUTPUT_DIR` 도 맞춰야 한다 — [브로커 연결 확인] 으로 대조
 - **① 처리 구간 모드** — 접견·전화 2트랙의 스위치를 **드롭다운으로 즉시 전환**(서버 재시작 불필요).
@@ -342,7 +342,7 @@ STT 구간에 의도적으로 실패와 지연을 섞는다. **확인하려는 �
 
 | | Windows / 로컬(local 프로파일) | Linux / 배포(K8s) | 덮어쓰기 |
 |---|---|---|---|
-| ROOT_DIR | `C:/k8s/voice_collector` | `/k8s/voice_collector` | `VOICE_BASE_DIR` |
+| ROOT_DIR | `C:/k8s/unstructured_collector` | `/k8s/unstructured_collector` | `VOICE_BASE_DIR` |
 | XVARM 브로커 (①카드 라디오 · ④ 복구 주소) | `http://localhost:8082` | `http://borami-xvarm-broker-1joiuorqhl:8080` | `VOICE_BROKER_BASE_URL` |
 | 로그 컬렉터 | `http://localhost:8090/logc` | `http://log-collector-a2z96kgyrm:8080/logc` | `LOG_COLLECTOR_BASE_URL` |
 
@@ -364,7 +364,7 @@ STT 구간에 의도적으로 실패와 지연을 섞는다. **확인하려는 �
 - 없는 폴더는 **앱 기동 · 시뮬레이션 데이터 생성/초기화 · 경로 변경** 때 만든다(CREATE_IF_NOT_EXISTS)
 - STT 텍스트는 외부로 보내지 않고 배치(EXEC_ID) 단위 폴더에 남긴다. 하류(비식별)가 여기서 읽어 간다.
   배치 응답의 `outputDirs` 가 이 배치의 폴더, `outcomes[].sttPath` 가 파일별 경로. 텍스트는 `GET /api/v1/mock/stt-outputs?execId=` 로만(시뮬레이터용)
-- 로컬 브로커(local 프로파일)는 기본으로 다른 폴더에 떨구므로 브로커에 `BROKER_OUTPUT_DIR=C:/k8s/voice_collector/esb/meet`(K8s 는 `/k8s/voice_collector/esb/meet`)를 준다 —
+- 로컬 브로커(local 프로파일)는 기본으로 다른 폴더에 떨구므로 브로커에 `BROKER_OUTPUT_DIR=C:/k8s/unstructured_collector/esb/meet`(K8s 는 `/k8s/unstructured_collector/esb/meet`)를 준다 —
   [브로커 연결 확인] 이 두 경로를 대조한다
 - 런타임 변경: `GET/PUT /api/v1/mock/dirs` · `PUT /api/v1/mock/dirs/preset?key=configured|win|pv|base&baseDir=` · `POST /api/v1/mock/dirs/reset`
 - [시뮬레이션 데이터 초기화](`DELETE /api/v1/mock/test-data`)가 EXEC_ID 에 `TST` 가 든 출력 폴더도 통째로 지운다

@@ -113,9 +113,9 @@ voice:
     wait-timeout-sec: ${VOICE_WAIT_TIMEOUT_SEC:300}
     naming-policy: ${VOICE_NAMING_POLICY:ORIGINAL}   # ORIGINAL | ESB_DAT (Q7)
 
-  # ── PVC 마운트 지점 — ROOT_DIR 자동: Linux /k8s/voice_collector ──────────────
-  #   차트 dataMountPath /k8s 아래 voice_collector/ 가 표준 배치로 자동 생성된다(esb · xvram · xenon).
-  #   브로커 파드가 같은 PV 를 마운트하므로 브로커 BROKER_OUTPUT_DIR=/k8s/voice_collector/esb/meet 로 맞춘다.
+  # ── PVC 마운트 지점 — ROOT_DIR 자동: Linux /k8s/unstructured_collector ──────────────
+  #   차트 dataMountPath /k8s 아래 unstructured_collector/ 가 표준 배치로 자동 생성된다(esb · xvram · xenon).
+  #   브로커 파드가 같은 PV 를 마운트하므로 브로커 BROKER_OUTPUT_DIR=/k8s/unstructured_collector/esb/meet 로 맞춘다.
   dirs:
     base-dir: ${VOICE_BASE_DIR:}
     xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}
@@ -152,7 +152,7 @@ logging:
 # ── 수용자 이미지 — Admin DB(개발계, service-core 네임스페이스) ─────────────────
 #   계정은 차트가 Turaco backing Secret secret-admin-db-fy9tjq4tsk(username/password)에서 ADMIN_DB_USERNAME ·
 #   ADMIN_DB_PASSWORD 로 준다(data_HelmChart f60994b). 비어 있으면 매핑 단계가 인증 실패로 남는다.
-#   사진 저장소는 차트가 데이터 PV 를 /k8s 에 붙이고 IMAGE_OUTPUT_DIR=/k8s/voice_collector/image 로 준다.
+#   사진 저장소는 차트가 데이터 PV 를 /k8s 에 붙이고 IMAGE_OUTPUT_DIR=/k8s/unstructured_collector/image 로 준다.
 #   매핑 테이블 DDL(db/admin/V1__tb_src_inmate_photo.sql)은 개발계에 적용돼 있다(2026-09-29).
 image:
   admin-db:

@@ -484,7 +484,7 @@
       <div class="d-flex flex-wrap gap-2 align-items-end">
         <div class="input-group input-group-sm" style="max-width:24rem">
           <span class="input-group-text">ROOT_DIR</span>
-          <input type="text" class="form-control font-monospace" id="dir-base" placeholder="C:/k8s/voice_collector 또는 /k8s/voice_collector">
+          <input type="text" class="form-control font-monospace" id="dir-base" placeholder="C:/k8s/unstructured_collector 또는 /k8s/unstructured_collector">
           <button class="btn btn-outline-dark" id="btn-dir-base" title="ROOT_DIR 아래 표준 배치(xvram/original_voice_files · esb/meet · esb/phone · xvram/decoding · xenon/meet · xenon/phone)로 6종을 채웁니다">표준 배치로 채우기</button>
         </div>
         <div class="ms-auto d-flex gap-2">
@@ -493,7 +493,7 @@
         </div>
       </div>
       <div class="hint mt-2">
-        ROOT_DIR 은 OS 로 자동 감지 — Windows <code>C:/k8s/voice_collector</code>, Linux/K8s <code>/k8s/voice_collector</code>. 표준 배치:
+        ROOT_DIR 은 OS 로 자동 감지 — Windows <code>C:/k8s/unstructured_collector</code>, Linux/K8s <code>/k8s/unstructured_collector</code>. 표준 배치:
         <code>xvram/original_voice_files</code> · <code>esb/meet</code> · <code>esb/phone</code> · <code>xvram/decoding</code> · <code>xenon/meet/{execId}</code> · <code>xenon/phone/{execId}</code> (없으면 자동 생성).
         ESB 수신(접견) 폴더는 <b>로컬 브로커의 <code>BROKER_OUTPUT_DIR</code> 과 같아야</b> 합니다 — [브로커 연결 확인] 으로 대조.
       </div>
@@ -1678,7 +1678,7 @@ async function applyDirPreset(key, baseDir) {
 $('btn-dir-toggle').onclick = () => { accToggle('dirs-acc'); $('btn-dir-toggle').textContent = $('dirs-acc').classList.contains('open') ? '접기 ▴' : '편집 ▾'; };
 $('btn-dir-base').onclick = () => {
   const b = $('dir-base').value.trim();
-  if (!b) { log('ROOT_DIR 을 입력하십시오 (예: C:/k8s/voice_collector, /k8s/voice_collector)', 'er'); return; }
+  if (!b) { log('ROOT_DIR 을 입력하십시오 (예: C:/k8s/unstructured_collector, /k8s/unstructured_collector)', 'er'); return; }
   applyDirPreset('base', b);
 };
 $('btn-dir-apply').onclick = async () => {

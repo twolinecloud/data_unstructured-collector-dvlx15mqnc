@@ -210,7 +210,7 @@ public record VoiceProperties(
      * 디렉터리 6종 — ROOT_DIR 아래 <b>표준 배치</b>. 비우면 ROOT_DIR 로 파생되고, 채우면 그 값이 이긴다.
      *
      * <pre>
-     *   ROOT_DIR (base-dir)   비우면 OS 로 결정 — Windows C:/k8s/voice_collector · Linux/K8s /k8s/voice_collector
+     *   ROOT_DIR (base-dir)   비우면 OS 로 결정 — Windows C:/k8s/unstructured_collector · Linux/K8s /k8s/unstructured_collector
      *   xvarmOriginal          {ROOT}/xvram/original_voice_files   XVARM 접견 원본(시뮬레이션 더미 파일도 여기)
      *   receiveMeet            {ROOT}/esb/meet                     ESB 원본 수신 (접견) — 브로커·ESB 가 떨구는 곳
      *   receivePhone           {ROOT}/esb/phone                    ESB 원본 수신 (전화)

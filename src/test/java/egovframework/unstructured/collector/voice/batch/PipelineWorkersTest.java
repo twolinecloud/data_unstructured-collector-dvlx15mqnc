@@ -92,7 +92,7 @@ class PipelineWorkersTest {
         idempotency.clearAll();
         sim.seedPerf(5, 5, 0);
         doAnswer(inv -> watch(acquiring, maxAcquiring, "확보", inv::callRealMethod))
-                .when(watcher).await(any(), any());
+                .when(watcher).await(any(), any(), any());   // 배치는 중단 여부를 함께 넘기는 3-인자로 기다린다
         doAnswer(inv -> watch(transcribing, maxTranscribing, "STT", inv::callRealMethod))
                 .when(stt).transcribe(any());
     }

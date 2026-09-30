@@ -115,6 +115,28 @@ class FileArrivalWatcherTest {
     }
 
     @Test
+    @DisplayName("중단 요청은 대기 중에도 곧바로 먹는다 — 대기 제한(20초)까지 기다리지 않는다")
+    void cancelStopsWaitingAtOnce() throws Exception {
+        Path meet = tmp.resolve("meet-cancel");
+        FileArrivalWatcher w = watcher(meet);
+        java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean();
+        new Thread(() -> {
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException ignored) {
+                // 테스트 스레드
+            }
+            cancel.set(true);
+        }).start();
+
+        long t0 = System.currentTimeMillis();
+        assertThatThrownBy(() -> w.await(meetTarget(), "never-arrives.m4a", cancel::get))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("중단됨");
+        assertThat(System.currentTimeMillis() - t0).as("대기 제한 20초가 아니라 곧바로").isLessThan(3_000L);
+    }
+
+    @Test
     @DisplayName("0 바이트 파일은 도착으로 보지 않는다 — 쓰는 중일 수 있다")
     void emptyFileIsNotArrived() throws Exception {
         Path meet = tmp.resolve("meet5");

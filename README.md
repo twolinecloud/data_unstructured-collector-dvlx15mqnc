@@ -11,7 +11,7 @@
 > 투라코 서비스명 `unstructured-collector-dvlx15mqnc` · `spring.application.name=unstructured-collector`.
 > 그대로 둔 것: 수용자 PID salt(`kcais-voice-collector` — 바꾸면 기존 T4·T5 이력과 PID 가 어긋난다) ·
 > 설정 접두 `voice.*` · 데이터 루트 `/k8s/voice_collector`(브로커 출력 경로와 맞물림) · 시뮬레이터 파일명
-> `voice_collector_simulator.html`(admin-fe 링크·nginx 경로).
+> `unstructured_collector_simulator.html`(admin-fe 링크·nginx 경로).
 >
 > 설계 근거: `data_agent-connector-dp8qbi7xqh/study/회의록/9_11/음성수집_서비스_개발계획_초안_v2.md`
 
@@ -160,16 +160,16 @@ DBeaver 에서 손으로 만들려면 [`docs/borami_missing_tables.sql`](docs/bo
 
 | 주소 | 용도 |
 |---|---|
-| **`http://localhost:8085/voice_collector_simulator.html`** | **시뮬레이터** — 시연용 조작 화면 |
+| **`http://localhost:8085/unstructured_collector_simulator.html`** | **시뮬레이터** — 시연용 조작 화면 |
 | `http://localhost:8085/swagger-ui.html` | Swagger — API 개별 호출·스펙 확인 |
-| `https://<admin-fe>/voice_collector_simulator.html` | **배포 환경** — admin-fe(nginx)가 같은 HTML 을 정적으로 서빙하고 `/voice/` 를 수집기로 프록시 |
+| `https://<admin-fe>/unstructured_collector_simulator.html` | **배포 환경** — admin-fe(nginx)가 같은 HTML 을 정적으로 서빙하고 `/voice/` 를 수집기로 프록시 |
 
-**배포 환경은 admin-fe 를 통해서만 화면이 뜬다.** 같은 HTML 이 `service_admin-fe-iqgor1oiru/public/voice_collector_simulator.html` 에도 있고,
+**배포 환경은 admin-fe 를 통해서만 화면이 뜬다.** 같은 HTML 이 `service_admin-fe-iqgor1oiru/public/unstructured_collector_simulator.html` 에도 있고,
 화면 JS 가 API base 를 `''` → `/voice` 순으로 자동 감지한다(수집기가 직접 서빙하면 `''`, admin-fe 면 `/voice`; `?api=http://host:port` 로 강제 가능).
-admin-fe 의 `custom-nginx.conf` 에 `location = /voice_collector_simulator.html`(정적)과 `location /voice/`(→ `voice-collector-x2daarjxe4:8080`) 가 있다.
+admin-fe 의 `custom-nginx.conf` 에 `location = /unstructured_collector_simulator.html`(정적)과 `location /voice/`(→ `voice-collector-x2daarjxe4:8080`) 가 있다.
 
 백엔드 빌드·push 때 admin-fe 도 같이 올린다 — **`scripts/sync-admin-fe.ps1`**(`.sh`)이 HTML 을 복사하고 admin-fe 의
-`public/voice_collector_simulator.html` · `custom-nginx.conf` 를 add · commit · push 한다:
+`public/unstructured_collector_simulator.html` · `custom-nginx.conf` 를 add · commit · push 한다:
 
 ```powershell
 .\scripts\sync-admin-fe.ps1            # 복사 → 변경 있으면 commit · push (admin-fe 현재 브랜치)
@@ -528,7 +528,7 @@ Jenkins 파이프라인이 `${GROUP_NAME}_HelmChart` 레포의 `$STAGE/$SERVICE_
 ## 7. 패키지 구조
 
 ```
-src/main/resources/static/voice_collector_simulator.html   ← 시연·성능 시험 화면(1~6번 탭)
+src/main/resources/static/unstructured_collector_simulator.html   ← 시연·성능 시험 화면(1~6번 탭)
 
 egovframework.unstructured.collector
 ├─ common/     음성·이미지가 같이 쓰는 기반

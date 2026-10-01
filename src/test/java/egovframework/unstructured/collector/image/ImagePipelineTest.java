@@ -82,6 +82,10 @@ class ImagePipelineTest {
     private JdbcTemplate boramiJdbc;
     @Autowired
     private BoramiTableNames tables;
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    @Autowired
+    private egovframework.unstructured.collector.voice.controller.VoiceMockController voiceMock;
 
     @BeforeEach
     void clean() {
@@ -254,6 +258,29 @@ class ImagePipelineTest {
         assertThat(perf.history().get("total")).isEqualTo(1);
         assertThat(pools.state().get("returned")).isEqualTo(true);
 
+        // 단계별 실행 기록 — ①~⑤ 와 사후 검증이 실제 명령(값을 채운 SQL · cURL · 셸)과 결과로 남는다
+        List<Map<String, Object>> trace = objectMapper.convertValue(r.get("trace"), List.class);
+        assertThat(trace).extracting(e -> e.get("step")).contains("QUERY", "DOC_ID", "FILEKEY", "RECEIVE", "MAP", "VERIFY");
+        assertThat(trace).filteredOn(e -> "QUERY".equals(e.get("step"))).first()
+                .satisfies(e -> {
+                    assertThat(e.get("kind")).isEqualTo("SQL");
+                    assertThat((String) e.get("command")).contains("IMAGE_SE_CD").contains("'SIMIMG%'").doesNotContain(":prefix");
+                    assertThat((String) e.get("output")).contains("CORR_NO").contains("(6행");
+                });
+        assertThat(trace).filteredOn(e -> "RECEIVE".equals(e.get("step")))
+                .anySatisfy(e -> assertThat((String) e.get("command")).contains("curl -s -X POST").contains("/api/v1/xvarm/extract"));
+        assertThat(trace).filteredOn(e -> "MAP".equals(e.get("step")))
+                .anySatisfy(e -> {
+                    assertThat((String) e.get("command")).contains("INSERT INTO").contains("SIMIMG");
+                    assertThat((String) e.get("output")).contains("INSERTED");
+                });
+        assertThat(trace).filteredOn(e -> "VERIFY".equals(e.get("step"))).first()
+                .satisfies(e -> assertThat((String) e.get("output")).contains("6 | 6 | 6"));
+        // 폴링 — 마지막 seq 뒤로는 새 줄이 없다
+        int last = ((Number) trace.get(trace.size() - 1).get("seq")).intValue();
+        assertThat((List<?>) perf.current(last).get("trace")).isEmpty();
+        assertThat((List<?>) perf.current(0).get("trace")).hasSize(trace.size());
+
         perf.cleanSim();
         assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(0L);
         assertThat(boramiJdbc.queryForObject("SELECT COUNT(*) FROM " + tables.irimBsifDs() + " WHERE CORR_NO LIKE 'SIMIMG%'",
@@ -293,7 +320,9 @@ class ImagePipelineTest {
         assertThat(c2.get("ok")).as("재실행 정합성: %s", c2).isEqualTo(true);
         assertThat(c2.get("mappedRows")).isEqualTo(10);
         assertThat(c2.get("plainMatch")).isEqualTo(10L);
-        assertThat(perf.history().get("total")).isEqualTo(2);
+        // 이력은 마지막 실행만 남는다(덮어쓰기 — PV 용량) — 방금 돈 재실행 한 줄
+        assertThat(perf.history().get("total")).isEqualTo(1);
+        assertThat(((List<Map<String, Object>>) perf.history().get("items")).get(0).get("mode")).isEqualTo("RERUN");
     }
 
     @Test
@@ -321,6 +350,25 @@ class ImagePipelineTest {
         Map<String, Object> c2 = (Map<String, Object>) again.get("checks");
         assertThat(c2.get("ok")).as("정합성: %s", c2).isEqualTo(true);
         assertThat(c2.get("mappedRows")).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("상단 [시뮬레이션 데이터 초기화] 가 6번 탭 [SIM 데이터 정리] 까지 한다 — 이미지 SIM 행 · 매핑 · 사진")
+    @SuppressWarnings("unchecked")
+    void topResetAlsoCleansImageSim() throws Exception {
+        sim.seed(3);
+        runSim(false);
+        assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(3L);
+
+        Map<String, Object> out = voiceMock.deleteTestData();
+
+        Map<String, Object> image = (Map<String, Object>) out.get("imageSim");
+        assertThat(((Map<String, Object>) image.get("counts")).get("photoRows")).isEqualTo(3);
+        assertThat(photos.stats(ImageSimulationService.PREFIX).get("sim")).isEqualTo(0L);
+        assertThat(sim.residual().get("inmates")).isEqualTo(0L);
+        try (var files = Files.walk(root.resolve("image"))) {
+            assertThat(files.filter(Files::isRegularFile).toList()).as("저장 사진도 지운다").isEmpty();
+        }
     }
 
     private Map<String, Object> waitDone() throws InterruptedException {

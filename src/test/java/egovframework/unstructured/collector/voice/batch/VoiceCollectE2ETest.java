@@ -51,8 +51,6 @@ class VoiceCollectE2ETest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/voice").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "50");
@@ -60,6 +58,8 @@ class VoiceCollectE2ETest {
 
     @Autowired
     private VoiceCollectService service;
+    @Autowired
+    private egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
 
     @Autowired
     private IdempotencyGuard idempotency;
@@ -103,35 +103,33 @@ class VoiceCollectE2ETest {
     }
 
     @Test
-    @DisplayName("STT 텍스트가 배치 폴더 {output}/{execId}/ 에 .txt + .json 으로 남는다 — 접견은 xenon/voice, 전화는 xenon/phone")
-    void writesSttOutputsPerBatch() throws Exception {
+    @DisplayName("STT 결과는 제논(Zenon)으로 보낸다 — 건마다 수신증 하나, PV 에는 결과 폴더(xenon)가 생기지 않는다")
+    void sendsSttResultsToZenon() throws Exception {
         VoiceBatchResult result = service.run(wideWindow(), null, "TEST");
 
-        assertThat(result.outputDirs().get("MEET")).isEqualTo(
-                tmp.resolve("xenon/voice").resolve(result.execId()).toString().replace('\\', '/'));
-        assertThat(result.outputDirs().get("PHONE")).isEqualTo(
-                tmp.resolve("xenon/phone").resolve(result.execId()).toString().replace('\\', '/'));
+        assertThat(result.zenon()).containsEntry("mode", "MOCK").containsEntry("sent", String.valueOf(result.successCnt()));
+        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> receipts = zenon.receipts(result.execId());
+        assertThat(receipts).hasSize(result.successCnt());
         for (FileProcOutcome o : result.outcomes()) {
-            java.nio.file.Path text = java.nio.file.Path.of(o.sttPath());
-            assertThat(text).exists();
-            assertThat(text.getParent().toString().replace('\\', '/'))
-                    .isEqualTo(result.outputDirs().get(o.target().kind().name()));
-            assertThat(java.nio.file.Files.readString(text)).hasSize(o.sttChars());
-            java.nio.file.Path meta = text.resolveSibling(
-                    text.getFileName().toString().replace(".txt", ".json"));
-            assertThat(meta).exists();
-            assertThat(java.nio.file.Files.readString(meta)).contains("\"execId\"").contains(o.target().idempotencyKey());
+            assertThat(o.sttPath()).startsWith("zenon:").endsWith(".json");
+            var r = receipts.stream().filter(x -> o.target().idempotencyKey().equals(x.metadata().get("idempotency_key")))
+                    .findFirst().orElseThrow();
+            assertThat(r.code()).isEqualTo("SUCCESS");
+            assertThat(r.type()).isEqualTo("VOICE");
+            assertThat(r.inmateNo()).isEqualTo(o.target().corrNo());
+            assertThat(r.metadata()).containsEntry("exec_id", result.execId()).containsEntry("kind", o.target().kind().name());
         }
+        assertThat(tmp.resolve("xenon")).as("결과를 PV 에 남기지 않는다").doesNotExist();
     }
 
     @Test
-    @DisplayName("T2 단계 요약 — COLLECT · ANALYZE · DEIDENT · SEND 네 행, 전부 성공")
+    @DisplayName("T2 단계 요약 — 3단계(COLLECT · ANALYZE · SEND) 세 행, 전부 성공")
     void recordsCollectAndAnalyzeSteps() {
         VoiceBatchResult result = service.run(wideWindow(), null, "TEST");
 
-        // SEND 는 출력 저장 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
+        // SEND 는 제논 전송 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
         assertThat(result.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
+                .containsExactly("COLLECT", "ANALYZE", "SEND");
         assertThat(result.steps()).allSatisfy(st -> {
             assertThat(st.stepStsCd()).isEqualTo("SUCCESS");
             assertThat(st.inCnt()).isEqualTo(14);

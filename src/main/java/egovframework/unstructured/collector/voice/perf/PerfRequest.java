@@ -28,7 +28,7 @@ public record PerfRequest(
         Integer sttPercent,
         @Schema(description = "XVARM 확보 워커 수 — 1~64. 파일 확보(브로커 추출 → 수신 폴더 도착)를 차례로 한다", example = "1")
         Integer acquireWorkers,
-        @Schema(description = "STT 처리 워커 수 — 1~64. 확보된 파일을 곧바로 받아 복호화 · STT · 비식별 · 저장을 한다", example = "31")
+        @Schema(description = "STT 처리 워커 수 — 1~64. 확보된 파일을 곧바로 받아 복호화 · STT · 제논 전송을 한다", example = "31")
         @JsonAlias("concurrency") Integer sttWorkers,
         @Schema(description = "건당 STT 처리 시간 방식 — FIXED(고정) · RANGE(기준값 ±변동 폭 균등 난수)", example = "FIXED") String latencyMode,
         @Schema(description = "접견 건당 STT 처리 시간(ms) — 0~600,000. 평균 접견 15분 → 건당 처리 시간 180초", example = "180000")
@@ -39,10 +39,7 @@ public record PerfRequest(
         @Schema(description = "STT 타임아웃(ms) — 건당 처리 시간이 이 값을 넘으면 타임아웃 실패. 비우거나 0 이면 적용하지 않는다",
                 example = "200000") Long sttTimeoutMs,
         @Schema(description = "실제 대기 모드 — true 면 처리 시간만큼 실제로 기다린다. 비우거나 false 면 고속 모드"
-                + "(기다리지 않고 가상 시간을 리포트에 합산)", example = "false") Boolean realSleep,
-        @Schema(description = "비식별 수행 여부 — true 수행 / false·비우면 단순 전달(SEND)", example = "false") Boolean deidentEnabled,
-        @Schema(description = "건당 비식별 처리 시간(ms) — 비식별 수행일 때만. 0~600,000, 기본 5,000", example = "5000")
-        Long deidentLatencyMs
+                + "(기다리지 않고 가상 시간을 리포트에 합산)", example = "false") Boolean realSleep
 ) {
 
     public static final int MIN_TOTAL = 2;
@@ -56,7 +53,6 @@ public record PerfRequest(
     public static final long DEFAULT_MEET_LATENCY_MS = 180_000L;
     public static final long DEFAULT_PHONE_LATENCY_MS = 120_000L;
     public static final int DEFAULT_JITTER = 50;
-    public static final long DEFAULT_DEIDENT_LATENCY_MS = 5_000L;
     public static final int DEFAULT_ACQUIRE_WORKERS = 1;
     public static final int DEFAULT_STT_WORKERS = 31;
     public static final int MAX_WORKERS = 64;
@@ -76,9 +72,7 @@ public record PerfRequest(
                 phoneLatencyMs == null ? DEFAULT_PHONE_LATENCY_MS : phoneLatencyMs,
                 "RANGE".equals(mode) ? (jitterPercent == null ? DEFAULT_JITTER : jitterPercent) : 0,
                 timeout(sttTimeoutMs),
-                Boolean.TRUE.equals(realSleep),
-                Boolean.TRUE.equals(deidentEnabled),
-                deidentLatencyMs == null ? DEFAULT_DEIDENT_LATENCY_MS : deidentLatencyMs);
+                Boolean.TRUE.equals(realSleep));
     }
 
     /**
@@ -91,7 +85,6 @@ public record PerfRequest(
         validateWorkers("XVARM 확보 워커", acquireWorkers);
         validateWorkers("STT 처리 워커", sttWorkers);
         validateLoad(latencyMode, meetLatencyMs, phoneLatencyMs, jitterPercent, sttTimeoutMs);
-        validateDeident(deidentLatencyMs);
     }
 
     public int count() {
@@ -157,13 +150,6 @@ public record PerfRequest(
     static void validateWorkers(String what, Integer n) {
         if (n == null || n < 1 || n > MAX_WORKERS) {
             throw new IllegalArgumentException("%s 는 1~%d 이어야 합니다: %s".formatted(what, MAX_WORKERS, n));
-        }
-    }
-
-    /** 건당 비식별 처리 시간. */
-    static void validateDeident(Long ms) {
-        if (ms == null || ms < 0 || ms > MAX_LATENCY_MS) {
-            throw new IllegalArgumentException("건당 비식별 처리 시간은 0~%dms 이어야 합니다: %s".formatted(MAX_LATENCY_MS, ms));
         }
     }
 

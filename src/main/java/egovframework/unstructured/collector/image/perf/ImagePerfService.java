@@ -82,6 +82,8 @@ public class ImagePerfService {
     private static final int HISTORY_READ_MAX = 200;
     /** 매핑된 순번 — 시딩이 순번 1·2(사진)·3(사진 아님)을 만든다. 최신 사진은 2 다. */
     private static final int LATEST_SN = 2;
+    /** 브로커가 수신 폴더에 떨군 SIM 암호문 이름의 앞부분 — {@code ImageTarget.receiveName()} = img_{CORR_NO}_{IMAGE_SN}.bin. */
+    private static final String RECEIVED_PREFIX = "img_" + ImageSimulationService.PREFIX;
 
     public enum Phase {
         PREPARING("준비"), RUNNING("측정"), VERIFYING("검증"), DONE("완료"), FAILED("실패");
@@ -197,6 +199,8 @@ public class ImagePerfService {
     private final PerfRunService voicePerf;
     private final BatchProgress voiceProgress;
     private final ObjectMapper objectMapper;
+    /** 단계별 실행 기록 — 상태 폴링에 새 줄만, 결과에 전체를 싣는다. */
+    private final egovframework.unstructured.collector.image.batch.ImageTrace trace;
 
     private final ExecutorService runner = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "image-perf-runner");
@@ -290,6 +294,22 @@ public class ImagePerfService {
     }
 
     public Map<String, Object> current() {
+        return current(0);
+    }
+
+    /**
+     * 현재 실행 상태 — {@code traceAfter} 뒤에 붙은 실행 기록만 {@code trace} 로 싣는다(화면이 폴링하며 이어 붙인다).
+     */
+    public Map<String, Object> current(int traceAfter) {
+        Map<String, Object> m = currentBase();
+        if (m.get("runId") != null) {
+            m.put("traceExecId", trace.execId());
+            m.put("trace", trace.since(Math.max(0, traceAfter)));
+        }
+        return m;
+    }
+
+    private Map<String, Object> currentBase() {
         Run run = current;
         if (run == null) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -325,6 +345,7 @@ public class ImagePerfService {
         ImagePerfRequest req = run.req;
         Map<String, Object> result = null;
         String error = null;
+        trace.begin(null);   // 지난 실행 기록을 비운다 — 수집이 시작되면 실행 ID 로 다시 연다
         try {
             long p0 = System.currentTimeMillis();
             Map<String, Object> seed;
@@ -374,6 +395,7 @@ public class ImagePerfService {
             Map<String, Object> checks = checks(ex, r, after);
             result = summarize(run, req, r, seed, prepareMs, hikari, checks, ex);
             result.put("simKept", sim.residual());
+            result.put("trace", trace.entries());
         } catch (Exception e) {
             error = e.getClass().getSimpleName() + ": " + e.getMessage();
             log.warn("[ImagePerf] {} 실패 — {}", run.id, error, e);
@@ -488,6 +510,8 @@ public class ImagePerfService {
         item(items, "dupKey", r.dupKeyFail() == 0, "PK 중복 오류 %d건".formatted(r.dupKeyFail()));
         item(items, "pool", returned, returned ? "커넥션 풀 반납 완료 (사용 0 · 대기 0)" : "커넥션 풀 반납 안 됨");
 
+        traceVerify(r, rows.size(), touched.size(), latest, exist, plainOk, plain.size(), poolAfter);
+
         c.put("items", items);
         c.put("mappedRows", rows.size());
         c.put("mappedExpected", ex.mapped());
@@ -499,6 +523,36 @@ public class ImagePerfService {
         c.put("ok", !r.canceled() && items.stream().allMatch(i -> Boolean.TRUE.equals(i.get("ok"))));
         c.put("sample", rows.stream().limit(5).toList());
         return c;
+    }
+
+    /** 사후 검증을 손으로 돌릴 명령과 이번 결과 — 2번 탭 "실행 결과 상세 검증" 과 같은 모양. */
+    private void traceVerify(ImageCollectService.ImageRunResult r, int mapped, int touched, long latest, long exist,
+                             long plainOk, int plainChecked, Map<String, Object> poolAfter) {
+        var V = egovframework.unstructured.collector.image.batch.ImageTrace.Step.VERIFY;
+        trace.add(V, "매핑 테이블 — SIM 행 수 · 이번 실행이 쓴 행 · 최신 순번(" + LATEST_SN + ")", "SQL",
+                photos.verifySqlFor(ImageSimulationService.PREFIX, r.execId(), LATEST_SN),
+                "total | touched | latest\n" + mapped + " | " + touched + " | " + latest);
+        String root = String.valueOf(r.outputRoot());
+        trace.add(V, "저장 사진 — PV 의 이미지 폴더(수용자별 하위 폴더)", "SHELL",
+                "find " + root + " -type f -name '" + ImageSimulationService.PREFIX + "*' | wc -l",
+                exist + "   # 매핑 " + mapped + "행 중 파일이 있는 것");
+        trace.add(V, "수신 폴더 잔여물 — 받은 암호문(img_{수용자}_{순번}.bin)은 처리 뒤 지운다", "SHELL",
+                "ls " + dirs.receiveMeet().replace('\\', '/') + " | grep -c '^" + RECEIVED_PREFIX + "'",
+                String.valueOf(countReceived()));
+        trace.add(V, "원문 일치 — 저장 사진의 SHA-256 = SIM 원본(복호화 전) 해시", "CODE",
+                "sha256sum " + root + "/<수용자>/<파일>   # 시뮬레이터가 만든 원문 해시와 대조",
+                plainOk + "/" + plainChecked + " 일치");
+        trace.add(V, "커넥션 풀 반납 — 끝난 뒤 사용 0 · 대기 0", "CODE",
+                "HikariPoolMXBean.getActiveConnections() / getThreadsAwaitingConnection()",
+                String.valueOf(poolAfter));
+    }
+
+    private long countReceived() {
+        try (var s = Files.list(Path.of(dirs.receiveMeet()))) {
+            return s.filter(p -> p.getFileName().toString().startsWith(RECEIVED_PREFIX)).count();
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     private static void item(List<Map<String, Object>> items, String key, boolean ok, String label) {
@@ -595,12 +649,13 @@ public class ImagePerfService {
         return Path.of(dirs.baseDir(), "perf", HISTORY_FILE);
     }
 
+    /** 마지막 실행 결과만 남긴다 — 덮어쓰기(TRUNCATE_EXISTING). 누적하면 PV 가 끝없이 커진다(2026-10-01). */
     private synchronized void appendHistory(Map<String, Object> result) {
         Path f = historyFile();
         try {
             Files.createDirectories(f.getParent());
             Files.writeString(f, objectMapper.writeValueAsString(result) + "\n", StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             log.warn("[ImagePerf] 이력 기록 실패 — {} ({})", f, e.getMessage());
         }

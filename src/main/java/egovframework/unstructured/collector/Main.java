@@ -33,7 +33,8 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
  * {@code STR}(정형)은 데이터 수집 서비스, {@code EXT}(외부)는 외부 연계 수집 서비스가 쓴다.</p>
  */
 @EnableScheduling
-@EnableConfigurationProperties({VoiceProperties.class, ImageProperties.class})
+@EnableConfigurationProperties({VoiceProperties.class, ImageProperties.class,
+        egovframework.unstructured.collector.common.transfer.ZenonProperties.class})
 @SpringBootApplication
 public class Main {
 

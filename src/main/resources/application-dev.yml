@@ -114,7 +114,7 @@ voice:
     naming-policy: ${VOICE_NAMING_POLICY:ORIGINAL}   # ORIGINAL | ESB_DAT (Q7)
 
   # ── PVC 마운트 지점 — ROOT_DIR 자동: Linux /k8s/unstructured_collector ──────────────
-  #   차트 dataMountPath /k8s 아래 unstructured_collector/ 가 표준 배치로 자동 생성된다(esb · xvram · xenon).
+  #   차트 dataMountPath /k8s 아래 unstructured_collector/ 가 표준 배치로 자동 생성된다(esb · xvram). STT 결과는 PV 에 남기지 않는다(제논 전송).
   #   브로커 파드가 같은 PV 를 마운트하므로 브로커 BROKER_OUTPUT_DIR=/k8s/unstructured_collector/esb/meet 로 맞춘다.
   dirs:
     base-dir: ${VOICE_BASE_DIR:}
@@ -122,8 +122,6 @@ voice:
     receive-meet: ${VOICE_MEET_DIR:}
     receive-phone: ${VOICE_PHONE_DIR:}
     work: ${VOICE_WORK_DIR:}
-    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
-    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
 
   # 개발계는 기동 시 자동 생성하지 않는다 — 시뮬레이터 [시뮬레이션 데이터 생성] 으로만 만든다(남의 시험 보호).
   sim:

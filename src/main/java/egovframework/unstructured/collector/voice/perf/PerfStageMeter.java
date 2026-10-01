@@ -33,7 +33,7 @@ public class PerfStageMeter {
     private final Map<PerfStage, LongAdder> counts = new EnumMap<>(PerfStage.class);
     private final Map<PerfStage, AtomicLong> maxNanos = new EnumMap<>(PerfStage.class);
     private final Map<PerfStage, LongAdder> errors = new EnumMap<>(PerfStage.class);
-    /** 고속 모드에서 기다리지 않은 건별 처리 시간(ms) — 단계(STT·비식별)별. 리포트가 워커에 나눠 총 소요에 더한다. */
+    /** 고속 모드에서 기다리지 않은 건별 처리 시간(ms) — 단계(STT)별. 리포트가 워커에 나눠 총 소요에 더한다. */
     private final Map<PerfStage, java.util.Queue<Long>> virtualMs = new EnumMap<>(PerfStage.class);
     /** 지금 그 단계에 머물러 있는 스레드와 들어간 시각 — 한 스레드는 한 번에 한 건만 처리한다. */
     private final Map<PerfStage, Map<Thread, Long>> inFlight = new EnumMap<>(PerfStage.class);
@@ -53,7 +53,7 @@ public class PerfStageMeter {
      *
      * @param readyMs   확보가 끝나 대기열에 들어간 시각(루프 시작 기준)
      * @param serviceMs STT 워커가 실제로 쓴 시간(복호화 ~ 저장)
-     * @param virtualMs 고속 모드로 기다리지 않은 시간(STT · 비식별)
+     * @param virtualMs 고속 모드로 기다리지 않은 시간(STT)
      */
     public record PipelineItem(long readyMs, long serviceMs, long virtualMs) {}
 

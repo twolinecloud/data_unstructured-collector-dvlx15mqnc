@@ -43,7 +43,8 @@ public class HealthProbeService {
     private final egovframework.unstructured.collector.common.broker.RestXvarmBrokerClient restBroker;
     private final egovframework.unstructured.collector.common.broker.XvarmBrokerClient broker;
     private final egovframework.unstructured.collector.common.logging.LogCollectorClient logCollector;
-    private final egovframework.unstructured.collector.voice.transfer.AgentConnectorClient agentConnector;
+    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private final egovframework.unstructured.collector.common.transfer.ZenonProperties zenonProps;
     private final VoiceModeState modeState;
     private final VoiceProperties props;
     private final VoiceDirState dirs;
@@ -56,14 +57,16 @@ public class HealthProbeService {
                               egovframework.unstructured.collector.common.broker.RestXvarmBrokerClient restBroker,
                               egovframework.unstructured.collector.common.broker.XvarmBrokerClient broker,
                               egovframework.unstructured.collector.common.logging.LogCollectorClient logCollector,
-                              egovframework.unstructured.collector.voice.transfer.AgentConnectorClient agentConnector,
+                              egovframework.unstructured.collector.common.transfer.ZenonClient zenon,
+                              egovframework.unstructured.collector.common.transfer.ZenonProperties zenonProps,
                               VoiceModeState modeState, VoiceProperties props, VoiceDirState dirs,
                               RestTemplate voiceRestTemplate) {
         this.db = db;
         this.restBroker = restBroker;
         this.broker = broker;
         this.logCollector = logCollector;
-        this.agentConnector = agentConnector;
+        this.zenon = zenon;
+        this.zenonProps = zenonProps;
         this.modeState = modeState;
         this.props = props;
         this.dirs = dirs;
@@ -79,7 +82,7 @@ public class HealthProbeService {
             copy.put("cached", true);
             return copy;
         }
-        List<Map<String, Object>> items = List.of(probeDb(), probeEsb(), probeBroker(), probeLogCollector(), probeAgent());
+        List<Map<String, Object>> items = List.of(probeDb(), probeEsb(), probeBroker(), probeLogCollector(), probeZenon());
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("checkedAt", java.time.LocalDateTime.now().withNano(0).toString());
         out.put("cached", false);
@@ -156,24 +159,20 @@ public class HealthProbeService {
         return badge("logCollector", "로그 컬렉터", r.ok ? State.UP : State.DOWN, "", base, r.detail);
     }
 
-    /** 에이전트 커넥터 — 이관 적재 폴더가 쓸 수 있는 상태인지까지 확인한다. */
-    private Map<String, Object> probeAgent() {
-        if (!agentConnector.isEnabled()) {
-            return badge("agentConnector", "에이전트 커넥터", State.OFF, "", agentConnector.baseUrl(),
-                    "이관 비활성(agent-connector.enabled=false)");
+    /**
+     * 제논(Zenon) — 파이프라인 3단계 SEND 의 전송 대상. MOCK 이면 수집기 안에서 수신증만 만든다(네트워크 없음).
+     * REST 면 {@code {base-url}/health} 를 부른다(제논 목 서버 {@code tools/zenon-mock} 도 이 경로를 연다).
+     */
+    private Map<String, Object> probeZenon() {
+        if (zenonProps.mode() == egovframework.unstructured.collector.common.transfer.ZenonProperties.Mode.MOCK) {
+            return badge("zenon", "제논 전송", State.UP, "MOCK", zenon.endpoint(), "MOCK — 수집기 안에서 수신증만 만든다");
         }
-        String base = agentConnector.baseUrl();
-        String url = base.replaceAll("/+$", "") + "/api/v1/pipeline/ingest/status";
-        try {
-            JsonNode b = rest.exchange(url, HttpMethod.GET, null, JsonNode.class).getBody();
-            boolean ready = b != null && b.path("ready").asBoolean(false);
-            String dir = b == null ? "" : b.path("baseDir").asText("");
-            return badge("agentConnector", "에이전트 커넥터", ready ? State.UP : State.DOWN, "", base,
-                    ready ? "연결됨 · 적재 폴더 " + dir
-                          : "붙었지만 적재 폴더를 쓸 수 없습니다 — " + dir);
-        } catch (Exception e) {
-            return badge("agentConnector", "에이전트 커넥터", State.DOWN, "", base, rootMessage(e));
+        String base = zenonProps.baseUrl();
+        if (!StringUtils.hasText(base)) {
+            return badge("zenon", "제논 전송", State.DOWN, "REST", "(주소 미설정)", "zenon.base-url 이 비어 있습니다");
         }
+        Probe r = ping(base.replaceAll("/+$", "") + "/health");
+        return badge("zenon", "제논 전송", r.ok ? State.UP : State.DOWN, "REST", zenon.endpoint(), r.detail);
     }
 
     // ── 내부 ──────────────────────────────────────────────────────────────

@@ -29,8 +29,6 @@ voice:
     receive-meet: ${VOICE_MEET_DIR:}
     receive-phone: ${VOICE_PHONE_DIR:}
     work: ${VOICE_WORK_DIR:}
-    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
-    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
 
   batch:
     schedule-enabled: ${VOICE_SCHEDULE_ENABLED:true}

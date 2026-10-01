@@ -35,3 +35,7 @@ __pycache__/
 #   예전에는 .git/info/exclude 에만 있어 이 PC 에서만 적용됐다. clone 한 사람은
 #   규칙이 없어 ref/ 를 그대로 커밋할 수 있었으므로 레포로 옮긴다.
 /ref
+
+# 제논 Mock 서버 — 받은 파일 · 가상환경
+tools/zenon-mock/mock_received_files/
+tools/zenon-mock/.venv/

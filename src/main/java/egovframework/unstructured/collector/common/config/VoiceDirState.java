@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 디렉터리 6종의 <b>런타임 상태</b> — ROOT_DIR 아래 표준 배치. 서버를 재시작하지 않고 바꿀 수 있다.
+ * 디렉터리 5종의 <b>런타임 상태</b> — ROOT_DIR 아래 표준 배치. 서버를 재시작하지 않고 바꿀 수 있다.
  *
  * <pre>
  *   ROOT_DIR           Windows C:/k8s/unstructured_collector · Linux/K8s /k8s/unstructured_collector ({@link DeployEnvPreset})
@@ -22,9 +22,10 @@ import java.util.Map;
  *   receiveMeet        {ROOT}/esb/meet                     ESB 원본 수신 (접견)
  *   receivePhone       {ROOT}/esb/phone                    ESB 원본 수신 (전화)
  *   work               {ROOT}/xvram/decoding               XVARM 접견 복호화 (작업 · 멱등 표식)
- *   outputMeet         {ROOT}/xenon/meet/{execId}          최종 변환/저장 (접견)
- *   outputPhone        {ROOT}/xenon/phone/{execId}         최종 변환/저장 (전화)
  * </pre>
+ *
+ * <p>최종 결과 폴더({@code xenon/meet|phone})는 2026-10-01 없앴다 — STT 결과는 PV 에 남기지 않고 제논(Zenon)
+ * 수신 API 로 바로 보낸다({@code SEND}).</p>
  *
  * <p>{@link VoiceModeState} 와 같은 이유로 런타임에 둔다. 로컬에서는 브로커가 떨구는 폴더에,
  * 개발계에서는 PV 마운트 지점에 맞춰야 하는데, 경로가 어긋나면 배치는 "추출 완료" 뒤 빈 폴더를 보며
@@ -42,17 +43,13 @@ public class VoiceDirState {
     public static final String REL_RECEIVE_MEET = "esb/meet";
     public static final String REL_RECEIVE_PHONE = "esb/phone";
     public static final String REL_WORK = "xvram/decoding";
-    public static final String REL_OUTPUT_MEET = "xenon/meet";
-    public static final String REL_OUTPUT_PHONE = "xenon/phone";
 
     /** 화면 표기 순서·라벨 — 시뮬레이터 상단 서브헤더와 같다. */
     public static final List<String[]> LABELS = List.of(
             new String[] {"xvarmOriginal", "XVARM 접견 원본", "더미 음성 파일이 놓이는 곳 (시뮬레이션 데이터 생성)"},
             new String[] {"receiveMeet", "ESB 수신 (접견)", "브로커·ESB 가 떨구는 곳 — 로컬 브로커 BROKER_OUTPUT_DIR 과 같아야 한다"},
             new String[] {"receivePhone", "ESB 수신 (전화)", "ESB 전화 프로바이더가 떨구는 곳"},
-            new String[] {"work", "XVARM 복호화", "복호화 산출물 · 멱등 표식"},
-            new String[] {"outputMeet", "최종 저장 (접견)", "STT 결과 {여기}/{execId}/"},
-            new String[] {"outputPhone", "최종 저장 (전화)", "STT 결과 {여기}/{execId}/"});
+            new String[] {"work", "XVARM 복호화", "복호화 산출물 · 멱등 표식"});
 
     private final VoiceProperties props;
     private final DeployEnvPreset env;
@@ -62,8 +59,6 @@ public class VoiceDirState {
     private volatile String receiveMeet;
     private volatile String receivePhone;
     private volatile String work;
-    private volatile String outputMeet;
-    private volatile String outputPhone;
 
     @PostConstruct
     void init() {
@@ -73,10 +68,8 @@ public class VoiceDirState {
         this.receiveMeet = c.get("receiveMeet");
         this.receivePhone = c.get("receivePhone");
         this.work = c.get("work");
-        this.outputMeet = c.get("outputMeet");
-        this.outputPhone = c.get("outputPhone");
-        log.info("[Dirs] ROOT_DIR={} · XVARM원본={} · 수신(접견={} 전화={}) · 복호화={} · 저장(접견={} 전화={})",
-                baseDir, xvarmOriginal, receiveMeet, receivePhone, work, outputMeet, outputPhone);
+        log.info("[Dirs] ROOT_DIR={} · XVARM원본={} · 수신(접견={} 전화={}) · 복호화={} · 결과는 PV 에 남기지 않음(제논 전송)",
+                baseDir, xvarmOriginal, receiveMeet, receivePhone, work);
         ensureDirs();
     }
 
@@ -85,8 +78,6 @@ public class VoiceDirState {
     public String receiveMeet() { return receiveMeet; }
     public String receivePhone() { return receivePhone; }
     public String work() { return work; }
-    public String outputMeet() { return outputMeet; }
-    public String outputPhone() { return outputPhone; }
 
     /** 종류별 수신 디렉터리. */
     public Path receiveDir(VoiceKind kind) {
@@ -98,22 +89,8 @@ public class VoiceDirState {
         return Path.of(xvarmOriginal);
     }
 
-    /** 종류별 STT 출력 뿌리(EXEC_ID 폴더의 부모). */
-    public Path outputRoot(VoiceKind kind) {
-        return Path.of(kind == VoiceKind.MEET ? outputMeet : outputPhone);
-    }
-
     /**
-     * 배치 1회의 STT 출력 디렉터리 — {@code {output}/{execId}/}.
-     * EXEC_ID 는 컬렉터 채번값(영숫자)이지만 로컬 임시 ID 도 올 수 있어 파일명에 못 쓰는 문자를 걸러 낸다.
-     */
-    public Path outputDir(VoiceKind kind, String execId) {
-        String safe = (execId == null || execId.isBlank()) ? "UNKNOWN" : execId.replaceAll("[^A-Za-z0-9_.-]", "_");
-        return outputRoot(kind).resolve(safe);
-    }
-
-    /**
-     * 표준 6개 폴더를 만든다(CREATE_IF_NOT_EXISTS) — 앱 기동 · 경로 변경 · 시뮬레이션 데이터 생성/초기화 때.
+     * 표준 5개 폴더를 만든다(CREATE_IF_NOT_EXISTS) — 앱 기동 · 경로 변경 · 시뮬레이션 데이터 생성/초기화 때.
      * 못 만들어도 기동은 막지 않는다(권한·마운트 문제는 배치 때 사유와 함께 드러난다).
      *
      * @return 폴더별 결과(있음/만듦/실패)
@@ -146,8 +123,6 @@ public class VoiceDirState {
         m.put("receiveMeet", receiveMeet);
         m.put("receivePhone", receivePhone);
         m.put("work", work);
-        m.put("outputMeet", outputMeet);
-        m.put("outputPhone", outputPhone);
         return m;
     }
 
@@ -161,8 +136,6 @@ public class VoiceDirState {
         m.put("receiveMeet", or(d.receiveMeet(), std.get("receiveMeet")));
         m.put("receivePhone", or(d.receivePhone(), std.get("receivePhone")));
         m.put("work", or(d.work(), std.get("work")));
-        m.put("outputMeet", or(d.outputMeet(), std.get("outputMeet")));
-        m.put("outputPhone", or(d.outputPhone(), std.get("outputPhone")));
         return m;
     }
 
@@ -180,8 +153,6 @@ public class VoiceDirState {
         m.put("receiveMeet", b + "/" + REL_RECEIVE_MEET);
         m.put("receivePhone", b + "/" + REL_RECEIVE_PHONE);
         m.put("work", b + "/" + REL_WORK);
-        m.put("outputMeet", b + "/" + REL_OUTPUT_MEET);
-        m.put("outputPhone", b + "/" + REL_OUTPUT_PHONE);
         return m;
     }
 
@@ -212,7 +183,7 @@ public class VoiceDirState {
     /**
      * 경로를 바꾼다. 주어진 키만 바꾸고 나머지는 그대로 둔다. 바꾼 뒤 폴더를 만든다.
      *
-     * @param values baseDir / xvarmOriginal / receiveMeet / receivePhone / work / outputMeet / outputPhone → 경로
+     * @param values baseDir / xvarmOriginal / receiveMeet / receivePhone / work → 경로
      * @return 바뀌기 전 값 전체
      * @throws IllegalArgumentException 모르는 키, 빈 값
      */
@@ -227,7 +198,7 @@ public class VoiceDirState {
             String val = norm(e.getValue());
             if (!before.containsKey(key)) {
                 throw new IllegalArgumentException("알 수 없는 디렉터리 키: " + key
-                        + " (baseDir/xvarmOriginal/receiveMeet/receivePhone/work/outputMeet/outputPhone)");
+                        + " (baseDir/xvarmOriginal/receiveMeet/receivePhone/work)");
             }
             if (val.isEmpty()) {
                 throw new IllegalArgumentException(key + " 경로가 비어 있다");
@@ -239,8 +210,6 @@ public class VoiceDirState {
         this.receiveMeet = next.get("receiveMeet");
         this.receivePhone = next.get("receivePhone");
         this.work = next.get("work");
-        this.outputMeet = next.get("outputMeet");
-        this.outputPhone = next.get("outputPhone");
         log.info("[Dirs] 경로 변경 — {} → {}", before, snapshot());
         ensureDirs();
         return before;

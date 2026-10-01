@@ -65,10 +65,10 @@ public class ImageMockController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req));
     }
 
-    @Operation(summary = "진행 중(또는 마지막) 회차")
+    @Operation(summary = "진행 중(또는 마지막) 회차", description = "`traceAfter` 뒤에 붙은 단계별 실행 기록(SQL · cURL · 셸 명령과 결과)만 `trace` 로 싣는다 — 화면이 마지막 seq 를 넘기며 폴링한다.")
     @GetMapping("/perf/runs/current")
-    public Map<String, Object> current() {
-        return perf.current();
+    public Map<String, Object> current(@RequestParam(defaultValue = "0") int traceAfter) {
+        return perf.current(traceAfter);
     }
 
     @Operation(summary = "중지")
@@ -77,7 +77,7 @@ public class ImageMockController {
         return perf.cancel();
     }
 
-    @Operation(summary = "실행 이력", description = "`{ROOT}/perf/image-history.jsonl` — 최근 회차가 앞.")
+    @Operation(summary = "실행 이력", description = "`{ROOT}/perf/image-history.jsonl` — 마지막 실행 한 건만 남긴다(덮어쓰기 · 2026-10-01).")
     @GetMapping("/perf/runs")
     public Map<String, Object> history() {
         return perf.history();

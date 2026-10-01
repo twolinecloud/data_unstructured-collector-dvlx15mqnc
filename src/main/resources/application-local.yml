@@ -139,8 +139,6 @@ voice:
     receive-meet: ${VOICE_MEET_DIR:}
     receive-phone: ${VOICE_PHONE_DIR:}
     work: ${VOICE_WORK_DIR:}
-    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
-    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
 
   # 로컬 H2 는 매 기동마다 비어 있으므로 시뮬레이션 데이터(접견 5·전화 5 + 더미 파일)를 기동 시 자동 생성한다.
   sim:

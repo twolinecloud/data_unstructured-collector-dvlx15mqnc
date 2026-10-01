@@ -48,9 +48,6 @@ public record RampRequest(
         Integer acquireLimitSec,
         @Schema(description = "STT 에러·타임아웃이 나면 즉시 멈출지", example = "true") Boolean stopOnSttError,
         @Schema(description = "실제 대기 모드 — 비우거나 false 면 고속 모드(가상 시간 합산)", example = "false") Boolean realSleep,
-        @Schema(description = "비식별 수행 여부 — true 수행 / false·비우면 단순 전달(SEND)", example = "false") Boolean deidentEnabled,
-        @Schema(description = "건당 비식별 처리 시간(ms) — 비식별 수행일 때만. 0~600,000, 기본 5,000", example = "5000")
-        Long deidentLatencyMs,
         @Schema(description = "늘릴 워커 — STT(STT 처리 워커, 기본) · ACQUIRE(XVARM 확보 워커)", example = "STT") String rampTarget,
         @Schema(description = "XVARM 확보 워커 — STT 를 늘릴 때 고정값. 1~64, 기본 1", example = "1") Integer acquireWorkers,
         @Schema(description = "STT 처리 워커 — 확보를 늘릴 때 고정값. 1~64, 기본 31", example = "31") Integer sttWorkers
@@ -96,8 +93,6 @@ public record RampRequest(
                 acquireLimitSec == null ? 60 : acquireLimitSec,
                 stopOnSttError == null ? Boolean.TRUE : stopOnSttError,
                 Boolean.TRUE.equals(realSleep),
-                Boolean.TRUE.equals(deidentEnabled),
-                deidentLatencyMs == null ? PerfRequest.DEFAULT_DEIDENT_LATENCY_MS : deidentLatencyMs,
                 rampTarget == null || rampTarget.isBlank() ? Target.STT.name() : rampTarget.trim().toUpperCase(Locale.ROOT),
                 acquireWorkers == null ? PerfRequest.DEFAULT_ACQUIRE_WORKERS : acquireWorkers,
                 sttWorkers == null ? PerfRequest.DEFAULT_STT_WORKERS : sttWorkers);
@@ -106,7 +101,6 @@ public record RampRequest(
     public void validate(int maxFilesPerRun) {
         PerfRequest.validateData(meetCount, phoneCount, sttPercent, maxFilesPerRun);
         PerfRequest.validateLoad(latencyMode, meetLatencyMs, phoneLatencyMs, jitterPercent, sttTimeoutMs);
-        PerfRequest.validateDeident(deidentLatencyMs);
         try {
             Target.valueOf(rampTarget);
         } catch (IllegalArgumentException | NullPointerException e) {

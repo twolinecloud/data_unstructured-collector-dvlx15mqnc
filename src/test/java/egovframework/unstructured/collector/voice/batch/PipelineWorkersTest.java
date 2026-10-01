@@ -56,8 +56,6 @@ class PipelineWorkersTest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/meet").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "30");
@@ -137,7 +135,7 @@ class PipelineWorkersTest {
     void acquireOneAtATimeSttInParallel() {
         latency.apply(MockSttLatency.Mode.FIXED, 250, 250, 0, 0);   // 실제 대기
 
-        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, new Workers(1, 4), false);
+        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, new Workers(1, 4));
 
         assertThat(r.successCnt()).isEqualTo(10);
         assertThat(maxAcquiring.get()).as("XVARM 확보 워커 1 — 확보가 겹치지 않는다").isEqualTo(1);
@@ -145,8 +143,7 @@ class PipelineWorkersTest {
         assertThat(r.outcomes()).extracting(o -> o.target().idempotencyKey())
                 .as("한 건도 빠지거나 겹치지 않는다").hasSize(10).doesNotHaveDuplicates();
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE,
-                        FileProcOutcome.STEP_DEIDENT, FileProcOutcome.STEP_SEND);
+                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_SEND);
         Map<String, Object> p = progress.snapshot();
         assertThat(p.get("pipeline")).isEqualTo(true);
         assertThat(p.get("acquireWorkers")).isEqualTo(1);
@@ -158,7 +155,7 @@ class PipelineWorkersTest {
     void noConnectionHeldDuringSttOrAcquire() {
         latency.apply(MockSttLatency.Mode.FIXED, 100, 100, 0, 0);
 
-        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, new Workers(2, 8), false);
+        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, new Workers(2, 8));
 
         assertThat(r.successCnt()).isEqualTo(10);
         assertThat(heldDuringWork).as("STT·확보 중 커넥션/트랜잭션 점유").isEmpty();
@@ -169,7 +166,7 @@ class PipelineWorkersTest {
     @Test
     @DisplayName("둘 다 1 이면 종전 순차 — 생산자-소비자를 타지 않는다")
     void bothOneIsSequential() {
-        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, Workers.sequential(), false);
+        VoiceBatchResult r = collect.run(yesterday(), null, "TEST", true, ResumeMode.FULL, null, Workers.sequential());
 
         assertThat(r.successCnt()).isEqualTo(10);
         assertThat(progress.snapshot().get("pipeline")).isEqualTo(false);

@@ -4,6 +4,7 @@ import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.DbKindDetector;
 import egovframework.unstructured.collector.common.config.VoiceModeState;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
+import egovframework.unstructured.collector.image.batch.ImageTrace;
 import egovframework.unstructured.collector.image.config.AdminDb;
 import egovframework.unstructured.collector.image.config.ImageProperties;
 import egovframework.unstructured.collector.image.sim.ImageSimulationService;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
@@ -48,6 +50,7 @@ public class ImageController {
     private final XvarmBrokerClient broker;
     private final DbKindDetector dbKind;
     private final ImageSimulationService sim;
+    private final ImageTrace trace;
 
     @Operation(summary = "지금 구성 · Admin DB 상태",
             description = "원천(보라미) DB · 조회 테이블 · 브로커·복호화 모드 · 저장소 · Admin DB 연결과 매핑 테이블 존재 여부. "
@@ -98,6 +101,18 @@ public class ImageController {
     @GetMapping("/progress")
     public Map<String, Object> progress() {
         return collect.progress();
+    }
+
+    @Operation(summary = "단계별 실행 기록",
+            description = "마지막(또는 진행 중) 수집이 실제로 수행한 명령과 결과 — ① 최신 이미지 조회 SQL(첫 페이지) · ②③ DOC_ID/FILEKEY 조인 SQL · "
+                    + "④ 브로커 추출 cURL · 수신 파일 · 복호화 · ⑤ 저장 파일 · UPSERT SQL · 매핑 확인(첫 건 표본). "
+                    + "SQL 은 값을 채운 형태라 그대로 복사해 DB 에서 돌려 대조할 수 있다. `after` 뒤의 seq 만 돌려준다.")
+    @GetMapping("/trace")
+    public Map<String, Object> trace(@RequestParam(defaultValue = "0") int after) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("execId", trace.execId());
+        m.put("entries", trace.since(Math.max(0, after)));
+        return m;
     }
 
     @Operation(summary = "중단", description = "처리 중인 건은 끝까지, 시작하지 않은 건은 '건너뜀'.")

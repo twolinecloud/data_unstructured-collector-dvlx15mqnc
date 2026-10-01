@@ -44,8 +44,6 @@ class PagingStarvationTest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/meet").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "50");
@@ -70,7 +68,7 @@ class PagingStarvationTest {
         int total = 0;
         int runs = 0;
         while (runs < 10) {
-            VoiceBatchResult r = batches.onDemand(null, true, null, null);
+            VoiceBatchResult r = batches.onDemand(null, true, null);
             runs++;
             assertThat(r.failCnt()).isZero();
             if (r.successCnt() == 0) {
@@ -88,7 +86,7 @@ class PagingStarvationTest {
     @Test
     @DisplayName("미처리 건수도 뒤쪽을 본다 — 앞쪽 3건이 끝났다고 '0건 · 생성할까요?' 를 묻지 않는다")
     void pendingCountLooksPastProcessedRows() {
-        batches.onDemand(null, true, null, null);   // 앞쪽 3건 처리
+        batches.onDemand(null, true, null);   // 앞쪽 3건 처리
 
         Map<String, Object> p = batches.pending("on-demand", null, null, true);
 

@@ -87,6 +87,53 @@ public class InmatePhotoRepository {
         }
     }
 
+    /**
+     * 표시용 — 이 행을 넣는 UPSERT 를 값을 채운 SQL 로(실행은 바인딩 그대로). 6번 탭 단계별 실행 기록이 쓴다.
+     */
+    public String upsertSqlFor(PhotoRow r, java.sql.Timestamp now) {
+        String v = "(" + String.join(", ", lit(r.corrNo()), String.valueOf(r.imageSn()), lit(r.imageCmmnFileId()),
+                lit(r.docId()), lit(r.fileKey()), lit(r.photoPath()), String.valueOf(r.fileSize()), lit(r.fileExt()),
+                lit(now), lit(r.execId()), lit(now), lit(now)) + ")";
+        String cols = "(corr_no, image_sn, image_cmmn_file_id, doc_id, filekey, photo_path, file_size, file_ext,\n"
+                + "  proc_dtm, last_batch_exec_id, reg_dtm, mod_dtm)";
+        if (db.isPostgres()) {
+            return "INSERT INTO " + photo() + " AS p " + cols + "\nVALUES " + v
+                    + "\nON CONFLICT (corr_no) DO UPDATE SET image_sn = EXCLUDED.image_sn,"
+                    + " image_cmmn_file_id = EXCLUDED.image_cmmn_file_id, doc_id = EXCLUDED.doc_id,\n"
+                    + "  filekey = EXCLUDED.filekey, photo_path = EXCLUDED.photo_path, file_size = EXCLUDED.file_size,"
+                    + " file_ext = EXCLUDED.file_ext,\n  proc_dtm = EXCLUDED.proc_dtm,"
+                    + " last_batch_exec_id = EXCLUDED.last_batch_exec_id, mod_dtm = EXCLUDED.mod_dtm\n"
+                    + "  WHERE p.image_sn <= EXCLUDED.image_sn\nRETURNING (xmax = 0) AS inserted;";
+        }
+        return "SELECT image_sn FROM " + photo() + " WHERE corr_no = " + lit(r.corrNo()) + " FOR UPDATE;\n"
+                + "-- 없으면\nINSERT INTO " + photo() + " " + cols + "\nVALUES " + v + ";\n"
+                + "-- 있으면(기존 순번 <= 새 순번)\nUPDATE " + photo() + " SET image_sn = " + r.imageSn()
+                + ", filekey = " + lit(r.fileKey()) + ", photo_path = " + lit(r.photoPath()) + ", … , mod_dtm = " + lit(now)
+                + "\n WHERE corr_no = " + lit(r.corrNo()) + ";";
+    }
+
+    /** 표시용 — 사후 검증: 접두 행 수 · 이번 실행이 쓴 행 · 최신 순번 행. */
+    public String verifySqlFor(String prefix, String execId, int latestSn) {
+        return "SELECT count(*) AS total,\n"
+                + "       count(CASE WHEN last_batch_exec_id = " + lit(execId) + " THEN 1 END) AS touched,\n"
+                + "       count(CASE WHEN image_sn = " + latestSn + " THEN 1 END) AS latest\n"
+                + "  FROM " + photo() + "\n WHERE corr_no LIKE " + lit(prefix + "%") + ";";
+    }
+
+    /** 표시용 — 매핑 한 행 조회 SQL. */
+    public String findSqlFor(String corrNo) {
+        return "SELECT corr_no, image_sn, filekey, photo_path, file_size, file_ext, last_batch_exec_id, reg_dtm, mod_dtm\n"
+                + "  FROM " + photo() + "\n WHERE corr_no = " + lit(corrNo) + ";";
+    }
+
+    private static String lit(Object v) {
+        if (v == null) {
+            return "NULL";
+        }
+        String s = v instanceof Timestamp t ? t.toLocalDateTime().toString().replace('T', ' ') : String.valueOf(v);
+        return "'" + s.replace("'", "''") + "'";
+    }
+
     /** 매핑 방식 — 리포트·상태 화면용. */
     public String upsertMode() {
         return db.isPostgres() ? "INSERT … ON CONFLICT DO UPDATE (PostgreSQL · 한 문장)"

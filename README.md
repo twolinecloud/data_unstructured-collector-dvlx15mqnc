@@ -2,7 +2,8 @@
 
 보라미의 **비정형 데이터**를 수집한다.
 
-- **음성**(접견·통화) — 골라 가져와 복호화하고 **STT 텍스트**로 만든 뒤 비식별 커넥터를 거쳐 저장·이관한다
+- **음성**(접견·통화) — 골라 가져와 복호화하고 **STT 텍스트**로 만든 뒤 온프레미스 **제논(Zenon)** 으로 보낸다
+  — `[수집 COLLECT] → [정제/분석 ANALYZE] → [적재/전송 SEND(제논)]` 3단계(2026-10-01 복원 · 클라우드 전송·비식별화 제외)
 - **수용자 사진** — 최신 사진의 XVARM 파일을 받아 **접견과 같은 방식으로 복호화**해 저장하고 Admin DB 에 경로를 매핑한다
 
 정형 데이터는 `data-collector`, 파일 기반 비정형 데이터는 이 서비스가 맡는다.
@@ -14,27 +15,34 @@
 > `unstructured_collector_simulator.html`(admin-fe 링크·nginx 경로).
 >
 > 설계 근거: `data_agent-connector-dp8qbi7xqh/study/회의록/9_11/음성수집_서비스_개발계획_초안_v2.md`
+>
+> **3단계 복원 (2026-10-01)** — 비식별 커넥터(DEIDENT) 연동을 걷어내고 SEND = 제논 전송으로 바꿨다. STT 결과는 PV
+> (`/k8s/unstructured_collector/xenon`)에 남기지 않는다. 영향도는 `docs/3단계_복원_영향도_리포트.md`, 제논 목 서버는 `tools/zenon-mock/`.
 
 ---
 
 ## 1. 이 서비스가 하는 일 / 하지 않는 일
 
 ```
-보라미 조회 → XVARM 브로커 → 파일 수신 → 복호화 → STT → 출력 저장 → 처리 이력(T1·T2·T4) ┃
-                              (이 서비스의 범위)                                          ┃
-                                          │                                              ▼
-                                          ▼                          log-collector : T1 · T2(COLLECT·ANALYZE) · T4 적재 (API)
-                    {base-dir}/xenon/voice/{execId}/  (접견)  ·  {base-dir}/xenon/phone/{execId}/  (전화)
-                    — STT 텍스트(.txt) + 메타(.json) 를 배치 단위 폴더에 남긴다. 하류(비식별)가 여기서 읽어 간다
+[수집 COLLECT]                 [정제/분석 ANALYZE]          [적재/전송 SEND]
+보라미 조회 → XVARM 브로커 →    복호화 → 포맷 → STT      →   제논(Zenon) 수신 API 로 multipart 전송
+파일 수신                                                    (file = 전사 JSON · metadata = exec_id·inmate_no·type·file_name)
+                                       │
+                                       ▼
+            log-collector : T1 · T2(COLLECT 1 · ANALYZE 2 · SEND 3) · T4 적재 (API)
 ```
+
+- 결과는 PV 에 남기지 않는다(옛 `xenon/` 폴더 없음). 제논 전송이 실패하면 전사만 `{ROOT}/stt_temp/{execId}/` 에 보존했다가
+  `resume=FROM_SEND` 재처리가 STT 없이 다시 보내고 지운다
+- `zenon.mode` — `MOCK`(기본 · 수집기 안에서 수신증만 만든다) / `REST`(`zenon.base-url` + `/api/v1/zenon/receive`)
 
 | 하는 일 | 하지 않는 일 (다른 서비스 책임) |
 |---|---|
 | 대상 선별(특이수용자 필터) | 로그 테이블 INSERT → `log-collector` (API 로만 적재) |
 | XVARM 추출 요청 | 재식별 매핑 → `data-collector` |
 | 파일 수신·포맷 판별 | STT 엔진 자체 → NPU 서버 |
-| 복호화 | STT 텍스트 외부 전송 → **하지 않는다** (커넥터 연동 제외) |
-| STT 호출 · 원본 즉시 삭제 · **STT 결과 파일 저장** · 처리 이력 적재 | T2 의 DEIDENT·SEND 단계 → 하류 |
+| 복호화 | 클라우드 전송 · 비식별화(커넥터) → **하지 않는다** (2026-10-01 제외) |
+| STT 호출 · 원본 즉시 삭제 · **제논 전송** · 처리 이력 적재(T2 COLLECT·ANALYZE·SEND) | 제논 이후의 적재·활용 → 제논 |
 
 **R&R 은 2026-08-19 에 확정된 것이다.** 로그 테이블(T1~T11)의 단일 writer 는 로그 컬렉터다.
 이 서비스도 자체 로그 테이블을 만들지 않는다.
@@ -350,34 +358,36 @@ STT 구간에 의도적으로 실패와 지연을 섞는다. **확인하려는 �
   시뮬레이터가 로드될 때 상단 디렉터리 input · [XVARM 브로커] 라디오 · 로그 컬렉터 카드 · DB 정보를 그 값으로 맞춘다(헤더 "환경" 줄에 출처 표기)
 - 로그 컬렉터 K8s 주소는 차트(`data_HelmChart/pipeline/log-collector-a2z96kgyrm`)의 Service 명 `log-collector-a2z96kgyrm` · 포트 8080 이다
 
-### 표준 디렉터리 6종 — ROOT_DIR 아래
+### 표준 디렉터리 4종 — ROOT_DIR 아래
 
 ```
 {ROOT_DIR}/xvram/original_voice_files   XVARM 접견 원본 (시뮬레이션 더미 파일)      voice.dirs.xvarm-original  VOICE_XVARM_ORIGINAL_DIR
 {ROOT_DIR}/esb/meet                     ESB 원본 수신 (접견) — 브로커 BROKER_OUTPUT_DIR 과 같아야   receive-meet   VOICE_MEET_DIR
 {ROOT_DIR}/esb/phone                    ESB 원본 수신 (전화)                         receive-phone  VOICE_PHONE_DIR
 {ROOT_DIR}/xvram/decoding               XVARM 접견 복호화 (작업 · 멱등 표식)         work           VOICE_WORK_DIR
-{ROOT_DIR}/xenon/meet/{execId}          최종 변환/저장 (접견) — {건ID}.txt + .json    output-meet    VOICE_OUTPUT_MEET_DIR
-{ROOT_DIR}/xenon/phone/{execId}         최종 변환/저장 (전화)                         output-phone   VOICE_OUTPUT_PHONE_DIR
+{ROOT_DIR}/stt_temp/{execId}            제논 전송 실패 건의 전사 보존(FROM_SEND 재처리용 · 보낸 뒤 삭제)
 ```
 
+> 최종 결과 폴더 `xenon/meet|phone` 와 설정 `output-meet`·`output-phone`(`VOICE_OUTPUT_*_DIR`)은 2026-10-01 없앴다 — STT 결과는 제논으로 보낸다.
+
 - 없는 폴더는 **앱 기동 · 시뮬레이션 데이터 생성/초기화 · 경로 변경** 때 만든다(CREATE_IF_NOT_EXISTS)
-- STT 텍스트는 외부로 보내지 않고 배치(EXEC_ID) 단위 폴더에 남긴다. 하류(비식별)가 여기서 읽어 간다.
-  배치 응답의 `outputDirs` 가 이 배치의 폴더, `outcomes[].sttPath` 가 파일별 경로. 텍스트는 `GET /api/v1/mock/stt-outputs?execId=` 로만(시뮬레이터용)
+- STT 텍스트는 제논으로 보낸다. 배치 응답의 `zenon`(모드·주소·보낸 건수), `outcomes[].sttPath` 가 파일별 전송 위치(`zenon:mock/…`).
+  보낸 내용(메타데이터 · 전사 미리보기)은 `GET /api/v1/mock/zenon/receipts?execId=` 로(수집기 메모리에 최근 `zenon.keep-receipts` 개)
 - 로컬 브로커(local 프로파일)는 기본으로 다른 폴더에 떨구므로 브로커에 `BROKER_OUTPUT_DIR=C:/k8s/unstructured_collector/esb/meet`(K8s 는 `/k8s/unstructured_collector/esb/meet`)를 준다 —
   [브로커 연결 확인] 이 두 경로를 대조한다
 - 런타임 변경: `GET/PUT /api/v1/mock/dirs` · `PUT /api/v1/mock/dirs/preset?key=configured|win|pv|base&baseDir=` · `POST /api/v1/mock/dirs/reset`
-- [시뮬레이션 데이터 초기화](`DELETE /api/v1/mock/test-data`)가 EXEC_ID 에 `TST` 가 든 출력 폴더도 통째로 지운다
+- [시뮬레이션 데이터 초기화](`DELETE /api/v1/mock/test-data`)가 시험 배치의 제논 수신증 · 재처리 보존물과 **이미지 SIM**(6번 탭 [SIM 데이터 정리] 와 같은 API)까지 지운다
 
-### T2 단계 로그 — COLLECT · ANALYZE
+### T2 단계 로그 — COLLECT · ANALYZE · SEND
 
-로그 컬렉터의 비정형 체인은 `COLLECT → ANALYZE → DEIDENT → SEND` 다. 이 서비스는 앞의 두 단계를 남긴다
+로그 컬렉터의 비정형 체인은 `COLLECT 1 → ANALYZE 2 → SEND 3` 이다(2026-10-01 DEIDENT 제외). 이 서비스는 세 단계를 모두 남긴다
 (`POST /api/v1/logs/batches/{execId}/steps` → `PATCH /api/v1/logs/steps/{stepLogId}`).
 
 | 단계 | 여는 시점 | 마감 시점 | in / out / err |
 |---|---|---|---|
 | `COLLECT` | 배치 시작 | 전 건 처리 후 | 대상(건너뜀 제외) / 파일 확보·복호화 성공 / 확보 실패 |
-| `ANALYZE` | 첫 STT 직전 | **STT 처리가 끝난 직후** | 확보 성공 / STT·출력 저장 성공 / STT 실패 |
+| `ANALYZE` | 첫 STT 직전 | **STT 처리가 끝난 직후** | 확보 성공 / STT 성공 / STT 실패 |
+| `SEND` | 첫 제논 전송 직전 | 전송이 끝난 직후 | STT 성공 / 제논 수신 SUCCESS / 전송 실패(전사 보존) |
 
 - `data-type-cd` 는 **`UNSTRUCTURED`**(C01 4종) — 예전 `VOICE` 는 C01 에 없어 대시보드 필터·체인 순번을 타지 못했다
 - 파일별 실패 단계는 `outcomes[].failedStep` 에 남는다. T1 마감에는 대표 오류 `[코드] 상세` 와 `ERR_TYPE_CD`(CONNECTION/TIMEOUT/DATA)가 실린다
@@ -538,6 +548,7 @@ egovframework.unstructured.collector
 │  ├─ sync/      파일 수신 — FileArrivalWatcher · EsbFileNamingPolicy · PhoneFileProvider
 │  ├─ decrypt/   복호화 — DecryptService · MediaDecryptor(RVS) · Noop / PhoneAria / MeetRvs
 │  ├─ logging/   LogCollectorClient (T1 · T2 · T4)
+│  ├─ transfer/  ZenonClient · ZenonProperties — 제논 전송(MOCK · REST multipart)
 │  ├─ health/    연계 상태 점검
 │  ├─ model/     VoiceTarget · VoiceFile · SttResult · FileProcOutcome …
 │  └─ util/      InmatePidGenerator · AudioFormatDetector · SilentWav · SampleImage
@@ -546,8 +557,8 @@ egovframework.unstructured.collector
 │  ├─ batch/      VoiceCollectService(본체 — 확보/STT 워커 생산자-소비자) · Scheduler · IdempotencyGuard
 │  ├─ source/     보라미 조회 — Mock / Jdbc / EsbHttp2Db · SimulationDataService
 │  ├─ mapper/     BoramiVoiceMapper (MyBatis)
-│  ├─ stt/        STT — Mock / Npu · SttOutputStore · SttTempStore
-│  ├─ transfer/   AgentConnectorClient(비식별 · 이관) · DeidentLoad
+│  ├─ stt/        STT — Mock / Npu · SttTempStore(전송 실패 시 전사 보존)
+│  ├─ transfer/   ZenonVoiceDocument(전사 → 제논 전송 문서)
 │  └─ perf/       성능 시험(4·5번 탭)
 └─ image/      수용자 이미지 수집
    ├─ controller/ ImageController(/api/v1/image) · ImageMockController(/api/v1/mock/image — 6번 탭)

@@ -44,8 +44,6 @@ class SimulatorWorkflowTest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/meet").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "50");
@@ -63,6 +61,10 @@ class SimulatorWorkflowTest {
     private egovframework.unstructured.collector.voice.source.SimulationDataService sim;
     @Autowired
     private IdempotencyGuard idempotency;
+    @Autowired
+    private egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    @Autowired
+    private egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
 
     @BeforeEach
     void seed() {
@@ -114,7 +116,7 @@ class SimulatorWorkflowTest {
         Map<String, Object> p = batches.pending("on-demand", null, null, true);
         assertThat(num(p, "pending")).as("어제 5+5 · 오늘 2+2").isEqualTo(14);
 
-        VoiceBatchResult r = batches.onDemand(null, true, null, null);
+        VoiceBatchResult r = batches.onDemand(null, true, null);
 
         assertThat(r.targetCnt()).isEqualTo(14);
         assertThat(r.successCnt()).isEqualTo(14);
@@ -127,7 +129,7 @@ class SimulatorWorkflowTest {
     void onDemandAfterDailyPicksUpTheRest() {
         service.run(BatchWindow.daily(LocalDateTime.now()), null, "TEST", true);
 
-        VoiceBatchResult r = batches.onDemand(null, true, null, null);
+        VoiceBatchResult r = batches.onDemand(null, true, null);
 
         assertThat(r.successCnt()).isEqualTo(4);
         assertThat(r.skippedCnt()).as("일배치가 끝낸 10건은 멱등으로 건너뜀").isEqualTo(10);
@@ -159,6 +161,36 @@ class SimulatorWorkflowTest {
 
         assertThat(r.failCnt()).isEqualTo(5);
         assertThat(r.execStsCd()).isEqualTo("FAIL");
+    }
+
+    // ── 제논 전송 실패 → 재처리(FROM_SEND) ─────────────────────────────────
+
+    @Test
+    @DisplayName("제논 전송 실패 → 전사 보존 · 수신증 없음 → FROM_SEND 재처리가 보존된 전사로 다시 보내고 보존물을 지운다")
+    @SuppressWarnings("unchecked")
+    void sendFailureResumesFromTranscript() {
+        faults.set(StageFaultState.Stage.SEND, StageFaultState.Mode.ALL, null);
+
+        VoiceBatchResult first = service.run(BatchWindow.daily(LocalDateTime.now()),
+                List.of(VoiceKind.MEET), "TEST", true);
+
+        assertThat(first.failCnt()).isEqualTo(5);
+        assertThat(first.outcomes()).allSatisfy(o -> assertThat(o.failedStep()).isEqualTo(egovframework.unstructured.collector.common.model.FileProcOutcome.STEP_SEND));
+        assertThat(first.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
+                .containsExactly("COLLECT", "ANALYZE", "SEND");
+        assertThat(zenon.receipts(first.execId())).as("실패한 건은 보내지 않았다").isEmpty();
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("전사 보존물이 남는다").isEqualTo(5);
+
+        List<String> failedKeys = first.outcomes().stream().map(o -> o.target().idempotencyKey()).toList();
+        faults.clear();
+        // 재처리 창(이틀)에는 첫 실행이 다루지 않은 주기용 SIM 2건도 들어온다 — 그 2건은 STT 부터, 실패했던 5건은 전송부터
+        VoiceBatchResult again = batches.resume(ResumeMode.FROM_SEND, first.execId(), List.of(VoiceKind.MEET), true, 2880);
+
+        assertThat(again.failCnt()).isZero();
+        assertThat(again.successCnt()).isEqualTo(7);
+        assertThat(zenon.receipts(again.execId())).extracting(r -> String.valueOf(r.metadata().get("idempotency_key")))
+                .as("전송에서 깨졌던 5건이 이번에 제논으로 갔다").containsAll(failedKeys);
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("보낸 뒤 보존물 정리(Purge)").isZero();
     }
 
     // ── 초기화 ────────────────────────────────────────────────────────────
@@ -200,11 +232,13 @@ class SimulatorWorkflowTest {
         assertThat(db).containsEntry("available", false);
         assertThat((String) db.get("reason")).as("컬렉터를 끈 구성").contains("미연동");
 
+        // 결과는 PV 에 남기지 않는다 — 전부 성공했으니 보존물도 없고, 제논 수신증만 있다
         Map<String, Object> files = (Map<String, Object>) v.get("files");
-        Map<String, Object> out = (Map<String, Object>) files.get("output");
-        Map<String, Object> meet = (Map<String, Object>) out.get("MEET");
-        assertThat(meet).containsEntry("exists", true);
-        assertThat(((Number) meet.get("count")).intValue()).as("접견 5건 · txt+json").isPositive();
+        assertThat(files).doesNotContainKey("output");
+        Map<String, Object> zenon = (Map<String, Object>) v.get("zenon");
+        assertThat(zenon).containsEntry("mode", "MOCK");
+        assertThat(((Number) zenon.get("count")).intValue()).as("성공 건마다 수신증 하나").isEqualTo(r.successCnt());
+        assertThat((Map<String, Long>) zenon.get("byKind")).containsKeys("MEET", "PHONE");
 
         List<Map<String, String>> sql = (List<Map<String, String>>) v.get("sql");
         assertThat(sql).isNotEmpty();

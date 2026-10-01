@@ -51,7 +51,7 @@ public class PerfController {
                        개발계에서는 **공용 DB** 에 만들어지므로 다른 작업자와 시간이 겹치지 않게 하십시오
                     2. **측정** — `[어제 00:00, 오늘 00:00)` 를 처리합니다(`TEST_BATCH` · `MANUAL` · 실행 주체 `PERF`).
                        **XVARM 확보 워커**(`acquireWorkers`, 기본 1)가 파일을 차례로 받아 대기열에 넣고, **STT 처리 워커**
-                       (`sttWorkers`, 기본 31)가 곧바로 집어 복호화 · STT · 비식별 · 저장을 합니다(생산자-소비자).
+                       (`sttWorkers`, 기본 31)가 곧바로 집어 복호화 · STT · 제논 전송을 합니다(생산자-소비자).
                        STT 가 MOCK 이면 건당 STT 처리 시간·타임아웃을 겁니다
                     - **고속 모드**(`realSleep` 비움·false, 기본) — STT 를 기다리지 않고 즉시 통과합니다. 실제로 돈 확보 시각에
                       건당 처리 시간을 얹어 STT 워커에 다시 배정한 **파이프라인 모의**로 총 소요를 냅니다(확보와 STT 가 겹친다).
@@ -82,7 +82,7 @@ public class PerfController {
         return perf.cancel();
     }
 
-    @Operation(summary = "실행 이력", description = "`{ROOT}/perf/history.jsonl` — 최근 회차가 앞. 워커 구성을 바꿔 가며 돌린 결과를 나란히 비교합니다.")
+    @Operation(summary = "실행 이력", description = "`{ROOT}/perf/history.jsonl` — 마지막 실행 한 건만 남긴다(덮어쓰기 · 2026-10-01). 비교는 끝날 때마다 CSV 로 남겨 한다.")
     @GetMapping("/runs")
     public Map<String, Object> history() {
         return perf.history();
@@ -114,7 +114,7 @@ public class PerfController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.startRamp(req));
     }
 
-    @Operation(summary = "임계 성능 시험 이력", description = "`{ROOT}/perf/ramp-history.jsonl` — 최근 회차가 앞. 회차마다 단계 표와 최적 워커가 실린다.")
+    @Operation(summary = "임계 성능 시험 이력", description = "`{ROOT}/perf/ramp-history.jsonl` — 마지막 실행 한 건만 남긴다(덮어쓰기). 단계 표와 최적 워커가 실린다.")
     @GetMapping("/ramp/runs")
     public Map<String, Object> rampHistory() {
         return perf.rampHistory();

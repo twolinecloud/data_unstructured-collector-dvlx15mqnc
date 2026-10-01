@@ -2,6 +2,7 @@ package egovframework.unstructured.collector.image.source;
 
 import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
+import egovframework.unstructured.collector.image.batch.ImageTrace;
 import egovframework.unstructured.collector.image.config.ImageProperties;
 import egovframework.unstructured.collector.image.model.ImageTarget;
 import egovframework.unstructured.collector.image.sim.ImageSimulationService;
@@ -42,6 +43,7 @@ public class ImageSourceService {
     private final BoramiTableNames tables;
     private final VoiceProperties voiceProps;
     private final ImageProperties props;
+    private final ImageTrace trace;
 
     /**
      * 조회 조건.
@@ -101,8 +103,48 @@ public class ImageSourceService {
         }
         sql.append(") T WHERE RN = 1 ORDER BY CORR_NO OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY");
         p.addValue("offset", offset).addValue("limit", Math.max(1, limit));
-        return new NamedParameterJdbcTemplate(jdbc).query(sql.toString(), p, (rs, i) ->
+        List<ImageTarget> rows = new NamedParameterJdbcTemplate(jdbc).query(sql.toString(), p, (rs, i) ->
                 ImageTarget.latest(rs.getString("CORR_NO"), rs.getInt("IMAGE_SN"), rs.getString("IMAGE_CMMN_FILE_ID")));
+        if (offset == 0) {
+            // ① 실행 기록 — 첫 페이지만(값을 채운 SQL · 결과 표본)
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (ImageTarget t : rows) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("CORR_NO", t.corrNo());
+                m.put("IMAGE_SN", t.imageSn());
+                m.put("IMAGE_CMMN_FILE_ID", t.imageCmmnFileId());
+                out.add(m);
+            }
+            trace.add(ImageTrace.Step.QUERY, "수용자별 최신 사진 — IMAGE_SE_CD='1' 중 IMAGE_SN 최대(첫 페이지)", "SQL",
+                    inline(sql.toString(), p) + ";",
+                    ImageTrace.table(List.of("CORR_NO", "IMAGE_SN", "IMAGE_CMMN_FILE_ID"), out, rows.size(), 5));
+        }
+        return rows;
+    }
+
+    /** 표시용 — 이름 붙은 파라미터를 값으로 채운다(실행은 바인딩 그대로). IN 목록은 앞 5개만. */
+    private static String inline(String sql, MapSqlParameterSource p) {
+        String out = sql;
+        for (String name : p.getParameterNames()) {
+            Object v = p.getValue(name);
+            String lit;
+            if (v instanceof java.util.Collection<?> c) {
+                List<String> vals = new ArrayList<>();
+                int i = 0;
+                for (Object o : c) {
+                    if (i++ >= 5) {
+                        vals.add("/* 외 " + (c.size() - 5) + "개 */");
+                        break;
+                    }
+                    vals.add(ImageTrace.lit(o));
+                }
+                lit = String.join(", ", vals);
+            } else {
+                lit = ImageTrace.lit(v);
+            }
+            out = out.replaceAll(":" + name + "\\b", java.util.regex.Matcher.quoteReplacement(lit));
+        }
+        return out;
     }
 
     /**
@@ -122,6 +164,26 @@ public class ImageSourceService {
                 byId.put(rs.getString("CMMN_FILE_ID"), new FileRow(rs.getString("DOC_ID"), rs.getString("FILEKEY"),
                         rs.getString("FILE_NM"), rs.getString("CMMN_FILE_ENC_YN")));
             });
+        }
+        if (!ids.isEmpty()) {
+            // ②③ 실행 기록 — 첫 묶음의 조인(값을 채운 SQL · 결과 표본)
+            List<String> first = ids.subList(0, Math.min(ids.size(), 500));
+            String shown = inline(sql, new MapSqlParameterSource("ids", first)) + ";";
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (String id : first) {
+                FileRow f = byId.get(id);
+                Map<String, Object> m = new java.util.LinkedHashMap<>();
+                m.put("CMMN_FILE_ID", id);
+                m.put("DOC_ID", f == null ? null : f.docId());
+                m.put("FILE_NM", f == null ? null : f.fileName());
+                m.put("CMMN_FILE_ENC_YN", f == null ? null : f.encYn());
+                m.put("FILEKEY", f == null ? null : f.fileKey());
+                rows.add(m);
+            }
+            trace.add(ImageTrace.Step.DOC_ID, "공통파일기본 — CMMN_FILE_ID → DOC_ID · 파일명 · 암호화 여부 (②③ 을 한 번의 LEFT JOIN 으로)",
+                    "SQL", shown, ImageTrace.table(List.of("CMMN_FILE_ID", "DOC_ID", "FILE_NM", "CMMN_FILE_ENC_YN"), rows, ids.size(), 5));
+            trace.add(ImageTrace.Step.FILEKEY, "XVARM — ELEMENTID = DOC_ID → FILEKEY (같은 조인의 X 쪽)", "SQL", shown,
+                    ImageTrace.table(List.of("DOC_ID", "FILEKEY"), rows, ids.size(), 5));
         }
         String encYes = voiceProps.source().flag().encrypted();
         List<ImageTarget> out = new ArrayList<>(latest.size());

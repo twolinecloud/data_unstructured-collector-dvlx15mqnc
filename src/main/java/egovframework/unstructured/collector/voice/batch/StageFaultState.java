@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class StageFaultState {
 
     /** T4 {@code STEP_TYPE_CD}(C05) 와 같은 단위. */
-    public enum Stage { COLLECT, ANALYZE, DEIDENT, SEND }
+    public enum Stage { COLLECT, ANALYZE, SEND }
 
     /** OFF = 정상 · ALL = 전건 실패 · PARTIAL = 정해진 건수만 실패(나머지 성공). */
     public enum Mode { OFF, ALL, PARTIAL }

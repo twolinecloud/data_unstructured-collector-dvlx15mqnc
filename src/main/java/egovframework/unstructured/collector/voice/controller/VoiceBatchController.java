@@ -69,6 +69,7 @@ public class VoiceBatchController {
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
     private final egovframework.unstructured.collector.common.config.FaultInjector faultInjector;
     private final egovframework.unstructured.collector.common.config.MockDatasetState dataset;
+    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
     private final egovframework.unstructured.collector.common.config.DbKindDetector db;
     private final egovframework.unstructured.collector.common.config.BoramiTableNames tables;
     private final egovframework.unstructured.collector.common.config.DeployEnvPreset deployEnv;
@@ -87,16 +88,14 @@ public class VoiceBatchController {
 
                     - `kinds` 를 비우면 접견·전화 둘 다. `MEET` / `PHONE` 로 한 트랙만
                     - `test=true` 면 EXEC_ID 가 `…TST…` 로 채번되어 [테스트 데이터 초기화] 로 지울 수 있다
-                    - 로그 컬렉터에 T1(배치) · T2(COLLECT·ANALYZE) · T4(파일별) 를 남기고,
-                      STT 텍스트는 응답의 `outputDirs` 폴더(`{output}/{execId}/`)에 남긴다
+                    - 로그 컬렉터에 T1(배치) · T2(COLLECT·ANALYZE·SEND — 3단계) · T4(파일별) 를 남기고,
+                      STT 결과는 제논(Zenon)으로 보낸다(응답의 `zenon` — 모드·주소·보낸 건수). PV 에는 남기지 않는다
                     """)
     @PostMapping("/batches/daily")
     public VoiceBatchResult daily(@RequestParam(required = false) List<VoiceKind> kinds,
-                                  @RequestParam(defaultValue = "false") boolean test,
-            @io.swagger.v3.oas.annotations.Parameter(description = "비식별 수행 여부 — true 수행 / false 단순 전달(SEND). 비우면 설정값(기본 false)")
-            @RequestParam(required = false) Boolean deidentEnabled) {
+                                  @RequestParam(defaultValue = "false") boolean test) {
         return service.run(BatchWindow.daily(LocalDateTime.now()), kinds, "MANUAL", test, ResumeMode.FULL, null,
-                batchConcurrency, deidentEnabled);
+                batchConcurrency);
     }
 
     @Operation(summary = "주기배치 실행",
@@ -111,11 +110,9 @@ public class VoiceBatchController {
                     """)
     @PostMapping("/batches/periodic")
     public VoiceBatchResult periodic(@RequestParam(required = false) List<VoiceKind> kinds,
-                                     @RequestParam(defaultValue = "false") boolean test,
-            @io.swagger.v3.oas.annotations.Parameter(description = "비식별 수행 여부 — true 수행 / false 단순 전달(SEND). 비우면 설정값(기본 false)")
-            @RequestParam(required = false) Boolean deidentEnabled) {
+                                     @RequestParam(defaultValue = "false") boolean test) {
         return service.run(BatchWindow.periodic(LocalDateTime.now(), props.batch().periodicLagMin()),
-                kinds, "MANUAL", test, ResumeMode.FULL, null, batchConcurrency, deidentEnabled);
+                kinds, "MANUAL", test, ResumeMode.FULL, null, batchConcurrency);
     }
 
     @Operation(summary = "단계별 장애 주입 설정",
@@ -159,11 +156,10 @@ public class VoiceBatchController {
                     |---|---|---|
                     | `FULL` | 수집부터 전부 | 없음 |
                     | `FROM_ANALYZE` | STT 부터 | `{ROOT}/xvram/decoding/decrypted_*` |
-                    | `FROM_DEIDENT` | 비식별부터 → 최종 저장 | `{ROOT}/stt_temp/{execId}/*.json` |
-                    | `FROM_SEND` | 최종 저장부터(= `FROM_DEIDENT` — 비식별된 텍스트는 보존하지 않아 비식별을 다시 지남) | `{ROOT}/stt_temp/{execId}/*.json` |
+                    | `FROM_SEND` | 제논 전송부터(STT 생략) | `{ROOT}/stt_temp/{execId}/*.json` |
 
-                    **비식별 단계에서 깨진 건**은 `FROM_DEIDENT` 로 잇습니다. 재시도의 `deidentEnabled` 를 따릅니다 —
-                    `false` 면 비식별을 다시 하지 않고 보존된 전사를 **단순 전달(SEND)** 로 최종 저장까지 마감합니다.
+                    **제논 전송에서 깨진 건**은 `FROM_SEND` 로 잇습니다 — 보존된 전사를 STT 없이 다시 보냅니다.
+                    전송이 성공하면 그 건의 임시 파일(받은 원본 · 복호화 오디오 · 전사 보존물)을 지웁니다.
 
                     **보존물이 없으면 앞 단계로 내려갑니다.** 이어서 하기는 빠른 길이지 유일한 길이 아니라,
                     `voice.resume.keep-on-failure=false` 인 환경에서도 재처리가 그대로 동작합니다.
@@ -177,16 +173,14 @@ public class VoiceBatchController {
             @RequestParam(required = false) String fromExecId,
             @RequestParam(required = false) List<VoiceKind> kinds,
             @RequestParam(defaultValue = "false") boolean test,
-            @RequestParam(defaultValue = "2880") int lookbackMin,
-            @io.swagger.v3.oas.annotations.Parameter(description = "비식별 수행 여부 — true 수행 / false 단순 전달(SEND). 비우면 설정값(기본 false)")
-            @RequestParam(required = false) Boolean deidentEnabled) {
+            @RequestParam(defaultValue = "2880") int lookbackMin) {
         LocalDateTime now = LocalDateTime.now();
         // 재처리는 실패한 건을 다시 잡아야 하므로 창을 넉넉히 연다. 기본 이틀치 —
         //   주기 창(20분)으로 잡으면 조금 전에 깨진 건도 이미 창 밖이고, 하루치로 잡으면
         //   일배치 픽스처의 첫 건(어제 00:00:00)이 24시간을 넘겨 빠진다.
         BatchWindow window = BatchWindow.manual(now.minusMinutes(Math.max(1, lookbackMin)), now.plusMinutes(1));
         log.info("[Batch] 재처리 — resume={} fromExecId={} 창=[{} ~ {})", resume, fromExecId, window.from(), window.to());
-        return service.run(window, kinds, "RESUME", test, resume, fromExecId, batchConcurrency, deidentEnabled);
+        return service.run(window, kinds, "RESUME", test, resume, fromExecId, batchConcurrency);
     }
 
     @Operation(summary = "중간 산출물 현황",
@@ -232,15 +226,13 @@ public class VoiceBatchController {
     @PostMapping("/batches/on-demand")
     public VoiceBatchResult onDemand(@RequestParam(required = false) List<VoiceKind> kinds,
                                      @RequestParam(defaultValue = "false") boolean test,
-                                     @RequestParam(required = false) Integer lookbackDays,
-            @io.swagger.v3.oas.annotations.Parameter(description = "비식별 수행 여부 — true 수행 / false 단순 전달(SEND). 비우면 설정값(기본 false)")
-            @RequestParam(required = false) Boolean deidentEnabled) {
+                                     @RequestParam(required = false) Integer lookbackDays) {
         LogCollectorClient.Watermark wm = watermark(test);
         BatchWindow w = BatchWindow.onDemand(LocalDateTime.now(), wm == null ? null : wm.at(), lookbackOr(lookbackDays));
         log.info("[Batch] 바로 실행 — 구간 {} (시작점: {})", w, wm != null
                 ? "DB 워터마크 " + wm.at() + " · " + wm.execId()
                 : "워터마크 없음 → 최근 " + lookbackOr(lookbackDays) + "일");
-        return service.run(w, kinds, "ON_DEMAND", test, ResumeMode.FULL, null, batchConcurrency, deidentEnabled);
+        return service.run(w, kinds, "ON_DEMAND", test, ResumeMode.FULL, null, batchConcurrency);
     }
 
     /**
@@ -300,9 +292,10 @@ public class VoiceBatchController {
 
                     - `db` — 로그 컬렉터를 통해 T1(`kcais.tb_batch_exec_log`) · T2(`tb_batch_step_log`) ·
                       T4(`tb_file_proc_log`, 상태별). 이 서비스는 로그 DB 에 직접 붙지 않습니다.
-                      T5(`tb_deident_send_log`)는 수집기가 쓰지 않아 싣지 않습니다
-                    - `files` — 복호화 보존물(`{ROOT}/xvram/decoding/decrypted_*`) · 전사 보존물(`{ROOT}/stt_temp/{execId}`) ·
-                      STT 결과(`{ROOT}/xenon/{kind}/{execId}`). 파일 이름은 처음 2개(`head`)·마지막 2개(`tail`)만 싣습니다
+                      비정형은 3단계(COLLECT · ANALYZE · SEND) — T5(비식별·전송 로그)는 남지 않습니다
+                    - `files` — 복호화 보존물(`{ROOT}/xvram/decoding/decrypted_*`) · 전사 보존물(`{ROOT}/stt_temp/{execId}`).
+                      파일 이름은 처음 2개(`head`)·마지막 2개(`tail`)만 싣습니다
+                    - `zenon` — 이 배치가 제논에 보낸 수신증(최근 것부터, 메모리에 남은 만큼)
                     - `sql` · `cli` — 위를 **손으로** 확인할 때 그대로 복사해 쓰는 SQL 과 `ls`/`cat` 명령.
                       배포 환경이면 `kubectl exec` 접두가 붙습니다
                     """)
@@ -387,11 +380,9 @@ public class VoiceBatchController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             @RequestParam(required = false) List<VoiceKind> kinds,
-            @RequestParam(defaultValue = "false") boolean test,
-            @io.swagger.v3.oas.annotations.Parameter(description = "비식별 수행 여부 — true 수행 / false 단순 전달(SEND). 비우면 설정값(기본 false)")
-            @RequestParam(required = false) Boolean deidentEnabled) {
+            @RequestParam(defaultValue = "false") boolean test) {
         return service.run(BatchWindow.manual(from, to), kinds, "MANUAL", test, ResumeMode.FULL, null,
-                batchConcurrency, deidentEnabled);
+                batchConcurrency);
     }
 
     @Operation(summary = "현재 구성 조회",
@@ -422,14 +413,14 @@ public class VoiceBatchController {
 
         // 디렉터리 — 런타임 상태(시뮬레이터에서 바꾼 값)와 기동 설정값, 프리셋을 함께 내려준다.
         //   receiveMeet/receivePhone: 브로커·ESB 가 떨구는 곳 · work: 복호화 산출물·멱등 표식
-        //   outputMeet/outputPhone: STT 결과가 {output}/{execId}/ 로 쌓이는 곳
+        //   최종 결과 폴더는 없다 — STT 결과는 제논(Zenon)으로 보내고 PV 에 남기지 않는다(2026-10-01)
         Map<String, Object> dirMap = new LinkedHashMap<>(dirs.snapshot());
         dirMap.put("namingPolicy", props.sync().namingPolicy());
         dirMap.put("configured", dirs.configured());
         dirMap.put("presets", dirs.presets());
         dirMap.put("suggestedBaseDir", deployEnv.rootDir());
         dirMap.put("labels", VoiceDirState.LABELS);
-        dirMap.put("outputPattern", "{outputMeet|outputPhone}/{execId}/{건ID}.txt (+ .json 메타)");
+        dirMap.put("outputPattern", "PV 에 남기지 않음 — 제논(Zenon) 전송 " + zenon.mode() + " · " + zenon.endpoint());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("modes", modes);
@@ -482,8 +473,8 @@ public class VoiceBatchController {
                     | 로그 컬렉터 | `http://localhost:8090/logc` | `http://log-collector-a2z96kgyrm:8080/logc` |
 
                     설정(환경변수 `VOICE_BASE_DIR` · `VOICE_BROKER_BASE_URL` · `LOG_COLLECTOR_BASE_URL`)이 있으면 그것이 이깁니다.
-                    표준 디렉터리 6종은 `{ROOT_DIR}/xvram/original_voice_files` · `esb/meet` · `esb/phone` · `xvram/decoding` ·
-                    `xenon/meet/{execId}` · `xenon/phone/{execId}` 이고 없으면 자동 생성됩니다.
+                    표준 디렉터리 5종은 `{ROOT_DIR}/xvram/original_voice_files` · `esb/meet` · `esb/phone` · `xvram/decoding` 이고
+                    없으면 자동 생성됩니다. STT 결과는 PV 에 남기지 않고 제논으로 보냅니다.
                     """)
     @GetMapping("/config")
     public Map<String, Object> config() {
@@ -540,9 +531,7 @@ public class VoiceBatchController {
                 step("STT", "stt", sttClient.mode(),
                         sttEndpoint(),
                         "STT 텍스트 생성 후 T2 ANALYZE 마감. T4 에는 처리 상태만 남는다"),
-                step("결과 저장", null, "FILE",
-                        dirs.outputMeet() + "/{execId}/",
-                        "STT 텍스트(.txt)와 메타(.json)를 배치 폴더에 남긴다 — 하류(비식별)가 여기서 읽어 간다")));
+                zenonStep()));
 
         Map<String, Object> phone = new LinkedHashMap<>();
         phone.put("label", "전화 (PHONE)");
@@ -560,9 +549,7 @@ public class VoiceBatchController {
                 step("STT", "stt", sttClient.mode(),
                         sttEndpoint(),
                         "TELP_STT_FLPTH_NM 에 기존 STT 가 있으면 재수행하지 않는다(계획서 Q1)"),
-                step("결과 저장", null, "FILE",
-                        dirs.outputPhone() + "/{execId}/",
-                        "STT 텍스트(.txt)와 메타(.json)를 배치 폴더에 남긴다")));
+                zenonStep()));
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("meet", meet);
@@ -698,6 +685,12 @@ public class VoiceBatchController {
                     + "조회 즉시 실패한다. MOCK 또는 DIRECT_JDBC 로 두십시오.");
         }
         return w;
+    }
+
+    /** 3단계 SEND — 제논(Zenon) 전송. 결과를 PV 에 남기지 않는다. */
+    private Map<String, Object> zenonStep() {
+        return step("제논 전송", null, zenon.mode(), zenon.endpoint(),
+                "STT 결과(전사 JSON)를 제논 수신 API 로 보내고, 성공하면 그 건의 임시 파일을 지운다(Purge). PV 에 남기지 않는다");
     }
 
     private String sttEndpoint() {

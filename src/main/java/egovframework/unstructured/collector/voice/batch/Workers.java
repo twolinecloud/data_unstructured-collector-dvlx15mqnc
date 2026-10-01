@@ -11,7 +11,7 @@ package egovframework.unstructured.collector.voice.batch;
  * <p>둘 다 1 이면 종전과 같은 순차 처리다 — 운영 기본값.</p>
  *
  * @param acquire XVARM 확보 워커 수 — 접견은 브로커 추출, 전화는 파일 연계 수신까지
- * @param stt     STT 처리 워커 수 — 복호화 · STT · 비식별 · 최종 저장
+ * @param stt     STT 처리 워커 수 — 복호화 · STT · 제논 전송
  */
 public record Workers(int acquire, int stt) {
 

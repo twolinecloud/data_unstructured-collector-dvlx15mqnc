@@ -55,8 +55,6 @@ class ConcurrentBatchTest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/meet").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "50");
@@ -104,14 +102,13 @@ class ConcurrentBatchTest {
         assertThat(r.targetCnt()).isEqualTo(12);
         assertThat(r.successCnt()).isEqualTo(12);
         assertThat(r.failCnt()).isZero();
-        // 단계 행 — COLLECT·ANALYZE·DEIDENT·SEND 가 한 번씩만 열린다
+        // 단계 행 — 3단계(COLLECT·ANALYZE·SEND)가 한 번씩만 열린다
         verify(logCollector, times(1)).createStep(anyString(), eq((short) 1), eq(FileProcOutcome.STEP_COLLECT));
         verify(logCollector, times(1)).createStep(anyString(), eq((short) 2), eq(FileProcOutcome.STEP_ANALYZE));
-        verify(logCollector, times(1)).createStep(anyString(), eq((short) 3), eq(FileProcOutcome.STEP_DEIDENT));
-        verify(logCollector, times(1)).createStep(anyString(), eq((short) 4), eq(FileProcOutcome.STEP_SEND));
+        verify(logCollector, times(1)).createStep(anyString(), eq((short) 3), eq(FileProcOutcome.STEP_SEND));
+        verify(logCollector, times(3)).createStep(anyString(), org.mockito.ArgumentMatchers.anyShort(), anyString());
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE,
-                        FileProcOutcome.STEP_DEIDENT, FileProcOutcome.STEP_SEND);
+                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_SEND);
         // T2 소요 시간은 실제 경과를 넘지 않는다(건별 합이 아니라 벽시계로 자른다)
         r.steps().forEach(s -> assertThat(s.elapsedSec() * 1000L).isLessThanOrEqualTo(r.elapsedMs()));
 

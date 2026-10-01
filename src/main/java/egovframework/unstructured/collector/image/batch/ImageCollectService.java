@@ -88,8 +88,14 @@ public class ImageCollectService {
     private final InmatePhotoRepository repo;
     private final ImageProperties props;
     private final AdminDb adminDb;
+    /** 단계별 실행 기록(6번 탭) — 조회 첫 페이지 · 첫 건(표본)의 실제 SQL · cURL · 파일 명령과 결과. */
+    private final ImageTrace trace;
+    /** 브로커 주소 — 기록의 cURL 에 쓴다. */
+    private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
 
     private final AtomicBoolean running = new AtomicBoolean();
+    /** 이번 실행에서 표본(첫 건)을 이미 잡았는가 — 워커가 여럿이어도 한 건만 적는다. */
+    private final AtomicBoolean sampleTaken = new AtomicBoolean();
 
     @Schema(description = "수용자 이미지 수집 조건")
     public record ImageRunRequest(
@@ -200,6 +206,8 @@ public class ImageCollectService {
         Map<String, ImageStage> inject = test && req.injectFailures() != null ? Map.copyOf(req.injectFailures()) : Map.of();
 
         execId = "IMG-" + LocalDateTime.now().format(EXEC_ID) + (test ? "-TST" : "");
+        trace.begin(execId);
+        sampleTaken.set(false);
         startedAt = t0;
         cancelRequested = false;
         done.set(0);
@@ -342,16 +350,26 @@ public class ImageCollectService {
         Path dir = dirs.receiveDir(VoiceKind.MEET);   // 브로커 출력 폴더 = 접견 수신 폴더
         Path received = null;
         ImageStage step = ImageStage.ACQUIRE;
+        // 표본 — 이번 실행에서 처음 수신까지 온 한 건만 단계별 실행 기록을 남긴다
+        boolean sample = sampleTaken.compareAndSet(false, true);
         try {
             // ── 브로커 수신 ──
             long s = ImageMetrics.start();
             watcher.clearStale(dir, t.receiveName());
-            XvarmBrokerClient.ExtractResult r = via.extractFile(new XvarmBrokerClient.FileRequest(
-                    t.docId(), t.fileKey(), t.requestId(execId), t.receiveName()));
+            XvarmBrokerClient.FileRequest fr = new XvarmBrokerClient.FileRequest(
+                    t.docId(), t.fileKey(), t.requestId(execId), t.receiveName());
+            XvarmBrokerClient.ExtractResult r = via.extractFile(fr);
+            if (sample) {
+                traceExtract(t, via, fr, r);
+            }
             BrokerOutputCheck.mismatch(r.filePath(), dirs.receiveMeet()).ifPresent(reason -> {
                 throw new IllegalStateException(reason);
             });
             received = watcher.awaitFile(dir, fileNameOf(r.filePath(), t.receiveName()), () -> cancelRequested);
+            if (sample) {
+                trace.add(ImageTrace.Step.RECEIVE, "수신 폴더 도착 확인 — 쓰기가 끝날 때까지(크기 안정) 기다린 뒤", "SHELL",
+                        "ls -la " + slash(received), lsLine(received));
+            }
             m.add(ImageStage.ACQUIRE, s);
             injectIf(injectAt, ImageStage.ACQUIRE);
 
@@ -366,8 +384,15 @@ public class ImageCollectService {
             // ── 복호화 ──
             step = ImageStage.DECRYPT;
             s = ImageMetrics.start();
-            byte[] plain = store.decrypt(t, Files.readAllBytes(received));
+            byte[] cipher = Files.readAllBytes(received);
+            byte[] plain = store.decrypt(t, cipher);
             m.add(ImageStage.DECRYPT, s);
+            if (sample) {
+                trace.add(ImageTrace.Step.RECEIVE, "복호화 — 접견과 같은 RVS 키(AES/CBC) · 결과가 이미지인지 매직 넘버로 확인", "CODE",
+                        "MediaDecryptor.decrypt(" + slash(received) + ")  // CMMN_FILE_ENC_YN=" + (t.encrypted() ? "Y" : "N"),
+                        "입력 " + cipher.length + " bytes → 출력 " + plain.length + " bytes · 시작 바이트 " + hex(plain, 4)
+                                + " → " + String.valueOf(egovframework.unstructured.collector.image.model.ImageFormat.detect(plain)));
+            }
             injectIf(injectAt, ImageStage.DECRYPT);
 
             // ── 저장 ──
@@ -375,19 +400,48 @@ public class ImageCollectService {
             s = ImageMetrics.start();
             ImageFileStore.Saved saved = store.save(t, plain);
             m.add(ImageStage.SAVE, s);
+            if (sample) {
+                trace.add(ImageTrace.Step.MAP, "저장 — 임시 파일에 쓰고 원자적으로 옮김(같은 수용자의 옛 사진 파일은 지움)", "SHELL",
+                        "ls -la " + slash(saved.path()) + "\nhead -c 4 " + slash(saved.path()) + " | od -An -tx1",
+                        lsLine(saved.path()) + "\n " + hex(plain, 4));
+            }
             injectIf(injectAt, ImageStage.SAVE);   // 저장 파일은 남는다 — 재실행이 원자적으로 덮어쓴다
 
             // ── DB 매핑 — 짧은 트랜잭션 하나(UPSERT). 돌아오면 커밋·반납이 끝나 있다 ──
             step = ImageStage.MAP;
             s = ImageMetrics.start();
             String path = saved.path().toString().replace('\\', '/');
-            InmatePhotoRepository.MapResult mr = repo.upsert(new InmatePhotoRepository.PhotoRow(
+            InmatePhotoRepository.PhotoRow row = new InmatePhotoRepository.PhotoRow(
                     t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
-                    saved.ext(), execId), injectAt == ImageStage.MAP ? () -> injectIf(injectAt, ImageStage.MAP) : null);
+                    saved.ext(), execId);
+            InmatePhotoRepository.MapResult mr;
+            try {
+                mr = repo.upsert(row, injectAt == ImageStage.MAP ? () -> injectIf(injectAt, ImageStage.MAP) : null);
+            } catch (RuntimeException e) {
+                if (sample) {
+                    trace.add(ImageTrace.Step.MAP, "DB 매핑 UPSERT — 실패(트랜잭션 롤백 · 커넥션 반납)", "SQL",
+                            repo.upsertSqlFor(row, java.sql.Timestamp.valueOf(LocalDateTime.now().withNano(0))),
+                            e.getClass().getSimpleName() + ": " + shorten(rootMessage(e)));
+                }
+                throw e;
+            }
             m.add(ImageStage.MAP, s);
+            if (sample) {
+                trace.add(ImageTrace.Step.MAP, "DB 매핑 UPSERT — 한 트랜잭션(커밋 뒤 커넥션 반납) · " + repo.upsertMode(), "SQL",
+                        repo.upsertSqlFor(row, java.sql.Timestamp.valueOf(LocalDateTime.now().withNano(0))),
+                        "→ " + mr.name() + (mr == InmatePhotoRepository.MapResult.INSERTED ? " (신규 INSERT)"
+                                : mr == InmatePhotoRepository.MapResult.UPDATED ? " (UPSERT 덮어쓰기)" : " (옛 사진 — 덮지 않음)"));
+                Map<String, Object> found = repo.find(t.corrNo());
+                trace.add(ImageTrace.Step.MAP, "매핑 확인 — 방금 쓴 행", "SQL", repo.findSqlFor(t.corrNo()),
+                        ImageTrace.table(List.of("corr_no", "image_sn", "photo_path", "file_size", "file_ext", "last_batch_exec_id",
+                                "reg_dtm", "mod_dtm"), found.isEmpty() ? List.of() : List.of(found), found.isEmpty() ? 0 : 1, 1));
+            }
             return ImageOutcome.success(t, mr.name(), path, saved.size(), saved.ext(), System.currentTimeMillis() - t0);
         } catch (InjectedFailureException e) {
             m.error(step);
+            if (sample) {
+                traceFailure(step, "의도적 실패(주입) — 이 건은 롤백되고 다음 건을 계속한다", e.getMessage());
+            }
             log.info("[Image] 의도적 실패(주입) [{}] — {}", step, t.shortId());
             return ImageOutcome.injectedFail(t, step, e.getMessage(), System.currentTimeMillis() - t0);
         } catch (Exception | Error e) {
@@ -396,6 +450,9 @@ public class ImageCollectService {
             }
             m.error(step);
             String reason = e.getClass().getSimpleName() + ": " + shorten(rootMessage(e));
+            if (sample) {
+                traceFailure(step, "처리 실패 — 다음 건을 계속한다", reason);
+            }
             log.warn("[Image] 처리 실패 [{}] — {} ({}) · 다음 건을 계속한다", step, t.shortId(), reason);
             return ImageOutcome.fail(t, step, reason, System.currentTimeMillis() - t0);
         } finally {
@@ -408,6 +465,49 @@ public class ImageCollectService {
                 }
             }
         }
+    }
+
+    /** ④ 브로커 추출 요청을 cURL 로 적는다 — 내장 Mock 이면 같은 요청을 수집기 안에서 처리한 것이다. */
+    private void traceExtract(ImageTarget t, XvarmBrokerClient via, XvarmBrokerClient.FileRequest fr,
+                              XvarmBrokerClient.ExtractResult r) {
+        String body = "{\"docId\":\"" + fr.docId() + "\",\"fileKey\":\"" + fr.fileKey() + "\",\"requestId\":\""
+                + fr.requestId() + "\",\"fileName\":\"" + fr.fileName() + "\"}";
+        boolean internal = via == mockBroker;
+        String base = internal ? "http://(수집기 내장 Mock)" : String.valueOf(modeState.brokerBaseUrl()).replaceAll("/+$", "");
+        String cmd = (internal ? "# 수집기 내장 Mock 브로커 — 아래 요청을 수집기 안에서 처리한다(SIM 원본은 수집기 저장소에만 있다)\n" : "")
+                + "curl -s -X POST '" + base + "/api/v1/xvarm/extract' \\\n  -H 'Content-Type: application/json' \\\n  -d '"
+                + body + "'";
+        trace.add(ImageTrace.Step.RECEIVE, "브로커 추출 요청 — FILEKEY 의 원본을 수신 폴더로(" + via.mode() + ")", "HTTP", cmd,
+                "{\"requestId\":\"" + r.requestId() + "\",\"status\":\"DONE\",\"filePath\":\""
+                        + String.valueOf(r.filePath()).replace('\\', '/') + "\",\"fileSize\":" + r.fileSize() + "}");
+    }
+
+    private void traceFailure(ImageStage step, String title, String reason) {
+        ImageTrace.Step at = step == ImageStage.ACQUIRE || step == ImageStage.DECRYPT ? ImageTrace.Step.RECEIVE
+                : step == ImageStage.FILEKEY ? ImageTrace.Step.FILEKEY : ImageTrace.Step.MAP;
+        trace.add(at, "[" + step.name() + "] " + title, "CODE", "# 단계 " + step.name() + " 에서 예외", reason);
+    }
+
+    private static String slash(Path p) {
+        return p.toString().replace('\\', '/');
+    }
+
+    /** {@code ls -la} 한 줄 모양 — 크기 · 수정 시각 · 경로. */
+    private static String lsLine(Path p) {
+        try {
+            return "-rw-r--r--  " + Files.size(p) + "  " + Files.getLastModifiedTime(p).toInstant()
+                    .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().withNano(0) + "  " + slash(p);
+        } catch (Exception e) {
+            return "ls: " + slash(p) + ": " + e.getMessage();
+        }
+    }
+
+    private static String hex(byte[] b, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(n, b.length); i++) {
+            sb.append(i == 0 ? "" : " ").append(String.format("%02x", b[i]));
+        }
+        return sb.toString();
     }
 
     private static void injectIf(ImageStage injectAt, ImageStage here) {

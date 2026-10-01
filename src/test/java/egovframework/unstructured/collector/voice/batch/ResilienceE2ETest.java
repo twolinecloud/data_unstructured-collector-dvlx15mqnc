@@ -55,8 +55,6 @@ class ResilienceE2ETest {
         registry.add("voice.dirs.receive-meet", () -> tmp.resolve("raw/meet").toString());
         registry.add("voice.dirs.receive-phone", () -> tmp.resolve("raw/phone").toString());
         registry.add("voice.dirs.work", () -> tmp.resolve("work").toString());
-        registry.add("voice.dirs.output-meet", () -> tmp.resolve("xenon/voice").toString());
-        registry.add("voice.dirs.output-phone", () -> tmp.resolve("xenon/phone").toString());
         registry.add("voice.dirs.xvarm-original", () -> tmp.resolve("xvarm_original").toString());
         registry.add("voice.sync.wait-timeout-sec", () -> "15");
         registry.add("voice.sync.stable-check-ms", () -> "30");
@@ -162,11 +160,11 @@ class ResilienceE2ETest {
         assertThat(residue())
                 .as("실패 경로에서도 복호화 원본이 지워져야 한다")
                 .isZero();
-        // 실패한 건은 STT 출력도 남기지 않는다 — 성공 1건(기존 STT)만 전화 출력 폴더에 있다
+        // 실패한 건은 제논에 보내지 않는다 — 성공 1건(기존 STT)만 전송 위치가 있다
         assertThat(r.outcomes()).filteredOn(o -> o.status() == ProcStatus.FAIL)
                 .allSatisfy(o -> assertThat(o.sttPath()).isNull());
         assertThat(r.outcomes()).filteredOn(FileProcOutcome::isSuccess)
-                .allSatisfy(o -> assertThat(Files.isRegularFile(Path.of(o.sttPath()))).isTrue());
+                .allSatisfy(o -> assertThat(o.sttPath()).startsWith("zenon:"));
     }
 
     @Test
@@ -176,14 +174,10 @@ class ResilienceE2ETest {
 
         assertThat(r.successCnt()).isEqualTo(TOTAL);
         assertThat(residue()).isZero();
-        // STT 텍스트는 배치 폴더 {output}/{execId}/ 에 남는다
-        assertThat(r.outputDirs()).containsKeys("MEET", "PHONE");
-        assertThat(r.outputDirs().get("MEET")).endsWith("/xenon/voice/" + r.execId());
-        assertThat(r.outputDirs().get("PHONE")).endsWith("/xenon/phone/" + r.execId());
-        assertThat(r.outcomes()).allSatisfy(o -> {
-            assertThat(o.sttPath()).startsWith(r.outputDirs().get(o.target().kind().name()));
-            assertThat(Files.isRegularFile(Path.of(o.sttPath()))).isTrue();
-        });
+        // STT 결과는 제논으로 보냈다 — PV 에는 남지 않는다(Purge 뒤 전사 보존물도 없다)
+        assertThat(r.zenon()).containsEntry("sent", String.valueOf(TOTAL));
+        assertThat(r.outcomes()).allSatisfy(o -> assertThat(o.sttPath()).startsWith("zenon:"));
+        assertThat(tmp.resolve("xenon")).doesNotExist();
     }
 
     @Test
@@ -261,18 +255,17 @@ class ResilienceE2ETest {
     }
 
     @Test
-    @DisplayName("T2 단계 요약 — STT 가 전부 실패하면 COLLECT 는 SUCCESS, ANALYZE 는 PARTIAL, DEIDENT·SEND 는 통과분만")
+    @DisplayName("T2 단계 요약 — STT 가 전부 실패하면 COLLECT 는 SUCCESS, ANALYZE 는 PARTIAL, SEND 는 통과분만")
     void stepSummaryReflectsWhereItFailed() {
         faultInjector.configure(true, 100, 0, 0L);
 
         VoiceBatchResult r = service.run(wide(), null, "TEST");
 
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
+                .containsExactly("COLLECT", "ANALYZE", "SEND");
         VoiceBatchResult.StepLog collect = r.steps().get(0);
         VoiceBatchResult.StepLog analyze = r.steps().get(1);
-        VoiceBatchResult.StepLog deident = r.steps().get(2);
-        VoiceBatchResult.StepLog send = r.steps().get(3);
+        VoiceBatchResult.StepLog send = r.steps().get(2);
         assertThat(collect.stepStsCd()).isEqualTo("SUCCESS");
         assertThat(collect.inCnt()).isEqualTo(TOTAL);
         assertThat(collect.outCnt()).isEqualTo(TOTAL);
@@ -280,11 +273,7 @@ class ResilienceE2ETest {
         assertThat(analyze.outCnt()).isEqualTo(SOURCE_STT);
         assertThat(analyze.errCnt()).isEqualTo(STT_DEPENDENT);
         assertThat(analyze.stepStsCd()).isEqualTo("PARTIAL");
-        // STT 를 통과한 것만 비식별 구간으로 — 단순 전달이라 깨지지 않는다
-        assertThat(deident.inCnt()).isEqualTo(SOURCE_STT);
-        assertThat(deident.outCnt()).isEqualTo(SOURCE_STT);
-        assertThat(deident.stepStsCd()).isEqualTo("SUCCESS");
-        // 비식별을 통과한 것만 저장 구간으로 넘어간다 — 저장 자체는 깨지지 않았으므로 SUCCESS
+        // STT 를 통과한 것만 전송 구간으로 넘어간다 — 전송 자체는 깨지지 않았으므로 SUCCESS
         assertThat(send.inCnt()).isEqualTo(SOURCE_STT);
         assertThat(send.outCnt()).isEqualTo(SOURCE_STT);
         assertThat(send.errCnt()).isZero();

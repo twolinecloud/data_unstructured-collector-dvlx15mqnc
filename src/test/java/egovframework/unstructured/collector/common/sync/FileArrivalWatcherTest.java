@@ -40,7 +40,7 @@ class FileArrivalWatcherTest {
                 new VoiceProperties.Phone(VoiceProperties.PhoneMode.MOCK),
                 new VoiceProperties.Sync(20, 3, EsbFileNamingPolicy.Policy.ORIGINAL),
                 new VoiceProperties.Dirs(tmp.toString(), meet.toString(), phone.toString(), tmp.resolve("w").toString(),
-                        tmp.resolve("out/meet").toString(), tmp.resolve("out/phone").toString(), tmp.resolve("xv").toString()),
+                        tmp.resolve("xv").toString()),
                 new VoiceProperties.Decrypt(VoiceProperties.DecryptMode.SKIP, ""),
                 new VoiceProperties.Stt(VoiceProperties.SttMode.MOCK, "", 30),
                 new VoiceProperties.Batch("0 0 2 * * *", "0 */10 * * * *", 20, false,

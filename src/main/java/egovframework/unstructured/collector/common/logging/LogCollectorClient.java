@@ -179,11 +179,11 @@ public class LogCollectorClient {
     /**
      * T2 단계를 생성한다(상태 RUNNING) — {@code POST /api/v1/logs/batches/{execId}/steps}.
      *
-     * <p>순번({@code stepSeq})은 참고값이다. 컬렉터가 유형별 체인(비정형: COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4)
+     * <p>순번({@code stepSeq})은 참고값이다. 컬렉터가 유형별 체인(비정형: COLLECT 1 · ANALYZE 2 · SEND 3 — 2026-10-01 3단계 복원)
      * 위치로 다시 정하고, 같은 단계를 다시 부르면 새 행을 만들지 않고 <b>기존 행의 ID</b> 를 돌려준다.
-     * 그래서 이 서비스는 배치당 COLLECT·ANALYZE 를 각각 한 번씩만 열고 마감한다.</p>
+     * 그래서 이 서비스는 배치당 COLLECT·ANALYZE·SEND 를 각각 한 번씩만 열고 마감한다.</p>
      *
-     * @param stepTypeCd 공통코드 C05 — COLLECT / CLEANSE / ANALYZE / DEIDENT / STORE / SEND
+     * @param stepTypeCd 공통코드 C05 — 이 서비스는 COLLECT / ANALYZE / SEND 만 쓴다
      * @return 채번된 STEP_LOG_ID. 미연동·실패 시 null
      */
     public String createStep(String execId, Short stepSeq, String stepTypeCd) {

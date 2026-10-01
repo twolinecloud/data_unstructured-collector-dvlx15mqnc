@@ -18,10 +18,8 @@ public enum PerfStage {
     STT("STT"),
     /** 중간 산출물 — {@code stt_temp/{execId}/*.json}. */
     TEMP("중간"),
-    /** 비식별 — 커넥터 호출(비식별 수행 / 단순 전달). 성능 시험이면 건당 비식별 처리 시간을 더한다. */
-    DEIDENT("비식별"),
-    /** 최종 저장 — {@code xenon/{meet|phone}/{execId}/}. */
-    SAVE("저장");
+    /** 적재/전송 — 제논(Zenon) 수신 API 호출(개발계 MOCK). 결과를 PV 에 남기지 않는다. */
+    SEND("제논 전송");
 
     private final String label;
 

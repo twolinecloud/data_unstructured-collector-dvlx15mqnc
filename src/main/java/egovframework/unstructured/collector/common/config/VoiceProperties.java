@@ -207,7 +207,7 @@ public record VoiceProperties(
     ) {}
 
     /**
-     * 디렉터리 6종 — ROOT_DIR 아래 <b>표준 배치</b>. 비우면 ROOT_DIR 로 파생되고, 채우면 그 값이 이긴다.
+     * 디렉터리 5종 — ROOT_DIR 아래 <b>표준 배치</b>. 비우면 ROOT_DIR 로 파생되고, 채우면 그 값이 이긴다.
      *
      * <pre>
      *   ROOT_DIR (base-dir)   비우면 OS 로 결정 — Windows C:/k8s/unstructured_collector · Linux/K8s /k8s/unstructured_collector
@@ -215,9 +215,9 @@ public record VoiceProperties(
      *   receiveMeet            {ROOT}/esb/meet                     ESB 원본 수신 (접견) — 브로커·ESB 가 떨구는 곳
      *   receivePhone           {ROOT}/esb/phone                    ESB 원본 수신 (전화)
      *   work                   {ROOT}/xvram/decoding               XVARM 접견 복호화 산출물 · 멱등 표식
-     *   outputMeet             {ROOT}/xenon/meet                   최종 변환/저장 (접견) — 실제 파일은 {outputMeet}/{execId}/
-     *   outputPhone            {ROOT}/xenon/phone                  최종 변환/저장 (전화) — 실제 파일은 {outputPhone}/{execId}/
      * </pre>
+     *
+     * <p>최종 결과 폴더(xenon)는 없다 — STT 결과는 제논(Zenon)으로 보내고 PV 에 남기지 않는다(2026-10-01).</p>
      *
      * <p>기동 초기값은 여기서 오고 시뮬레이터에서 런타임으로 바꿀 수 있다({@code VoiceDirState}). 앱 기동과
      * 시뮬레이션 데이터 생성/초기화 때 없는 폴더는 만든다(CREATE_IF_NOT_EXISTS).</p>
@@ -228,8 +228,6 @@ public record VoiceProperties(
             @DefaultValue("") String receiveMeet,
             @DefaultValue("") String receivePhone,
             @DefaultValue("") String work,
-            @DefaultValue("") String outputMeet,
-            @DefaultValue("") String outputPhone,
             /** XVARM 접견 원본 음성 스토리지 — 시뮬레이션 데이터 생성이 DB 파일명과 1:1 인 경량 더미 파일을 여기에 쓴다. */
             @DefaultValue("") String xvarmOriginal
     ) {}
@@ -291,7 +289,7 @@ public record VoiceProperties(
              *
              * <p>⚠ 예전 값 {@code VOICE} 는 C01 에 없는 코드였다. 컬렉터가 거절하지는 않았지만
              * 대시보드 4종 필터에 잡히지 않았고, T2 순번을 정하는 유형별 체인
-             * (비정형: COLLECT → ANALYZE → DEIDENT → SEND)도 타지 못해 단계가 체인 밖 순번(11~)으로 밀렸다.</p>
+             * (비정형: COLLECT → ANALYZE → SEND)도 타지 못해 단계가 체인 밖 순번(11~)으로 밀렸다.</p>
              */
             @DefaultValue("UNSTRUCTURED") String dataTypeCd,
             /** STT 후 복호화 원본을 남길지. 기본은 삭제 — PII 보유를 최소화한다. */

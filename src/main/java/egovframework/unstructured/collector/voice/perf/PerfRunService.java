@@ -25,7 +25,6 @@ import egovframework.unstructured.collector.common.config.DbKindDetector;
 import egovframework.unstructured.collector.voice.source.SimulationDataService;
 import egovframework.unstructured.collector.voice.stt.MockSttLatency;
 import egovframework.unstructured.collector.voice.stt.SttClient;
-import egovframework.unstructured.collector.voice.stt.SttOutputStore;
 import egovframework.unstructured.collector.common.sync.PhoneFileProvider;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -76,8 +75,8 @@ import java.util.concurrent.Executors;
  *       [상세 검증]으로 볼 수 있게 한다(다음 회차 준비 때 출력 폴더는 지운다)</li>
  * </ol>
  *
- * <p>이력은 {@code {ROOT}/perf/history.jsonl}(기본 부하) · {@code ramp-history.jsonl}(임계) 에 한 줄씩 쌓는다 —
- * PV 라 파드를 다시 띄워도 남고, 여러 사람이 같은 이력을 본다.</p>
+ * <p>결과는 {@code {ROOT}/perf/history.jsonl}(기본 부하) · {@code ramp-history.jsonl}(임계) 에 <b>마지막 실행 한 건만</b>
+ * 덮어쓴다(2026-10-01 — 누적하면 PV 가 끝없이 커진다). PV 라 파드를 다시 띄워도 남고, 여러 사람이 같은 결과를 본다.</p>
  */
 @Log4j2
 @Service
@@ -117,10 +116,9 @@ public class PerfRunService {
     private final VoiceBatchScheduler scheduler;
     private final SimulationDataService sim;
     private final MockDatasetState dataset;
-    private final SttOutputStore outputStore;
+    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
     private final VerificationService verification;
     private final MockSttLatency latency;
-    private final egovframework.unstructured.collector.voice.transfer.DeidentLoad deidentLoad;
     private final PerfStageMeter meter;
     private final SourcePoolPeak poolPeak;
     private final VoiceDirState dirs;
@@ -146,16 +144,16 @@ public class PerfRunService {
 
     /** 건당 STT 처리 시간 — 두 요청이 같은 모양으로 넘긴다. {@code realSleep} 이 아니면 고속 모드다. */
     private record Load(MockSttLatency.Mode mode, long meetMs, long phoneMs, int jitterPercent, Long timeoutMs,
-                        boolean realSleep, boolean deidentEnabled, long deidentMs) {
+                        boolean realSleep) {
 
         static Load of(PerfRequest r) {
             return new Load(r.mode(), r.meetLatencyMs(), r.phoneLatencyMs(), r.jitterPercent(), r.sttTimeoutMs(),
-                    Boolean.TRUE.equals(r.realSleep()), Boolean.TRUE.equals(r.deidentEnabled()), r.deidentLatencyMs());
+                    Boolean.TRUE.equals(r.realSleep()));
         }
 
         static Load of(RampRequest r) {
             return new Load(r.mode(), r.meetLatencyMs(), r.phoneLatencyMs(), r.jitterPercent(), r.sttTimeoutMs(),
-                    Boolean.TRUE.equals(r.realSleep()), Boolean.TRUE.equals(r.deidentEnabled()), r.deidentLatencyMs());
+                    Boolean.TRUE.equals(r.realSleep()));
         }
 
         Map<String, Object> describe() {
@@ -165,8 +163,6 @@ public class PerfRunService {
             m.put("phoneMs", phoneMs);
             m.put("jitterPercent", jitterPercent);
             m.put("realSleep", realSleep);
-            m.put("deidentEnabled", deidentEnabled);
-            m.put("deidentMs", deidentEnabled ? deidentMs : 0L);
             return m;
         }
     }
@@ -178,8 +174,8 @@ public class PerfRunService {
     private record Measured(VoiceBatchResult result, long heapStart, long heapEnd, long heapPeak,
                             List<Map<String, Object>> stages, Map<String, Object> hikari,
                             double acquireMaxMs, long sttErrors, String earlyStop,
-                            boolean fastForward, Workers workers, List<Long> virtualSttMs, List<Long> virtualDeidentMs,
-                            boolean deidentEnabled, PerfStageMeter.Pipeline pipeline) {}
+                            boolean fastForward, Workers workers, List<Long> virtualSttMs,
+                            PerfStageMeter.Pipeline pipeline) {}
 
     /** 한 회차의 진행 상태 — 러너 스레드가 쓰고 API 스레드가 읽는다. */
     private static final class Run {
@@ -223,7 +219,7 @@ public class PerfRunService {
      * @throws IllegalStateException    이미 성능 시험이나 배치가 돌고 있다(409)
      */
     public synchronized Map<String, Object> start(PerfRequest raw) {
-        PerfRequest req = (raw == null ? new PerfRequest(null, null, null, null, null, null, null, null, null, null, null, null, null, null) : raw)
+        PerfRequest req = (raw == null ? new PerfRequest(null, null, null, null, null, null, null, null, null, null, null, null) : raw)
                 .withDefaults();
         req.validate(props.batch().maxFilesPerRun());
         ensureIdle();
@@ -236,7 +232,7 @@ public class PerfRunService {
     /** 임계 성능 시험(워커 램프업)을 시작한다 — 비동기. */
     public synchronized Map<String, Object> startRamp(RampRequest raw) {
         RampRequest req = (raw == null ? new RampRequest(null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null, null, null) : raw).withDefaults();
+                null, null, null, null, null, null, null, null, null, null, null) : raw).withDefaults();
         req.validate(props.batch().maxFilesPerRun());
         ensureIdle();
         Run run = new Run(LocalDateTime.now().format(RUN_ID), Kind.RAMP, req);
@@ -573,7 +569,8 @@ public class PerfRunService {
         long p0 = System.currentTimeMillis();
         run.to(Phase.PREPARING, tag + "로컬 산출물 정리" + (deleteOutputs ? " · 지난 시험 출력 삭제" : ""));
         Map<String, Object> cleared = mock.clearLocalFiles();
-        int oldOutputs = deleteOutputs ? outputStore.deleteTestOutputs() : 0;
+        // 결과는 PV 에 남기지 않는다(제논 전송) — 지난 시험의 제논 수신증(메모리)만 비운다
+        int oldOutputs = deleteOutputs ? zenon.clearTestReceipts() : 0;
         run.to(Phase.PREPARING, "%sSIM 데이터 %d건 생성 (접견 %d · 전화 %d · 기 STT %d%%) — %s"
                 .formatted(tag, meet + phone, meet, phone, sttPercent, dbKind.label()));
         Map<String, Object> seed = sim.seedPerf(meet, phone, sttPercent);
@@ -588,8 +585,6 @@ public class PerfRunService {
     private Measured measure(Load load, Workers workers, RampRequest guard, Run run) {
         latency.apply(load.mode(), load.meetMs(), load.phoneMs(), load.jitterPercent(),
                 load.timeoutMs() == null ? 0L : load.timeoutMs(), !load.realSleep());
-        // 건당 비식별 처리 시간 — 비식별을 수행할 때만(단순 전달은 무거운 연산이 없어 0ms)
-        deidentLoad.apply(load.deidentEnabled() ? load.deidentMs() : 0L, !load.realSleep());
         LocalDate today = LocalDate.now();
         BatchWindow window = BatchWindow.manual(today.minusDays(1).atStartOfDay(), today.atStartOfDay());
         List<MemoryPoolMXBean> heapPools = ManagementFactory.getMemoryPoolMXBeans().stream()
@@ -601,14 +596,13 @@ public class PerfRunService {
         VoiceBatchResult r;
         String early = null;
         try (Monitor mon = guard == null ? null : new Monitor(guard, run)) {
-            r = collect.run(window, null, "PERF", true, ResumeMode.FULL, null, workers, load.deidentEnabled());
+            r = collect.run(window, null, "PERF", true, ResumeMode.FULL, null, workers);
             if (mon != null) {
                 early = mon.reason();
             }
         } finally {
             meter.end();
             latency.clear();
-            deidentLoad.clear();
         }
         if (guard != null && early == null) {
             early = breach(guard);   // 반 초 사이에 끝난 건이 넘었을 수 있다
@@ -623,21 +617,20 @@ public class PerfRunService {
         }).sum();
         return new Measured(r, heapStart, heapEnd, heapPeak, meter.snapshot(), hikari,
                 meter.maxMs(PerfStage.ACQUIRE), meter.errors(PerfStage.STT), early,
-                !load.realSleep(), workers, meter.virtualSttMs(), meter.virtualMs(PerfStage.DEIDENT), load.deidentEnabled(),
-                meter.pipeline());
+                !load.realSleep(), workers, meter.virtualSttMs(), meter.pipeline());
     }
 
     /**
      * 배치 한 번의 처리량·결과·자원 — 기본 부하 결과와 임계 시험 표가 같이 쓴다.
      *
-     * <p><b>고속 모드</b>면 STT·비식별을 기다리지 않았으므로 건별로 적어 둔 처리 시간을 되살린다.</p>
+     * <p><b>고속 모드</b>면 STT 를 기다리지 않았으므로 건별로 적어 둔 처리 시간을 되살린다.</p>
      * <ul>
      *   <li><b>생산자-소비자</b>(확보·STT 워커를 나눠 돈 경우) — 확보는 실제로 돌았고 그 끝난 시각이 건마다 있다.
      *       그 시각에 건이 대기열에 들어왔다고 보고 STT 워커 {@code S} 개가 (실제 처리 시간 + 가상 시간)만큼 일한다고
      *       다시 짠다({@link #pipelineMs}). 확보와 STT 가 겹치므로 둘을 더하지 않는다 — 확보가 느리면 확보 구간이,
      *       STT 가 느리면 STT 가 총 소요를 정한다</li>
      *   <li><b>순차</b> — 건마다 확보 → STT 가 이어지므로 실제 소요 + 가상 시간의 합이다</li>
-     *   <li>가상 STT·비식별 시간({@code virtualSttSec} · {@code virtualDeidentSec})은 참고치 — 건별 처리 시간을
+     *   <li>가상 STT 시간({@code virtualSttSec})은 참고치 — 건별 처리 시간을
      *       STT 워커에 나눠 준 뒤 가장 늦게 끝나는 워커의 시각({@link #distribute})</li>
      *   <li>TPS = 처리 건수(성공 + 실패) ÷ 총 소요</li>
      *   <li>평균 처리 시간 · STT 단계 평균에도 가상 시간을 넣는다 — 안 넣으면 STT 가 0ms 로 보인다.
@@ -649,13 +642,9 @@ public class PerfRunService {
         List<FileProcOutcome> done = r.outcomes().stream().filter(o -> o.status() != ProcStatus.SKIPPED).toList();
         double realSec = r.elapsedMs() / 1000d;
         List<Long> virtual = d.fastForward() ? d.virtualSttMs() : List.of();
-        List<Long> virtualDeid = d.fastForward() ? d.virtualDeidentMs() : List.of();
-        long virtualTotalMs = virtual.stream().mapToLong(Long::longValue).sum()
-                + virtualDeid.stream().mapToLong(Long::longValue).sum();
+        long virtualTotalMs = virtual.stream().mapToLong(Long::longValue).sum();
         int sttWorkers = d.workers().stt();
         double virtualSttSec = distribute(virtual, sttWorkers) / 1000d;
-        // 건당 비식별 처리 시간도 같은 식으로 — STT 워커에 나눈 가상 시간(비식별 수행일 때만 적힌다)
-        double virtualDeidSec = distribute(virtualDeid, sttWorkers) / 1000d;
         PerfStageMeter.Pipeline pl = d.pipeline();
         double sec;
         if (!d.fastForward()) {
@@ -666,7 +655,7 @@ public class PerfRunService {
             // 루프 밖(대상 조회 · T1/T2 개시 · T4/T1 마감)은 실제 그대로, 루프는 다시 짠 시간으로
             sec = (r.elapsedMs() - loop + Math.max(sim, loop)) / 1000d;
         } else {
-            sec = realSec + virtualSttSec + virtualDeidSec;
+            sec = realSec + virtualSttSec;
         }
         long processed = (long) r.successCnt() + r.failCnt();
         double realAvg = done.stream().mapToLong(FileProcOutcome::elapsedMs).average().orElse(0d);
@@ -681,10 +670,8 @@ public class PerfRunService {
         m.put("realSec", round(realSec, 2));
         m.put("virtualSec", round(sec - realSec, 2));
         m.put("virtualSttSec", round(virtualSttSec, 2));
-        m.put("virtualDeidentSec", round(virtualDeidSec, 2));
         // 확보 워커가 마지막 건을 끝낸 시각(실제) — 이것이 총 소요에 가까우면 확보가 병목이다
         m.put("acquireSpanSec", pl == null ? null : round(pl.acquireSpanMs() / 1000d, 2));
-        m.put("deidentEnabled", d.deidentEnabled());
         m.put("totalSec", round(sec, 2));
         m.put("avgMs", done.isEmpty() ? 0d : round(realAvg + (double) virtualTotalMs / done.size(), 1));
         m.put("tps", sec <= 0 ? 0d : round(processed / sec, 3));
@@ -694,7 +681,7 @@ public class PerfRunService {
         m.put("timeout", done.stream().filter(PerfRunService::isTimeout).count());
         m.put("skipped", r.skippedCnt());
         m.put("stages", d.fastForward()
-                ? withVirtual(withVirtual(d.stages(), PerfStage.STT, virtual), PerfStage.DEIDENT, virtualDeid) : d.stages());
+                ? withVirtual(d.stages(), PerfStage.STT, virtual) : d.stages());
         Map<String, Object> h = new LinkedHashMap<>();
         h.put("startMb", mb(d.heapStart()));
         h.put("endMb", mb(d.heapEnd()));
@@ -749,7 +736,7 @@ public class PerfRunService {
 
     /**
      * 고속 모드 — 그 단계의 평균·최대에 기다리지 않은 처리 시간을 더해 싣는다.
-     * STT 는 실제로 0ms 라 가상 시간이 곧 처리 시간이고, 비식별은 커넥터 호출(실제) + 건당 비식별 처리 시간(가상)이다.
+     * STT 는 실제로 0ms 라 가상 시간이 곧 처리 시간이다.
      */
     private static List<Map<String, Object>> withVirtual(List<Map<String, Object>> stages, PerfStage stage, List<Long> virtual) {
         if (virtual.isEmpty()) {
@@ -872,10 +859,10 @@ public class PerfRunService {
         Map<?, ?> byStatus = t4.get("byStatus") instanceof Map<?, ?> b ? b : Map.of();
         long t4Success = num(byStatus.get("SUCCESS"));
         long t1Success = num(t1 == null ? null : t1.get("successCnt"));
-        // T5 — 비식별 단계를 통과한 파일마다 한 행(비식별 수행이든 단순 전달이든). = 성공 + 저장 단계 실패
-        Map<?, ?> t5 = (Map<?, ?>) db.getOrDefault("t5", Map.of());
-        long t5Rows = num(t5.get("total"));
-        long t5Expected = r.successCnt() + r.outcomes().stream().filter(o -> o.failedAt(FileProcOutcome.STEP_SEND)).count();
+        // 제논 — 성공한 건마다 수신증 하나(전송 실패 건은 없다). T5(비식별·전송 로그)는 3단계 복원(2026-10-01)으로 남지 않는다.
+        //   수신증은 수집기 메모리에 최근 keep-receipts 개만 있어, 성공이 그보다 많으면 건수 대조를 건너뛴다
+        long zenonSent = zenon.receipts(r.execId()).size();
+        boolean zenonComparable = r.successCnt() <= zenon.keepLimit();
 
         c.put("t1Status", t1 == null ? null : t1.get("execStsCd"));
         c.put("t2Steps", t2.size());
@@ -885,10 +872,11 @@ public class PerfRunService {
         c.put("t4Expected", expected);
         c.put("t1Success", t1Success);
         c.put("t4Success", t4Success);
-        c.put("t5Rows", t5Rows);
-        c.put("t5Expected", t5Expected);
-        c.put("t5BySolution", t5.get("bySolution"));
-        c.put("ok", running == 0 && dup.isEmpty() && t4Rows == expected && t1Success == t4Success && t5Rows == t5Expected);
+        c.put("zenonMode", zenon.mode());
+        c.put("zenonSent", zenonSent);
+        c.put("zenonExpected", zenonComparable ? (long) r.successCnt() : null);
+        c.put("ok", running == 0 && dup.isEmpty() && t4Rows == expected && t1Success == t4Success
+                && (!zenonComparable || zenonSent == r.successCnt()));
         return c;
     }
 
@@ -941,12 +929,17 @@ public class PerfRunService {
         return Path.of(dirs.baseDir(), "perf", name);
     }
 
+    /**
+     * 마지막 실행 결과만 남긴다 — 덮어쓰기(TRUNCATE_EXISTING). 누적하면 PV({@code {ROOT}/perf/})가 끝없이 커진다(2026-10-01).
+     * 화면의 ③ 실행 이력에는 마지막 한 회차만 보인다.
+     */
     private synchronized void appendHistory(String name, Map<String, Object> result) {
         Path f = historyFile(name);
         try {
             Files.createDirectories(f.getParent());
             String line = objectMapper.writeValueAsString(result) + "\n";
-            Files.writeString(f, line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            Files.writeString(f, line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             log.warn("[Perf] 이력 기록 실패 — {} ({})", f, e.getMessage());
         }

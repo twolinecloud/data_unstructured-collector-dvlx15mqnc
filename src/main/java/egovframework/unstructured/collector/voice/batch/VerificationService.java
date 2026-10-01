@@ -27,12 +27,13 @@ import java.util.stream.Stream;
  * 요점이 "실패한 건의 중간 산출물이 남아 있다가 재처리 후 사라진다" 인데, 그걸 눈으로 보려면
  * 세 군데를 오가야 했다.</p>
  *
- * <p>여기서 세 가지를 같이 돌려준다.</p>
+ * <p>여기서 네 가지를 같이 돌려준다.</p>
  * <ol>
- *   <li><b>DB</b> — 로그 컬렉터 {@code GET /api/v1/logs/batches/{execId}} 를 통해 T1·T2·T4·T5.
- *       T5 는 비식별 커넥터가 파일마다 남긴다 — 비식별 수행(AIR)·단순 전달(BYPASS) 어느 쪽이든.
- *       이 서비스는 로그 DB 에 직접 붙지 않는다(적재도 조회도 컬렉터 API 로만).</li>
- *   <li><b>PV 파일</b> — 복호화 보존물·전사 보존물·STT 결과 폴더의 존재와 파일 수.</li>
+ *   <li><b>DB</b> — 로그 컬렉터 {@code GET /api/v1/logs/batches/{execId}} 를 통해 T1·T2(3단계 COLLECT·ANALYZE·SEND)·T4.
+ *       이 서비스는 로그 DB 에 직접 붙지 않는다(적재도 조회도 컬렉터 API 로만). 클라우드 전송·비식별화가 빠져
+ *       (2026-10-01) T5(비식별·전송 로그)는 더 남지 않는다.</li>
+ *   <li><b>PV 파일</b> — 복호화 보존물·전사 보존물. 성공한 건은 제논 전송 뒤 지워지므로(Purge) 실패한 건만 남는다.</li>
+ *   <li><b>제논</b> — 이 배치가 보낸 수신증(메모리).</li>
  *   <li><b>손으로 확인할 명령</b> — 위를 조회한 것과 같은 SQL 과 {@code ls}/{@code cat} 명령.
  *       화면 숫자를 믿지 못하겠으면 그대로 복사해 DB 툴·터미널에서 돌려 보면 된다.</li>
  * </ol>
@@ -50,6 +51,7 @@ public class VerificationService {
     private final LogCollectorClient logCollector;
     private final DeployEnvPreset deployEnv;
     private final SttTempStore sttTemp;
+    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
 
     public Map<String, Object> verify(String execId) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -57,6 +59,7 @@ public class VerificationService {
         out.put("env", deployEnv.kind().name());
         out.put("db", db(execId));
         out.put("files", files(execId));
+        out.put("zenon", zenon(execId));
         out.put("sql", sql(execId));
         out.put("cli", cli(execId));
         return out;
@@ -64,7 +67,7 @@ public class VerificationService {
 
     // ── DB ────────────────────────────────────────────────────────────────
 
-    /** DB(T1·T2·T4·T5) 대조만 — 성능 시험이 끝난 뒤 정합성 점검에서도 쓴다. */
+    /** DB(T1·T2·T4) 대조만 — 성능 시험이 끝난 뒤 정합성 점검에서도 쓴다. */
     public Map<String, Object> db(String execId) {
         Map<String, Object> m = new LinkedHashMap<>();
         if (!logCollector.isEnabled()) {
@@ -116,15 +119,6 @@ public class VerificationService {
         t4.put("total", num(rc, "file_cnt"));
         t4.put("byStatus", counts(ss.path("fileByStatus")));
         m.put("t4", t4);
-        // T5 — 비식별 커넥터가 파일마다 남긴다. deident_sts_cd 는 C04(SUCCESS/FAIL), 무엇을 했는지는 solution_cd:
-        //   AIR = 비식별 수행(화면 DEIDENT_SUCCESS) · BYPASS = 단순 전달(화면 SEND). 전송 상태는 이관 적재가 닫는다.
-        Map<String, Object> t5 = new LinkedHashMap<>();
-        t5.put("total", num(rc, "send_cnt"));
-        t5.put("byStatus", counts(ss.path("sendByStatus")));
-        t5.put("deidentByStatus", counts(ss.path("deidentByStatus")));
-        t5.put("bySolution", counts(ss.path("deidentBySolution")));
-        t5.put("solutionSupported", !ss.path("deidentBySolution").isMissingNode());
-        m.put("t5", t5);
         // 컬렉터가 옛 버전이면 상태별 집계가 없다 — 건수만 보이고, 화면이 그 사실을 말한다
         m.put("statusSummarySupported", !ss.isMissingNode());
 
@@ -164,15 +158,24 @@ public class VerificationService {
         Map<String, Object> m = new LinkedHashMap<>();
         // 복호화 보존물 — 실패한 건의 STT 직전 오디오(ANALYZE 재처리용). 같은 폴더의 다른 파일은 세지 않는다
         m.put("decoding", listing(Path.of(dirs.work()), "decrypted_"));
-        // 전사 보존물 — SEND 재처리용. 배치 폴더 단위로 남는다
+        // 전사 보존물 — SEND(제논 전송) 재처리용. 배치 폴더 단위로 남는다
         m.put("sttTemp", listing(sttTemp.dir(execId), null));
         m.put("sttTempAll", sttTemp.status());
-        // 최종 STT 결과 — 성공한 건만 여기 남는다
-        Map<String, Object> output = new LinkedHashMap<>();
-        for (VoiceKind k : VoiceKind.values()) {
-            output.put(k.name(), listing(dirs.outputDir(k, execId), null));
+        return m;
+    }
+
+    /** 제논 수신증 — 이 배치가 보낸 것(메모리에 남은 만큼). 결과는 PV 에 남기지 않는다. */
+    private Map<String, Object> zenon(String execId) {
+        Map<String, Object> m = new LinkedHashMap<>(zenon.status());
+        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> r = zenon.receipts(execId);
+        Map<String, Long> byKind = new LinkedHashMap<>();
+        for (var one : r) {
+            Object k = one.metadata() == null ? null : one.metadata().get("kind");
+            byKind.merge(String.valueOf(k), 1L, Long::sum);
         }
-        m.put("output", output);
+        m.put("count", r.size());
+        m.put("byKind", byKind);
+        m.put("sample", r.stream().limit(EDGE).toList());
         return m;
     }
 
@@ -244,16 +247,6 @@ public class VerificationService {
                         + " WHERE exec_sts_cd = 'SUCCESS'\n"
                         + "   AND data_type_cd = 'UNSTRUCTURED'\n"
                         + "   AND job_id = (SELECT job_id FROM kcais.tb_batch_exec_log WHERE exec_id = '" + id + "');"));
-        l.add(cmd("T5 비식별·전송 — 파일별 (kcais.tb_deident_send_log · AIR=비식별 수행 / BYPASS=단순 전달)",
-                "SELECT rec_file_id, inmate_pid, solution_cd, deident_sts_cd, send_sts_cd, send_dtm\n"
-                        + "  FROM kcais.tb_deident_send_log\n"
-                        + " WHERE exec_id = '" + id + "'\n"
-                        + " ORDER BY rec_file_id;"));
-        l.add(cmd("T5 — 솔루션·전송 상태별 건수",
-                "SELECT solution_cd, send_sts_cd, COUNT(*)\n"
-                        + "  FROM kcais.tb_deident_send_log\n"
-                        + " WHERE exec_id = '" + id + "'\n"
-                        + " GROUP BY solution_cd, send_sts_cd;"));
         return l;
     }
 
@@ -264,17 +257,14 @@ public class VerificationService {
         String pre = k8s ? KUBECTL : "";
         String work = slash(dirs.work());
         String temp = slash(sttTemp.dir(id).toString());
-        String outMeet = slash(dirs.outputDir(VoiceKind.MEET, id).toString());
-        String outPhone = slash(dirs.outputDir(VoiceKind.PHONE, id).toString());
 
         List<Map<String, String>> l = new ArrayList<>();
         l.add(cmd("복호화 보존물 (ANALYZE 재처리용)", pre + "ls -la " + q(work, k8s)));
-        l.add(cmd("전사 보존물 (SEND 재처리용)", pre + "ls -la " + q(temp, k8s)));
-        l.add(cmd("STT 결과 — 접견", pre + "ls -la " + q(outMeet, k8s)));
-        l.add(cmd("STT 결과 — 전화", pre + "ls -la " + q(outPhone, k8s)));
-        l.add(cmd("STT 결과 내용 (접견 첫 파일)",
-                k8s ? KUBECTL + "sh -c 'cat " + outMeet + "/*.txt | head -20'"
-                    : "cat \"" + outMeet + "\"/*.txt | head -20"));
+        l.add(cmd("전사 보존물 (SEND 재처리용 — 성공한 건은 전송 뒤 지워진다)", pre + "ls -la " + q(temp, k8s)));
+        l.add(cmd("제논 전송 수신증 (이 배치)",
+                "curl -s '" + (k8s ? "https://<admin-fe>/voice" : "http://localhost:8085")
+                        + "/api/v1/mock/zenon/receipts?execId=" + id + "'"));
+        l.add(cmd("제논 목 서버가 받은 파일 (REST 모드 · tools/zenon-mock)", "ls -la ./mock_received_files"));
         return l;
     }
 

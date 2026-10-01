@@ -43,9 +43,6 @@ public class DeployEnvPreset {
     public static final String LOGC_LOCAL = "http://localhost:8090/logc";
     /** 차트(data_HelmChart/pipeline/log-collector-a2z96kgyrm)의 Service 명·포트 — 컨테이너 8080, context-path /logc. */
     public static final String LOGC_K8S = "http://log-collector-a2z96kgyrm:8080/logc";
-    /** 에이전트 커넥터 — 로컬은 8080, K8s 는 차트의 Service 명(data-pipeline 네임스페이스). */
-    public static final String AGENT_LOCAL = "http://localhost:8080";
-    public static final String AGENT_K8S = "http://agent-connector-dp8qbi7xqh:8080";
 
     private final String os;
     private final boolean windows;
@@ -57,18 +54,9 @@ public class DeployEnvPreset {
     private final boolean rootDirPreset;
     private final boolean brokerPreset;
     private final boolean logCollectorPreset;
-    private final String agentConnectorBaseUrl;
-    private final boolean agentConnectorPreset;
 
-    /** 커넥터 주소를 따로 주지 않는 경우(테스트·직접 생성) — 환경 프리셋으로 정한다. */
-    public DeployEnvPreset(Environment env, VoiceProperties props, String configuredLogc) {
-        this(env, props, configuredLogc, null);
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
     public DeployEnvPreset(Environment env, VoiceProperties props,
-                           @Value("${log-collector.base-url:}") String configuredLogc,
-                           @Value("${agent-connector.base-url:}") String configuredAgent) {
+                           @Value("${log-collector.base-url:}") String configuredLogc) {
         this.os = System.getProperty("os.name", "");
         this.windows = os.toLowerCase(Locale.ROOT).contains("win");
         this.profiles = Arrays.asList(env.getActiveProfiles().length > 0 ? env.getActiveProfiles() : env.getDefaultProfiles());
@@ -86,14 +74,9 @@ public class DeployEnvPreset {
         this.logCollectorPreset = !StringUtils.hasText(cfgLogc);
         this.logCollectorBaseUrl = logCollectorPreset ? (kind == Kind.LOCAL ? LOGC_LOCAL : LOGC_K8S) : cfgLogc;
 
-        String cfgAgent = norm(configuredAgent);
-        this.agentConnectorPreset = !StringUtils.hasText(cfgAgent);
-        this.agentConnectorBaseUrl = agentConnectorPreset ? (kind == Kind.LOCAL ? AGENT_LOCAL : AGENT_K8S) : cfgAgent;
-
-        log.info("[Env] {} · os={} · profiles={} → ROOT_DIR={}{} · 브로커={}{} · 로그컬렉터={}{} · 커넥터={}{}",
+        log.info("[Env] {} · os={} · profiles={} → ROOT_DIR={}{} · 브로커={}{} · 로그컬렉터={}{}",
                 kind, os, profiles, rootDir, rootDirPreset ? "(자동)" : "(설정)",
-                brokerBaseUrl, brokerPreset ? "(자동)" : "(설정)", logCollectorBaseUrl, logCollectorPreset ? "(자동)" : "(설정)",
-                agentConnectorBaseUrl, agentConnectorPreset ? "(자동)" : "(설정)");
+                brokerBaseUrl, brokerPreset ? "(자동)" : "(설정)", logCollectorBaseUrl, logCollectorPreset ? "(자동)" : "(설정)");
     }
 
     public String os() { return os; }
@@ -104,9 +87,6 @@ public class DeployEnvPreset {
     public String rootDir() { return rootDir; }
     public String brokerBaseUrl() { return brokerBaseUrl; }
     public String logCollectorBaseUrl() { return logCollectorBaseUrl; }
-    /** 에이전트 커넥터 이관 API 주소 — 로컬 8080 · K8s 커넥터 Service 명. */
-    public String agentConnectorBaseUrl() { return agentConnectorBaseUrl; }
-    public boolean isAgentConnectorPreset() { return agentConnectorPreset; }
 
     /** 화면·API 용 요약. */
     public Map<String, Object> snapshot() {

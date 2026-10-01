@@ -153,23 +153,20 @@ voice:
     wait-timeout-sec: ${VOICE_WAIT_TIMEOUT_SEC:300}
     naming-policy: ${VOICE_NAMING_POLICY:ORIGINAL}   # ORIGINAL | ESB_DAT (Q7)
 
-  # ── 디렉터리 6종 — ROOT_DIR 아래 표준 배치 ────────────────────────────────
+  # ── 디렉터리 5종 — ROOT_DIR 아래 표준 배치 ────────────────────────────────
   #   base-dir(ROOT_DIR) 을 비우면 OS 로 정한다: Windows C:/k8s/unstructured_collector · Linux/K8s /k8s/unstructured_collector
   #   각 항목을 비우면 ROOT_DIR 로 파생되고, 채우면(환경변수) 그 값이 이긴다. 없는 폴더는 기동·생성·초기화 때 만든다.
   #     xvarm-original  {ROOT}/xvram/original_voice_files   XVARM 접견 원본 (시뮬레이션 더미 파일)
   #     receive-meet    {ROOT}/esb/meet                     ESB 원본 수신 (접견) — 로컬 브로커 BROKER_OUTPUT_DIR 과 같아야 한다
   #     receive-phone   {ROOT}/esb/phone                    ESB 원본 수신 (전화)
   #     work            {ROOT}/xvram/decoding               XVARM 접견 복호화 (작업 · 멱등 표식)
-  #     output-meet     {ROOT}/xenon/meet/{execId}          최종 변환/저장 (접견)
-  #     output-phone    {ROOT}/xenon/phone/{execId}         최종 변환/저장 (전화)
+  #   최종 결과 폴더(xenon)는 없다 — STT 결과는 제논(Zenon)으로 보내고 PV 에 남기지 않는다(2026-10-01).
   dirs:
     base-dir: ${VOICE_BASE_DIR:}
     xvarm-original: ${VOICE_XVARM_ORIGINAL_DIR:}
     receive-meet: ${VOICE_MEET_DIR:}
     receive-phone: ${VOICE_PHONE_DIR:}
     work: ${VOICE_WORK_DIR:}
-    output-meet: ${VOICE_OUTPUT_MEET_DIR:}
-    output-phone: ${VOICE_OUTPUT_PHONE_DIR:}
 
   # ── 시뮬레이션 데이터 — DB 메타(접견 5·전화 5) + 더미 파일 ─────────────────
   #   기동 시 자동 생성은 로컬(H2)만 켠다. 개발계는 시뮬레이터 [시뮬레이션 데이터 생성] 으로만 만든다.
@@ -212,19 +209,19 @@ logging:
   level:
     egovframework.unstructured.collector: ${LOG_LEVEL:INFO}
 
-# ── 에이전트 커넥터 이관 ───────────────────────────────────────────────────
-#   1차 저장({ROOT}/xenon/…)을 마친 뒤 STT 산출물을 커넥터로 넘긴다. 커넥터가 이관 스펙 확정
-#   전까지 {AGENT_INGEST_BASE_DIR}/unstructured/{meet|phone} 에 파일로 적재한다.
-#   ⚠ 이관이 실패해도 배치는 성공이다 — 산출물은 이미 우리 폴더에 있고, 못 넘긴 것은 다시 넘기면 된다.
-agent-connector:
-  enabled: ${AGENT_CONNECTOR_ENABLED:true}
-  # 비우면 환경 프리셋 — 로컬 http://localhost:8080 · K8s http://agent-connector-dp8qbi7xqh:8080
-  base-url: ${AGENT_CONNECTOR_BASE_URL:}
-  # 비식별 기본값 — 배치가 건마다 비식별 커넥터(/api/v1/pipeline/deident/voice)에 넘기는 deidentEnabled.
-  #   false(기본) = 단순 전달(SEND): 비식별 연산을 건너뛰고 T5 에 solution_cd=BYPASS 로 남긴다
-  #   true        = 비식별 수행: 커넥터가 개인정보를 마스킹하고 T5 에 solution_cd=AIR 로 남긴다
-  #   어느 쪽이든 T2 에 DEIDENT 단계가, T5 에 파일마다 한 행이 남는다. 시뮬레이터·API 는 요청마다 덮어쓸 수 있다.
-  deidentification-enabled: ${AGENT_DEID_ENABLED:false}
+# ── 제논(Zenon) 전송 — 파이프라인 3단계 SEND ────────────────────────────────
+#   [수집] COLLECT → [정제/분석] ANALYZE(STT) → [적재/전송] SEND(제논). 클라우드 전송·비식별화(에이전트 커넥터)는
+#   2026-10-01 제외됐다. STT 결과(전사 JSON)를 제논 수신 API 로 보내고, 성공하면 그 건의 임시 파일을 지운다(Purge).
+#     MOCK — 수집기 안에서 수신증만 만든다(네트워크 없음). 제논 수신 사양 확정 전 개발계 기본
+#     REST — POST {base-url}{receive-path} · multipart/form-data(file + metadata JSON)
+#            로컬 시험: tools/zenon-mock(FastAPI) 를 띄우고 ZENON_MODE=REST ZENON_BASE_URL=http://localhost:8000
+zenon:
+  mode: ${ZENON_MODE:MOCK}
+  base-url: ${ZENON_BASE_URL:}
+  receive-path: ${ZENON_RECEIVE_PATH:/api/v1/zenon/receive}
+  connect-timeout-ms: ${ZENON_CONNECT_TIMEOUT_MS:3000}
+  read-timeout-ms: ${ZENON_READ_TIMEOUT_MS:30000}
+  keep-receipts: ${ZENON_KEEP_RECEIPTS:500}
 
 # ══════════════════════════════════════════════════════════════════════════
 #  수용자 이미지 수집 (image.*)

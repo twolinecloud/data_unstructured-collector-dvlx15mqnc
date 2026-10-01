@@ -38,13 +38,13 @@ class BatchResultSerializationTest {
             outcomes.add(i < fail
                     ? FileProcOutcome.fail(meet(i), FileProcOutcome.STEP_COLLECT,
                             "ResourceAccessException: I/O error on POST — Connection refused", 10L)
-                    : FileProcOutcome.success(meet(i), 1234L, 300, "C:/k8s/xenon/voice/20260916TST001/meet-TARE-000" + i + ".txt", 20L));
+                    : FileProcOutcome.success(meet(i), 1234L, 300, "zenon:mock/meet-TARE-000" + i + ".json", 20L));
         }
         List<VoiceBatchResult.StepLog> steps = List.of(
                 new VoiceBatchResult.StepLog("COLLECT", "20260916TST00101", fail == 0 ? "SUCCESS" : "PARTIAL", 10, 10 - fail, fail, 1, true),
                 new VoiceBatchResult.StepLog("ANALYZE", "20260916TST00102", "SUCCESS", 10 - fail, 10 - fail, 0, 2, true));
         return new VoiceBatchResult("20260916TST001", true, "DAILY[...]", 10, 10 - fail, fail,
-                0, 1234L, Map.of("MEET", "C:/k8s/xenon/voice/20260916TST001"), steps, outcomes);
+                0, 1234L, Map.of("mode", "MOCK", "endpoint", "MOCK", "sent", "2"), steps, outcomes);
     }
 
     @Test
@@ -58,16 +58,16 @@ class BatchResultSerializationTest {
     }
 
     @Test
-    @DisplayName("출력 폴더·T2 단계·파일별 sttPath 가 응답에 실린다 — 시뮬레이터가 그대로 그린다")
+    @DisplayName("제논 전송 요약·T2 단계·파일별 전송 위치(sttPath)가 응답에 실린다 — 시뮬레이터가 그대로 그린다")
     void serializesOutputsAndSteps() throws Exception {
         JsonNode json = mapper.readTree(mapper.writeValueAsString(sample(0)));
 
-        assertThat(json.path("outputDirs").path("MEET").asText()).endsWith("/xenon/voice/20260916TST001");
+        assertThat(json.path("zenon").path("mode").asText()).isEqualTo("MOCK");
         assertThat(json.path("steps")).hasSize(2);
         assertThat(json.path("steps").get(0).path("stepTypeCd").asText()).isEqualTo("COLLECT");
         assertThat(json.path("steps").get(1).path("stepTypeCd").asText()).isEqualTo("ANALYZE");
         assertThat(json.path("steps").get(1).path("stepLogId").asText()).isEqualTo("20260916TST00102");
-        assertThat(json.path("outcomes").get(0).path("sttPath").asText()).endsWith(".txt");
+        assertThat(json.path("outcomes").get(0).path("sttPath").asText()).startsWith("zenon:").endsWith(".json");
         assertThat(json.path("outcomes").get(0).has("failedStep")).isTrue();
         assertThat(json.path("execIdFromCollector").asBoolean()).isTrue();
     }
@@ -89,7 +89,7 @@ class BatchResultSerializationTest {
     void canceledBatchIsNotSuccess() throws Exception {
         VoiceBatchResult r = sample(0);
         VoiceBatchResult canceled = new VoiceBatchResult(r.execId(), r.execIdFromCollector(), r.window(),
-                160, 43, 0, 117, r.elapsedMs(), r.outputDirs(), r.steps(), r.outcomes(), true);
+                160, 43, 0, 117, r.elapsedMs(), r.zenon(), r.steps(), r.outcomes(), true);
 
         assertThat(canceled.execStsCd()).isEqualTo("CANCELED");
         assertThat(mapper.readTree(mapper.writeValueAsString(canceled)).path("execStsCd").asText())

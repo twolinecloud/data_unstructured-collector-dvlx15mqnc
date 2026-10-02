@@ -5,6 +5,7 @@ import egovframework.unstructured.collector.batch.schedule.BatchSchedule;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.BatchWindow;
+import egovframework.unstructured.collector.common.model.StepType;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
@@ -60,9 +60,17 @@ public class UnstructuredBatchService {
      * @param testRun      시험 이력(TST)으로 남길지 — 시험 배치를 재처리하면 재처리도 시험으로 남긴다
      * @param triggerBy    T1 TRIGGER_BY
      * @param includeImage 음성 뒤에 이미지도 돌릴지
+     * @param imageOnly    이미지만 다시 돈다 — 원배치가 수용자 이미지 배치인 긴급 재처리. 이미지는 단계별 이어서 하기가 없어
+     *                     다시 돌리면 실패 · 미처리 건만 처리한다(성공 건은 '변경 없음')
      */
     public record Plan(BatchWindow window, ResumeMode resume, String originExecId, boolean testRun, String triggerBy,
-                       boolean includeImage) {
+                       boolean includeImage, boolean imageOnly) {
+
+        /** 음성 계획 — 이미지 단독 재처리가 아니다. */
+        public Plan(BatchWindow window, ResumeMode resume, String originExecId, boolean testRun, String triggerBy,
+                    boolean includeImage) {
+            this(window, resume, originExecId, testRun, triggerBy, includeImage, false);
+        }
 
         /** 상태·응답에 보일 요약. */
         public Map<String, Object> detail() {
@@ -77,6 +85,9 @@ public class UnstructuredBatchService {
             }
             m.put("testRun", testRun);
             m.put("includeImage", includeImage);
+            if (imageOnly) {
+                m.put("imageOnly", true);
+            }
             return m;
         }
     }
@@ -141,32 +152,44 @@ public class UnstructuredBatchService {
         if (!DATA_TYPE.equals(type)) {
             throw new IllegalArgumentException("비정형 배치가 아니다 — execId=" + execId + " data_type_cd=" + type);
         }
+        boolean testRun = voiceProps.batch().testJobId().equals(b.path("job_id").asText(""));
+        if (isImageBatch(b)) {
+            // 수용자 이미지 배치(수집 구간이 없다) — 이미지를 다시 돈다. 실패 · 미처리 건만 처리되고 T4 에 새 실행 ID 로 남는다
+            LocalDateTime now = LocalDateTime.now().withNano(0);
+            return new Plan(BatchWindow.manual(now, now.plusSeconds(1)), resume, execId.trim(), testRun,
+                    "ADMIN/reprocess:" + execId.trim(), false, true);
+        }
         LocalDateTime from = dtm(b, "target_from_dtm");
         LocalDateTime to = dtm(b, "target_to_dtm");
         if (from == null || to == null || !from.isBefore(to)) {
             throw new IllegalArgumentException("원배치 수집 구간이 없다 — execId=" + execId + " target=" + from + " ~ " + to);
         }
-        boolean testRun = voiceProps.batch().testJobId().equals(b.path("job_id").asText(""));
         return new Plan(BatchWindow.manual(from, to), resume, execId.trim(), testRun,
                 "ADMIN/reprocess:" + execId.trim(), false);
     }
 
+    /** 원배치가 수용자 이미지 배치인가 — 작업명('수용자 이미지 수집…') 또는 작업 ID({@code IMAGE_COLLECT}). */
+    static boolean isImageBatch(JsonNode b) {
+        return b.path("job_nm").asText("").startsWith(ImageCollectService.JOB_NM)
+                || "IMAGE_COLLECT".equalsIgnoreCase(b.path("job_id").asText(""));
+    }
+
     /**
-     * 재처리 단계(C05) → 이어서 할 단계. 비정형은 3단계(2026-10-01 복원)라 1:1 이다.
+     * 재처리 단계(C05) → 이어서 할 단계. 비정형은 3단계({@link StepType})라 1:1 이다.
      * 비어 있으면 처음부터 — admin 이 실패 단계를 못 찾으면(단계 기록 없이 죽은 배치) {@code stepTypeCd} 없이 보낸다.
      *
-     * @throws IllegalArgumentException 비정형에 없는 단계(CLEANSE · DEIDENT · STORE 등)
+     * @throws IllegalArgumentException 비정형 3단계(COLLECT · ANALYZE · SEND)가 아닌 코드
      */
     public static ResumeMode resumeOf(String stepTypeCd) {
         if (stepTypeCd == null || stepTypeCd.isBlank()) {
             return ResumeMode.FULL;
         }
-        return switch (stepTypeCd.trim().toUpperCase(Locale.ROOT)) {
-            case "COLLECT" -> ResumeMode.FULL;
-            case "ANALYZE" -> ResumeMode.FROM_ANALYZE;
-            case "SEND" -> ResumeMode.FROM_SEND;
-            default -> throw new IllegalArgumentException("비정형에 없는 단계(C05): " + stepTypeCd
-                    + " — COLLECT · ANALYZE · SEND 만 재처리할 수 있다");
+        StepType step = StepType.parse(stepTypeCd).orElseThrow(() -> new IllegalArgumentException(
+                "비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · SEND 만 재처리할 수 있다"));
+        return switch (step) {
+            case COLLECT -> ResumeMode.FULL;
+            case ANALYZE -> ResumeMode.FROM_ANALYZE;
+            case SEND -> ResumeMode.FROM_SEND;
         };
     }
 
@@ -184,6 +207,15 @@ public class UnstructuredBatchService {
 
     /** 계획대로 돌린다 — 음성, 그리고 켜져 있으면 이미지. 결과 요약을 돌려준다. */
     public String execute(Plan p, BiConsumer<String, Boolean> onExecId) {
+        if (p.imageOnly()) {
+            // 이미지 배치의 긴급 재처리 — 이미지를 다시 돈다(실패 · 미처리 건만 처리 · 새 실행 ID 로 T1 · T2 · T4)
+            //   시험(TST) 이미지 배치는 시뮬레이터 SIM 사진이다 — 6번 탭과 같게 SIMIMG 접두 · 수집기 내장 Mock 브로커로
+            ImageCollectService.ImageRunResult r = image.run(new ImageCollectService.ImageRunRequest(
+                    null, p.testRun() ? egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX : null,
+                    null, null, false, 0L, p.triggerBy(), p.testRun(), p.testRun(), null), onExecId);
+            return "이미지 execId=%s 대상%d 성공%d 실패%d 건너뜀%d (재처리 — 원배치 %s)".formatted(
+                    r.execId(), r.total(), r.success(), r.fail(), r.skipped(), p.originExecId());
+        }
         VoiceBatchResult v = voice.run(p.window(), null, p.triggerBy(), p.testRun(), p.resume(), p.originExecId(),
                 voice.defaultWorkers(), onExecId);
         String sum = "음성 " + v.summary();

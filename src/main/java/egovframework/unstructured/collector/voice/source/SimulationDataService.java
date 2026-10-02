@@ -305,7 +305,8 @@ public class SimulationDataService {
                     + "  DEL_YN, RECRD_FILE_DEL_YN, RECRD_BKUP_FILE_DEL_YN, CRT_DT, CRT_USR_ID, MDFCN_DT, MDFCN_USR_ID)"
                     + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     meetKey(i), "CI00001", "01", ymd(at), i, corrNo(i), ymd(at),
-                    "SIMTRCD" + (i < 10000 ? "%04d".formatted(i) : String.valueOf(i)), cmfi, fileNm, hms(at), hms(at.plusMinutes(10)), "1024", slash(meetDir),
+                    "SIMTRCD" + (i < 10000 ? "%04d".formatted(i) : String.valueOf(i)), cmfi, fileNm, hms(at), hms(at.plusMinutes(10)), "1024",
+                    fitPath(slash(meetDir), TARE_FLPTH_MAX),
                     "N", "N", "N", crt, USR, crt, USR);
             if (writeFiles) {
                 String key = meetKey(i);
@@ -676,6 +677,23 @@ public class SimulationDataService {
 
     /** 세 자리를 넘는 대용량은 자릿수를 늘린다 — 키 형식은 시연 10건(SIM-MEET-001…)과 같다. */
     private static String seq(int i) { return i < 1000 ? "%03d".formatted(i) : "%05d".formatted(i); }
+
+    /** 녹취파일경로명({@code TARE_FLPTH_NM}) 컬럼 길이 — 테이블 정의서 VARCHAR(100). */
+    public static final int TARE_FLPTH_MAX = 100;
+
+    /**
+     * 경로를 컬럼 길이에 맞춘다 — 넘치면 <b>뒤쪽</b>(폴더 이름이 보이는 쪽)만 남기고 앞에 {@code …} 를 붙인다.
+     *
+     * <p>데이터 루트가 깊으면(예: 사용자 임시 폴더 아래) 접견 원본 폴더 경로가 100자를 넘어 시딩 INSERT 가 통째로 실패했다
+     * (2026-10-02 로컬 검증). 이 컬럼은 이력(T4 FILE_PATH) · 제논 메타에 적히는 표시용이고, 파이프라인은 파일을
+     * XVARM {@code FILEKEY}(1000자)와 수신 폴더로 찾으므로 잘라도 동작은 같다.</p>
+     */
+    public static String fitPath(String path, int max) {
+        if (path == null || path.length() <= max) {
+            return path;
+        }
+        return "…" + path.substring(path.length() - (max - 1));
+    }
 
     public static String corrNo(int i) { return "SIM%014d".formatted(i); }
     public static String meetKey(int i) { return "SIM-MEET-" + seq(i); }

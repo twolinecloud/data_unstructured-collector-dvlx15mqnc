@@ -410,10 +410,25 @@
   /* 성능 테스트가 도는 동안 — 다른 탭의 배치·초기화 버튼을 막는다(같은 원천 데이터를 흔들면 측정이 망가진다) */
   body.pf-running #controls button, body.pf-running #scen-box button,
   body.pf-running #btn-reset, body.pf-running #btn-test-clear, body.pf-running #btn-dmy-clear,
-  body.pf-running #dm-box button, body.pf-running #ks-box button { pointer-events:none; opacity:.5; }
-  /* 더미 데이터(용도별 생성) 패널 · 3번 탭 ⑤ 키 표식 시나리오 */
+  body.pf-running #dm-modal button, body.pf-running #dm-open, body.pf-running #ks-box button { pointer-events:none; opacity:.5; }
+  /* 더미 데이터(용도별 생성) 결과 패널 · 3번 탭 ⑤ 키 표식 시나리오 */
   .dm-tbl th, .dm-tbl td { font-size:.75rem; vertical-align:top; }
   .dm-num { width:4.6rem; }
+  /* [시뮬레이션 데이터 생성] 모달 — 확인 팝업(#pop · 1080)이 그 위에 뜬다(대시보드 생성 확인) */
+  #dm-modal { z-index:1070; }
+  #dm-modal .pop-card { width:min(46rem, 100%); }
+  .dm-fs { border:1px solid #e9ecef; border-radius:.4rem; padding:.45rem .7rem .6rem; margin:0 0 .6rem; }
+  .dm-fs > legend { float:none; width:auto; font-size:.8rem; font-weight:700; padding:0 .3rem; margin:0; }
+  .dm-tg { display:flex; gap:.45rem; align-items:flex-start; padding:.45rem .6rem; border:1px solid #dee2e6; border-radius:.4rem;
+           cursor:pointer; flex:1 1 15rem; }
+  .dm-tg:has(input:checked) { border-color:#0d6efd; background:#f1f6ff; }
+  .dm-tg:has(input:disabled) { opacity:.55; cursor:not-allowed; }
+  .dm-tg .sub { display:block; color:#6c757d; font-size:.74rem; }
+  .dm-ty { display:flex; align-items:center; gap:.5rem; padding:.35rem .55rem; border:1px solid #eceef0; border-radius:.35rem; background:#f8f9fa; }
+  .dm-ty.off { opacity:.5; }
+  .dm-ty label { flex:1 1 auto; margin:0; font-size:.84rem; }
+  .dm-err { color:#dc3545; font-size:.8rem; min-height:1.1rem; }
+  .pop-body .dm-sum-tbl td { padding:.15rem .4rem; font-size:.8rem; }
   .ks-ok { color:#198754; font-weight:600; } .ks-ng { color:#dc3545; font-weight:600; }
 </style>
 </head>
@@ -432,12 +447,8 @@
     <div class="d-flex gap-2 flex-wrap">
       <a class="btn btn-sm btn-outline-secondary" id="lnk-swagger" href="/swagger-ui/index.html" target="_blank">Swagger</a>
       <button class="btn btn-sm btn-warning" id="btn-reset"
-              title="Complete Clean &amp; Seed — 멱등 표식·수신 파일 삭제 + DB 메타(접견 7·전화 7: 트랙별 일배치 5·주기 2) + XVARM 원본 더미 파일 생성">
+              title="생성 창을 엽니다 — 용도(시뮬레이터용 SIM / 대시보드·배치용 DMY) · 유형(전화·접견·이미지) · 대상 날짜 · 유형별 건수 · 장애 건수(COLLECT_FAIL · ANALYZE_FAIL · SEND_FAIL)를 골라 POST /api/v1/mock/sim-data/generate 로 만듭니다. 예전 Clean &amp; Seed(2번 탭 고정 14건)는 창 아래 버튼으로 남아 있습니다">
         시뮬레이션 데이터 생성
-      </button>
-      <button class="btn btn-sm btn-outline-secondary" id="btn-dm-open"
-              title="용도(시뮬레이터 SIM / 대시보드 DMY) · 유형 · 대상일 · 건수 · 장애 시나리오를 골라 더미 데이터를 추가합니다 — POST /api/v1/mock/sim-data/generate">
-        더미 데이터 생성 ▾
       </button>
       <button class="btn btn-sm btn-outline-danger" id="btn-test-clear"
               title="DELETE /api/v1/mock/sim-data?target=SIMULATOR — 시뮬레이터 데이터(음성 SIM 행·더미 파일·멱등 표식·재처리 보존물 + 6번 탭 이미지 SIM: SIMIMG 보라미 행·Admin 매핑·더미 원본·저장 사진)를 지웁니다. 대시보드 더미(DMY)와 로그 컬렉터 수행 이력(T1~T5)은 남습니다(확인 창에서 시험 이력 TST 까지 지우기를 고를 수 있습니다).">
@@ -453,47 +464,21 @@
     </div>
   </div>
 
-  <!-- 더미 데이터 생성 · 용도별 — 기존 [시뮬레이션 데이터 생성](Clean & Seed)은 그대로 두고 옆에 추가(append)한다 -->
+  <!-- 더미 데이터 — 용도별 현황 · 최근 생성 결과. 입력은 상단 [시뮬레이션 데이터 생성] 모달(#dm-modal)이 받는다 -->
   <div class="acc mb-3" id="dm-acc">
     <div class="acc-head" data-acc="dm-acc">
-      <span class="grow small"><b>더미 데이터 생성 — 용도별</b>
-        <span class="text-secondary">· 시뮬레이터(SIM · 시험 실행) / 대시보드(DMY · 실제 배치) · 유형 · 대상일 · 건수 · 장애 시나리오</span>
+      <span class="grow small"><b>시뮬레이션 데이터 — 용도별 현황 · 최근 생성 결과</b>
+        <span class="text-secondary">· 시뮬레이터용(SIM · 시험 실행) / 대시보드·배치용(DMY · 실제 배치)</span>
         <span class="hint" id="dm-sum"></span></span>
+      <button class="btn btn-sm btn-outline-success py-0" type="button" id="dm-open">생성 창 열기</button>
       <button class="acc-tgl" type="button">&#9660;</button>
     </div>
-    <div class="acc-body"><div class="acc-inner"><div class="pad" id="dm-box">
-      <div class="d-flex flex-wrap gap-3 align-items-end">
-        <div><label class="hint d-block">용도</label>
-          <div class="btn-group btn-group-sm" role="group">
-            <input type="radio" class="btn-check" name="dm-target" id="dm-t-sim" value="SIMULATOR" checked>
-            <label class="btn btn-outline-secondary" for="dm-t-sim" title="SIM 접두 · simadm — 시뮬레이터 시험 실행(test=true, TEST_BATCH) 전용. 실제 배치(스케줄 · 바로 실행)는 집지 않는다">시뮬레이터 (SIM)</label>
-            <input type="radio" class="btn-check" name="dm-target" id="dm-t-dmy" value="DASHBOARD">
-            <label class="btn btn-outline-primary" for="dm-t-dmy" title="DMY 접두 · dmyadm — 실제 스케줄러 · 바로 실행 · 긴급 재처리가 읽어 로그 컬렉터 이력 · 대시보드에 나온다(이미지는 include-image — 개발계 기본 켜짐). 시험 실행은 집지 않는다">대시보드 (DMY)</label>
-          </div></div>
-        <div><label class="hint d-block">유형</label>
-          <div class="d-flex gap-2 small">
-            <label><input type="checkbox" id="dm-ty-PHONE" checked> 전화</label>
-            <label><input type="checkbox" id="dm-ty-MEET" checked> 접견</label>
-            <label><input type="checkbox" id="dm-ty-IMAGE" checked> 이미지</label>
-          </div></div>
-        <div><label class="hint d-block" for="dm-date">대상일 (CRT_DT 분산)</label>
-          <input type="date" class="form-control form-control-sm" id="dm-date"></div>
-        <div><label class="hint d-block" for="dm-count">유형별 건수</label>
-          <input type="number" class="form-control form-control-sm dm-num" id="dm-count" value="5" min="1" max="300"></div>
-        <div><label class="hint d-block" for="dm-cf">수집 장애 CF</label>
-          <input type="number" class="form-control form-control-sm dm-num" id="dm-cf" value="0" min="0"></div>
-        <div><label class="hint d-block" for="dm-af">분석 장애 AF</label>
-          <input type="number" class="form-control form-control-sm dm-num" id="dm-af" value="0" min="0"></div>
-        <div><label class="hint d-block" for="dm-sf">전송 장애 SF</label>
-          <input type="number" class="form-control form-control-sm dm-num" id="dm-sf" value="0" min="0"></div>
-        <div class="small"><label><input type="checkbox" id="dm-append" checked> 추가(append) — 끄면 그 용도 데이터를 먼저 지움</label></div>
-        <div><button class="btn btn-sm btn-success" id="dm-gen">더미 데이터 생성</button></div>
-      </div>
-      <div class="hint mt-1">장애 건수는 유형별입니다(나머지는 정상). 표식(CF·AF·SF)을 단 건은 실제 경로의 그 단계에서 <b>한 번만</b> 실패하고 재처리는 통과합니다 —
-        수집 → <code>FULL</code> · 분석 → <code>FROM_ANALYZE</code> · 전송 → <code>FROM_SEND</code> (이미지는 다시 돌리면 실패 건만 재처리).
-        시뮬레이터(SIM)는 시험 실행 전용, 대시보드(DMY)는 실제 배치 전용입니다(서로 집지 않음).
+    <div class="acc-body"><div class="acc-inner"><div class="pad">
+      <div class="hint">상단 <b>[시뮬레이션 데이터 생성]</b> 으로 만듭니다. 표식(CF·AF·SF)을 단 건은 실제 경로의 그 단계에서 <b>한 번만</b> 실패하고 재처리는 통과합니다 —
+        수집 → <code>FULL</code> · 정제/분석 → <code>FROM_ANALYZE</code> · 적재/전송 → <code>FROM_SEND</code> (이미지는 다시 돌리면 실패 건만 재처리).
+        시뮬레이터용(SIM)은 시험 실행 전용, 대시보드·배치용(DMY)은 실제 배치 전용입니다(서로 집지 않음).
         초기화는 상단 [시뮬레이터 데이터 초기화] · [대시보드 테스트 데이터 초기화] — <b>로그 컬렉터 수행 이력(T1~T5)은 남습니다.</b></div>
-      <div id="dm-result" class="mt-2"></div>
+      <div id="dm-result" class="mt-2"><div class="hint">아직 이 화면에서 만든 데이터가 없습니다.</div></div>
     </div></div></div>
   </div>
 
@@ -732,7 +717,7 @@
         <div><label class="hint d-block" for="ks-target">용도</label>
           <select class="form-select form-select-sm" id="ks-target">
             <option value="SIMULATOR">시뮬레이터 (SIM · 시험 실행 TST)</option>
-            <option value="DASHBOARD">대시보드 (DMY · 실제 배치 VOC)</option>
+            <option value="DASHBOARD">대시보드 (DMY · 실제 배치 UNS)</option>
           </select></div>
         <div><label class="hint d-block">유형</label>
           <div class="d-flex gap-2 small">
@@ -759,7 +744,7 @@
         <span class="hint ms-auto" id="ks-sum"></span>
       </div>
       <div id="ks-res"><div class="hint">[🚀 원클릭] 을 누르면 건별로 "1차에 기대한 단계에서 실패했는가 → 기대 모드 재처리로 성공했는가" 가 여기에 표로 나옵니다.
-        대시보드(DMY)는 실제 배치(VOC)로 돌아 로그 컬렉터 이력에 남습니다 — 초기화로 지워지지 않습니다.</div></div>
+        대시보드(DMY)는 실제 배치(UNS)로 돌아 로그 컬렉터 이력에 남습니다 — 초기화로 지워지지 않습니다.</div></div>
     </div>
   </div>
   </div>
@@ -1185,6 +1170,61 @@
 
   <div class="text-center text-secondary small mt-3">
     unstructured-collector (구 voice-collector) · 운영 배포 시 <code>/api/v1/mock/**</code> 는 차단합니다
+  </div>
+</div>
+
+<!-- [시뮬레이션 데이터 생성] 모달 — 용도 · 유형 · 대상 날짜 · 유형별 건수 · 장애 건수 → POST /api/v1/mock/sim-data/generate -->
+<div class="pop-backdrop" id="dm-modal" hidden>
+  <div class="pop-card" role="dialog" aria-modal="true" aria-labelledby="dm-modal-title">
+    <div class="pop-head">
+      <strong id="dm-modal-title">시뮬레이션 데이터 생성</strong>
+      <button type="button" class="btn-close" id="dm-modal-x" aria-label="닫기"></button>
+    </div>
+    <div class="pop-body" id="dm-box">
+      <fieldset class="dm-fs"><legend>용도</legend>
+        <div class="d-flex flex-wrap gap-2">
+          <label class="dm-tg" for="dm-t-sim"><input type="radio" name="dm-target" id="dm-t-sim" value="SIMULATOR" checked>
+            <span><b>시뮬레이터용</b> <code>SIM</code> · simadm
+              <span class="sub">시뮬레이터 시험 실행(test=true · EXEC_ID TST) 전용 — 실제 배치(스케줄 · 바로 실행)는 집지 않습니다</span></span></label>
+          <label class="dm-tg" for="dm-t-dmy"><input type="radio" name="dm-target" id="dm-t-dmy" value="DASHBOARD">
+            <span><b>대시보드·배치용</b> <code>DMY</code> · dmyadm
+              <span class="sub">실제 배치(스케줄 · 바로 실행 · 긴급 재처리 · EXEC_ID UNS)가 읽어 로그 컬렉터 이력 · 대시보드에 나옵니다</span></span></label>
+        </div>
+      </fieldset>
+      <fieldset class="dm-fs"><legend>유형 · 유형별 건수 <span class="hint fw-normal">— 합계 300 이하</span></legend>
+        <div class="row g-2">
+          <div class="col-sm-4"><div class="dm-ty" id="dm-row-PHONE"><label for="dm-ty-PHONE"><input type="checkbox" id="dm-ty-PHONE" checked> 전화 <span class="hint">PHONE · 음성</span></label>
+            <input type="number" class="form-control form-control-sm dm-num" id="dm-cnt-PHONE" value="5" min="1" max="300" aria-label="전화 건수"></div></div>
+          <div class="col-sm-4"><div class="dm-ty" id="dm-row-MEET"><label for="dm-ty-MEET"><input type="checkbox" id="dm-ty-MEET" checked> 접견 <span class="hint">MEET · 음성</span></label>
+            <input type="number" class="form-control form-control-sm dm-num" id="dm-cnt-MEET" value="5" min="1" max="300" aria-label="접견 건수"></div></div>
+          <div class="col-sm-4"><div class="dm-ty" id="dm-row-IMAGE"><label for="dm-ty-IMAGE"><input type="checkbox" id="dm-ty-IMAGE" checked> 이미지 <span class="hint">IMAGE · 사진</span></label>
+            <input type="number" class="form-control form-control-sm dm-num" id="dm-cnt-IMAGE" value="5" min="1" max="300" aria-label="이미지 건수"></div></div>
+        </div>
+      </fieldset>
+      <div class="row g-2">
+        <div class="col-sm-4"><fieldset class="dm-fs h-100"><legend>대상 날짜</legend>
+          <input type="date" class="form-control form-control-sm" id="dm-date">
+          <div class="hint mt-1">기본 어제 · CRT_DT 를 이 날 안에 고르게 나눕니다</div></fieldset></div>
+        <div class="col-sm-8"><fieldset class="dm-fs h-100"><legend>장애 시나리오 건수 <span class="hint fw-normal">— 고른 유형마다 이만큼, 나머지는 정상</span></legend>
+          <div class="d-flex flex-wrap gap-3">
+            <div><label class="hint d-block" for="dm-cf" title="수집 단계에서 한 번 실패 → FULL 재처리(이미지: 수신)">COLLECT_FAIL <span class="text-secondary">수집</span></label>
+              <input type="number" class="form-control form-control-sm dm-num" id="dm-cf" value="0" min="0"></div>
+            <div><label class="hint d-block" for="dm-af" title="정제/분석 단계에서 한 번 실패 → FROM_ANALYZE 재처리(이미지: 복호화)">ANALYZE_FAIL <span class="text-secondary">정제/분석</span></label>
+              <input type="number" class="form-control form-control-sm dm-num" id="dm-af" value="0" min="0"></div>
+            <div><label class="hint d-block" for="dm-sf" title="적재/전송 단계에서 한 번 실패 → FROM_SEND 재처리(이미지: Admin DB 매핑)">SEND_FAIL <span class="text-secondary">적재/전송</span></label>
+              <input type="number" class="form-control form-control-sm dm-num" id="dm-sf" value="0" min="0"></div>
+          </div></fieldset></div>
+      </div>
+      <label class="small d-block mt-2"><input type="checkbox" id="dm-append" checked> 추가(append) — 끄면 그 용도의 데이터를 먼저 지우고 만듭니다</label>
+      <div class="pop-note" id="dm-preview"></div>
+      <div class="dm-err mt-1" id="dm-err"></div>
+    </div>
+    <div class="pop-foot d-flex align-items-center gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="dm-seed"
+              title="Complete Clean &amp; Seed — 멱등 표식·수신 파일 삭제 + DB 메타(접견 7·전화 7: 트랙별 일배치 5·주기 2) + XVARM 원본 더미 파일 생성 (POST /api/v1/mock/sim-data)">예전 Clean &amp; Seed <span class="opacity-75">(2번 탭 고정 14건)</span></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="dm-cancel">취소</button>
+      <button type="button" class="btn btn-sm btn-success" id="dm-gen">생성 실행</button>
+    </div>
   </div>
 </div>
 
@@ -2722,7 +2762,8 @@ async function simCreate(showDone) {
   if (showDone) showPopup('시뮬레이션 데이터 생성 완료', seedPopupHtml(sim));
   return true;
 }
-$('btn-reset').onclick = () => simCreate(true);
+// 상단 [시뮬레이션 데이터 생성] — 생성 창(모달). 더미 생성 API 가 없는 서버(운영 프로필 · 옛 버전)면 예전 Clean & Seed
+$('btn-reset').onclick = () => (DM_INFO ? dmOpen() : simCreate(true));
 $('btn-dataset').onclick = async () => {
   const m = Number($('ds-meet').value||0), p = Number($('ds-phone').value||0);
   const d = await call('PUT', `/api/v1/mock/dataset?meet=${m}&phone=${p}`, `Mock 규모 일배치 ${m}·${p} 적용`);
@@ -2817,7 +2858,7 @@ function simClearPopupHtml(d) {
 /** 초기화 뒤 화면 정리 — 결과 칸 · 대상 미리보기 · 상태 · 6번 탭 · 더미 현황. */
 async function afterSimReset() {
   $('stats').innerHTML = ''; $('last-exec').textContent = '—';
-  $('result-acc-wrap').innerHTML = '<div class="hint">시뮬레이션 데이터를 초기화했습니다. 다시 돌리려면 [시뮬레이션 데이터 생성] 을 누르십시오.</div>';
+  $('result-acc-wrap').innerHTML = '<div class="hint">시뮬레이션 데이터를 초기화했습니다. 다시 돌리려면 [시뮬레이션 데이터 생성] 을 누르십시오(2번 탭 고정 14건은 창 아래 [예전 Clean &amp; Seed]).</div>';
   $('files-acc-wrap').innerHTML = '';
   LAST = null;
   $('targets-card').classList.add('d-none');
@@ -2867,7 +2908,8 @@ const DM_SCEN = [
   { key: 'ANALYZE_FAIL', short: 'AF', label: '정제/분석', voice: 'ANALYZE', image: 'DECRYPT', resume: 'FROM_ANALYZE' },
   { key: 'SEND_FAIL',    short: 'SF', label: '적재/전송', voice: 'SEND',    image: 'MAP',     resume: 'FROM_SEND' },
 ];
-let DM_INFO = null;   // GET /api/v1/mock/sim-data/generated — 없으면(운영 프로필 · 옛 서버) 패널을 잠근다
+let DM_INFO = null;   // GET /api/v1/mock/sim-data/generated — 없으면(운영 프로필 · 옛 서버) 생성 창을 잠근다
+let DM_LAST_ERR = null;   // 마지막 생성 실패 사유 — 모달이 그대로 보여 준다
 
 function ymdLocal(d) { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
 function ymdShift(ymd, days) { const d = new Date(ymd + 'T00:00:00'); d.setDate(d.getDate() + days); return ymdLocal(d); }
@@ -2884,14 +2926,16 @@ async function dmLoadStatus() {
   const d = await quietGet('/api/v1/mock/sim-data/generated');
   DM_INFO = d;
   const ok = !!d;
-  document.querySelectorAll('#dm-box button, #ks-box button').forEach(b => b.disabled = !ok);
+  document.querySelectorAll('#ks-box button').forEach(b => b.disabled = !ok);
   $('btn-dmy-clear').disabled = !ok;
-  if (!ok) { $('dm-sum').textContent = ' — 이 서버에는 더미 생성 기능이 없습니다(운영 프로필이거나 옛 버전)'; return; }
+  $('dm-open').disabled = !ok;
+  if (!ok) { dmPreview(); $('dm-sum').textContent = ' — 이 서버에는 더미 생성 기능이 없습니다(운영 프로필이거나 옛 버전)'; return; }
   const dash = !!d.dashboardEnabled;
   $('dm-t-dmy').disabled = !dash;
   $('ks-target').querySelector('option[value="DASHBOARD"]').disabled = !dash;
   if (!dash && dmTarget() === 'DASHBOARD') $('dm-t-sim').checked = true;
   if (!dash && $('ks-target').value === 'DASHBOARD') $('ks-target').value = 'SIMULATOR';
+  dmPreview();
   const s = d.SIMULATOR || {}, m = d.DASHBOARD || {};
   const n = (v) => typeof v === 'number' ? v : '?';
   $('dm-sum').textContent = ` — 현재 SIM 접견 ${n(s.meet)} · 전화 ${n(s.phone)} · 이미지 ${n(s.imageInmates)}명`
@@ -2901,9 +2945,11 @@ async function dmLoadStatus() {
 /** 생성 호출 — 결과를 로그에 풀어 적고 응답을 돌려준다. */
 async function dmGenerate(body, label) {
   const info = await callFull('POST', '/api/v1/mock/sim-data/generate', label || '더미 데이터 생성', { json: body });
+  DM_LAST_ERR = info.ok && info.body ? null
+    : (info.body?.message || info.body?.error || info.error || `HTTP ${info.status}`);
   if (!info.ok || !info.body) return null;
   const g = info.body;
-  log(`  └ ${g.targetLabel} · 대상일 ${g.targetDate} · 유형별 ${g.count}건 · 정상 ${g.totals?.normal} · 장애 ${g.totals?.fail} · 더미 원본 ${g.totals?.files}개`
+  log(`  └ ${g.targetLabel} · 대상일 ${g.targetDate} · ${dmCountsText(g)} · 정상 ${g.totals?.normal} · 장애 ${g.totals?.fail} · 더미 원본 ${g.totals?.files}개`
     + ` · CRT_DT ${String(g.crtDtRange?.from || '').replace('T', ' ')} ~ ${String(g.crtDtRange?.to || '').replace('T', ' ')}`, 'ok');
   Object.values(g.types || {}).forEach(t => Object.entries(t.failures || {}).forEach(([k, f]) =>
     log(`    · ${DM_TYPE_LABEL[t.type] || t.type} ${k} → ${f.failsAt} 실패 · 기대 재처리 ${f.expectedResume} — ${(f.keys || []).join(', ')}`, 'wr')));
@@ -2927,7 +2973,7 @@ function dmResultHtml(g) {
       <td>${files.filter(x => x.written).length}/${files.length}<div class="hint">${esc(t.originalDir || '')}</div></td></tr>`;
   }).join('');
   const win = Object.entries(g.windows || {}).map(([k, w]) => `<li><b>${esc(k)}</b> ${esc(String(w.from).replace('T', ' '))} ~ ${esc(String(w.to).replace('T', ' '))}
-      (유형별 ${w.count}건)${w.expectedResume ? ` → 재처리 <code>${esc(w.expectedResume)}</code>` : ''}</li>`).join('');
+      (${k === 'NORMAL' ? '가장 많은 유형 기준 ' : '유형마다 '}${w.count}건)${w.expectedResume ? ` → 재처리 <code>${esc(w.expectedResume)}</code>` : ''}</li>`).join('');
   const how = (g.howToRun || []).map(h => `<li>${esc(h)}</li>`).join('');
   return `<div class="hint mb-1">${esc(g.targetLabel)} · 접두 <code>${esc(g.prefix)}</code> · 생성자 <code>${esc(g.crtUsrId)}</code> · 대상일 ${esc(g.targetDate)}
       · ${g.append ? '추가(append)' : '기존 삭제 후 생성'} · ${esc(g.db)}${g.encrypted ? ' · 더미 원본 암호화(복호화 REAL)' : ''}</div>
@@ -2949,34 +2995,137 @@ async function dmConfirmDashboard(title) {
     <div class="pop-note">지울 때는 [대시보드 테스트 데이터 초기화] — 로그 컬렉터 수행 이력(T1~T5)은 남습니다.</div>`, '생성', '취소');
 }
 
-$('btn-dm-open').onclick = () => { accToggle('dm-acc', true); $('dm-acc').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+/** 응답의 건수 한 줄 — 유형마다 같으면 '유형별 n건', 다르면 '전화 a · 접견 b · 이미지 c'. */
+function dmCountsText(g) {
+  if (g.count != null) return `유형별 ${g.count}건`;
+  return Object.entries(g.counts || {}).map(([k, n]) => `${DM_TYPE_LABEL[k] || k} ${n}`).join(' · ') + '건';
+}
+
+// ── [시뮬레이션 데이터 생성] 모달 ─────────────────────────────────────────
+function dmOpen() {
+  const today = ymdLocal(new Date());
+  $('dm-date').max = today;
+  if (!$('dm-date').value) $('dm-date').value = ymdShift(today, -1);
+  $('dm-err').textContent = '';
+  dmPreview();
+  $('dm-modal').hidden = false;
+  (DM_INFO ? $('dm-gen') : $('dm-cancel')).focus();
+}
+function dmClose() { $('dm-modal').hidden = true; }
+
+/** 입력값과 검증 — 서버 규칙(유형별 1~300 · 합계 300 · 장애 합 ≤ 가장 적은 유형)과 같게 미리 막는다. */
+function dmForm() {
+  const num = (id) => Math.floor(Number($(id).value || 0));
+  const types = DM_TYPES.filter(t => $('dm-ty-' + t).checked);
+  const counts = {};
+  types.forEach(t => { counts[t] = num('dm-cnt-' + t); });
+  const failures = { COLLECT_FAIL: num('dm-cf'), ANALYZE_FAIL: num('dm-af'), SEND_FAIL: num('dm-sf') };
+  const failTotal = Object.values(failures).reduce((a, b) => a + b, 0);
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const date = $('dm-date').value;
+  let err = '';
+  if (!types.length) err = '유형을 하나 이상 고르십시오';
+  else if (types.some(t => !(counts[t] >= 1 && counts[t] <= 300))) err = '유형별 건수는 1~300 입니다';
+  else if (total > 300) err = `한 번에 만드는 건수는 합계 300 이하입니다 — 지금 ${total}건`;
+  else if (Object.values(failures).some(v => v < 0)) err = '장애 건수는 음수일 수 없습니다';
+  else {
+    const min = Math.min(...types.map(t => counts[t]));
+    if (failTotal > min) err = `장애 건수 합(${failTotal})이 가장 적은 유형의 건수(${min})보다 많습니다 — 장애는 고른 유형마다 같은 건수로 들어갑니다`;
+  }
+  if (!err && date && date > ymdLocal(new Date())) err = '대상 날짜는 오늘 이전이어야 합니다';
+  return { target: dmTarget(), types, counts, failures, failTotal, total, date, err };
+}
+
+/** 입력이 바뀔 때마다 — 유형 칸 켜고 끄기 · 생성될 건수 미리보기 · 검증. */
+function dmPreview() {
+  DM_TYPES.forEach(t => {
+    const on = $('dm-ty-' + t).checked;
+    $('dm-cnt-' + t).disabled = !on;
+    $('dm-row-' + t).classList.toggle('off', !on);
+  });
+  const f = dmForm();
+  const voice = (f.counts.PHONE || 0) + (f.counts.MEET || 0);
+  const image = f.counts.IMAGE || 0;
+  const fail = f.failTotal * f.types.length;
+  const dmy = f.target === 'DASHBOARD';
+  $('dm-preview').hidden = !!f.err;
+  $('dm-preview').innerHTML = f.err ? '' : `<b>${dmy ? '대시보드·배치용 DMY' : '시뮬레이터용 SIM'}</b> · 대상 날짜 ${esc(f.date || '어제')} —
+    음성 <b>${voice}</b>건${voice ? ` (${['PHONE', 'MEET'].filter(t => f.counts[t]).map(t => `${DM_TYPE_LABEL[t]} ${f.counts[t]}`).join(' · ')})` : ''}
+    · 이미지 <b>${image}</b>건 = 합계 <b>${f.total}</b>건 → 정상 ${f.total - fail} · 실패 ${fail}
+    ${f.failTotal ? `<span class="text-secondary">(CF ${f.failures.COLLECT_FAIL} · AF ${f.failures.ANALYZE_FAIL} · SF ${f.failures.SEND_FAIL} × ${f.types.length}유형)</span>` : ''}
+    <div class="mt-1">${dmy ? '실제 배치가 EXEC_ID <code>UNS</code> 로 처리합니다 — 시뮬레이터 시험 실행은 집지 않습니다.'
+      : '시뮬레이터 시험 실행(EXEC_ID <code>TST</code>)만 읽습니다 — 실제 배치는 집지 않습니다.'}</div>`;
+  $('dm-err').textContent = !DM_INFO ? '이 서버에는 더미 생성 API 가 없습니다(운영 프로필이거나 옛 버전)' : f.err;
+  $('dm-gen').disabled = !DM_INFO || !!f.err;
+  return f;
+}
+['input', 'change'].forEach(ev => $('dm-box').addEventListener(ev, dmPreview));
+
+/** 완료 팝업 — Target · 유형별 생성 건수(음성 · 이미지) · 정상/실패. */
+function dmDonePopupHtml(g) {
+  const t = g.types || {};
+  const cnt = (k) => t[k]?.count ?? 0;
+  const nf = (k) => t[k] ? `정상 ${t[k].normal} · 실패 ${t[k].fail}` : '';
+  const voiceKinds = ['PHONE', 'MEET'].filter(k => t[k]);
+  const voice = voiceKinds.reduce((n, k) => n + cnt(k), 0);
+  const scen = DM_SCEN.map(s => {
+    const n = Object.values(t).reduce((a, x) => a + (x.failures?.[s.key]?.count || 0), 0);
+    return n ? `${s.key} ${n}` : '';
+  }).filter(Boolean).join(' · ');
+  const dmy = g.target === 'DASHBOARD';
+  return `<div class="pop-lead">${esc(g.targetLabel)} 데이터를 만들었습니다.</div>
+    <ul class="pop-list">
+      <li><span class="lbl">Target</span> <span class="n">${dmy ? 'DMY' : 'SIM'}</span> — ${dmy ? '대시보드·배치용' : '시뮬레이터용'}
+        <div class="sub">접두 ${esc(g.prefix)} · 생성자 ${esc(g.crtUsrId)} · 대상 날짜 ${esc(g.targetDate)} · ${g.append ? '추가(append)' : '기존 삭제 후 생성'}</div></li>
+      <li><span class="lbl">음성</span> <span class="n">${voice}</span>건
+        <div class="sub">${voiceKinds.map(k => `${DM_TYPE_LABEL[k]} ${cnt(k)}건 (${nf(k)})`).join(' · ') || '만들지 않음'}</div></li>
+      <li><span class="lbl">이미지</span> <span class="n">${cnt('IMAGE')}</span>건
+        <div class="sub">${t.IMAGE ? nf('IMAGE') : '만들지 않음'}</div></li>
+      <li><span class="lbl">정상 / 실패</span> <span class="n">${g.totals?.normal ?? 0}</span> / <span class="n text-danger">${g.totals?.fail ?? 0}</span>건
+        <div class="sub">${scen ? `실패 = 장애 표식 건(${esc(scen)}) — 1차 실행의 그 단계에서 한 번 실패하고 기대 모드 재처리로 성공합니다` : '장애 표식 없음 — 전부 정상 처리 대상'}</div></li>
+      <li><span class="lbl">CRT_DT</span> ${esc(String(g.crtDtRange?.from || '').replace('T', ' '))} ~ ${esc(String(g.crtDtRange?.to || '').replace('T', ' '))}
+        <div class="sub">더미 원본 ${g.totals?.files ?? 0}개${g.encrypted ? ' (암호화 — 복호화 REAL)' : ''}</div></li>
+    </ul>
+    <div class="pop-note">${dmy ? '실제 배치(스케줄 · 바로 실행 · 긴급 재처리)가 EXEC_ID UNS 로 처리합니다 — 시뮬레이터 시험 실행은 DMY 를 집지 않습니다.'
+      : '시뮬레이터 시험 실행(2 · 3번 탭 · EXEC_ID TST)만 읽습니다 — 실제 배치(스케줄 · 바로 실행)는 SIM 을 집지 않습니다.'}
+      상세(키 · 시나리오별 CRT_DT 구간 · 실행 방법)는 상단 [시뮬레이션 데이터 — 용도별 현황 · 최근 생성 결과] 에 있습니다.</div>`;
+}
 
 $('dm-gen').onclick = async () => {
-  const types = DM_TYPES.filter(t => $('dm-ty-' + t).checked);
-  if (!types.length) { log('유형을 하나 이상 고르십시오', 'wr'); return; }
-  const target = dmTarget();
-  if (target === 'DASHBOARD' && !(await dmConfirmDashboard('대시보드 테스트 데이터 생성'))) return;
+  const f = dmPreview();
+  if (f.err || !DM_INFO) return;
+  if (f.target === 'DASHBOARD' && !(await dmConfirmDashboard('대시보드·배치용 데이터 생성'))) return;
   const body = {
-    target, dataTypes: types, targetDate: $('dm-date').value || null, count: Number($('dm-count').value || 5),
-    failures: { COLLECT_FAIL: Number($('dm-cf').value || 0), ANALYZE_FAIL: Number($('dm-af').value || 0), SEND_FAIL: Number($('dm-sf').value || 0) },
-    append: $('dm-append').checked,
+    target: f.target, dataTypes: f.types, targetDate: f.date || null,
+    count: Math.max(...f.types.map(t => f.counts[t])), counts: f.counts,
+    failures: f.failures, append: $('dm-append').checked,
   };
+  const label = `시뮬레이션 데이터 생성 — ${f.target === 'DASHBOARD' ? 'DMY' : 'SIM'} · `
+    + f.types.map(t => `${DM_TYPE_LABEL[t]} ${f.counts[t]}`).join(' · ') + '건'
+    + (f.failTotal ? ` · 장애 유형마다 ${f.failTotal}건` : '');
   $('dm-gen').disabled = true;
+  $('dm-gen').innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>생성 중…';
   try {
-    const g = await dmGenerate(body, `더미 데이터 생성 — ${target} · ${types.join('·')} · 유형별 ${body.count}건`);
-    if (!g) return;
+    const g = await dmGenerate(body, label);
+    if (!g) { $('dm-err').textContent = `생성 실패 — ${DM_LAST_ERR || '응답 없음'}`; return; }
+    dmClose();
     $('dm-result').innerHTML = dmResultHtml(g);
-    showPopup('더미 데이터 생성 완료', `<div class="pop-lead">${esc(g.targetLabel)} 더미를 만들었습니다.</div>
-      <ul class="pop-list">
-        <li>유형별 <span class="n">${g.count}</span>건 × ${Object.keys(g.types || {}).length}유형 — 정상 ${g.totals?.normal ?? 0} · 장애 ${g.totals?.fail ?? 0}</li>
-        <li>CRT_DT ${esc(String(g.crtDtRange?.from || '').replace('T', ' '))} ~ ${esc(String(g.crtDtRange?.to || '').replace('T', ' '))} · 더미 원본 ${g.totals?.files ?? 0}개</li>
-        <li>접두 ${esc(g.prefix)} · 생성자 ${esc(g.crtUsrId)}</li>
-      </ul>
-      <div class="pop-note">${g.target === 'DASHBOARD' ? '실제 배치가 읽습니다 — 시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않습니다.' : '시뮬레이터 시험 실행(2·3번 탭)만 읽습니다 — 실제 배치(스케줄 · 바로 실행)는 SIM 을 집지 않습니다.'}</div>`);
+    accToggle('dm-acc', true);
+    showPopup('시뮬레이션 데이터 생성 완료', dmDonePopupHtml(g));
   } finally {
-    $('dm-gen').disabled = false;
+    $('dm-gen').textContent = '생성 실행';
+    dmPreview();
   }
 };
+$('dm-open').onclick = (e) => { e.stopPropagation(); dmOpen(); };
+$('dm-cancel').onclick = dmClose;
+$('dm-modal-x').onclick = dmClose;
+$('dm-modal').onclick = (e) => { if (e.target === $('dm-modal')) dmClose(); };
+$('dm-seed').onclick = async () => { dmClose(); await simCreate(true); };
+// Esc — 위에 확인 팝업(#pop)이 떠 있으면 그것만 닫는다. 캡처 단계라 #pop 의 Esc 처리보다 먼저 본다
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('dm-modal').hidden && $('pop').hidden) dmClose();
+}, true);
 
 $('btn-dmy-clear').onclick = async () => {
   const ok = await confirmPopup('대시보드 테스트 데이터 초기화', `<div class="pop-lead">대시보드용 더미(DMY)를 지웁니다.</div>
@@ -3034,7 +3183,7 @@ async function ksGenerate() {
   return g;
 }
 
-/** 음성 배치 한 번 — 진행률을 같이 띄운다. 시뮬레이터 용도는 시험(TST), 대시보드 용도는 실제(VOC)로 돈다. */
+/** 음성 배치 한 번 — 진행률을 같이 띄운다. 시뮬레이터 용도는 시험(TST), 대시보드 용도는 실제(UNS)로 돈다. */
 async function ksVoicePost(path, query, label) {
   progStart();
   healthPause();
@@ -3052,7 +3201,7 @@ async function ksRunFirst() {
   if (kinds.length) {
     KS.first.voice = await ksVoicePost('/api/v1/voice/batches/manual',
       `from=${g.targetDate}T00:00:00&to=${ymdShift(g.targetDate, 1)}T00:00:00&test=${test}` + ksKindsQuery(kinds),
-      `[⑤] 1차 실행 — ${test ? '시험(TST)' : '실제(VOC)'} · 대상일 ${g.targetDate} 하루`);
+      `[⑤] 1차 실행 — ${test ? '시험(TST)' : '실제(UNS)'} · 대상일 ${g.targetDate} 하루`);
   }
   if (g.types?.IMAGE) {
     KS.first.image = await call('POST', '/api/v1/image/batches', `[⑤] 이미지 1차 실행 — corrNoPrefix ${g.types.IMAGE.corrNoPrefix}`,
@@ -4832,7 +4981,7 @@ async function loadConfig() {
   log(`환경 자동 프리셋 — ${e.kindLabel} · ROOT_DIR ${e.rootDir} · 브로커 ${e.brokerBaseUrl} · 로그 컬렉터 ${e.logCollectorBaseUrl} · DB ${c.db?.label||''}`, 'hd');
 }
 
-log('시뮬레이터 준비 완료. [시뮬레이션 데이터 생성] → [처리 대상 미리보기] → [전체 실행] 순서를 권합니다. (접견 7·전화 7 = 14건: 트랙별 일배치 5 / 10분 주기 2)', 'hd');
+log('시뮬레이터 준비 완료. [시뮬레이션 데이터 생성] 창에서 용도(SIM/DMY) · 유형 · 건수 · 장애를 골라 만들거나, 2번 탭 고정 14건(접견 7·전화 7)은 창 아래 [예전 Clean & Seed] → [처리 대상 미리보기] → [전체 실행] 순서를 권합니다.', 'hd');
 log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 XVARM·브로커를 타지 않습니다. 파이프라인은 [수집] → [정제/분석] → [적재/전송(제논)] 3단계이고, STT 결과는 PV 에 남기지 않고 제논(Zenon)으로 보냅니다 — [제논 전송 확인] 으로 수신증을 봅니다.', 'hd');
 (async () => {
   await detectApiBase();

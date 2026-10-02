@@ -184,9 +184,9 @@ voice:
     mock-latency-ms: ${VOICE_STT_MOCK_LATENCY_MS:0}   # MOCK 가상 지연(NPU 응답 흉내) — 성능 테스트가 회차마다 덮어쓴다
 
   batch:
+    # 자동 실행 최종 스위치. 실행 시각은 관리 화면(admin-api) UNSTRUCTURED 설정이 정한다 — 아래 unstructured.* 참고.
+    #   (고정 cron VOICE_DAILY_CRON · VOICE_PERIODIC_CRON 은 2026-10-02 없앴다)
     schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
-    daily-cron: ${VOICE_DAILY_CRON:0 0 2 * * *}
-    periodic-cron: ${VOICE_PERIODIC_CRON:0 */10 * * * *}
     periodic-lag-min: 20
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:500}
@@ -195,7 +195,7 @@ voice:
     retain-source-file: ${VOICE_RETAIN_SOURCE:false}
     # 워커 — 확보(I/O)와 STT(연산)를 나눈다. 둘 다 1 이면 순차(운영 기본), 아니면 생산자-소비자.
     #   acquire-workers: XVARM 확보 워커 — 브로커 추출 → 수신 폴더 도착(전화는 파일 연계). 원천 부하를 위해 1 권장
-    #   concurrency    : STT 처리 워커 — 복호화 · STT · 비식별 · 최종 저장. 성능 테스트 결과를 보고 정한다
+    #   concurrency    : STT 처리 워커 — 복호화 · STT · 제논 전송. 성능 테스트 결과를 보고 정한다
     acquire-workers: ${VOICE_BATCH_ACQUIRE_WORKERS:1}
     concurrency: ${VOICE_BATCH_CONCURRENCY:1}
 
@@ -208,6 +208,23 @@ voice:
 logging:
   level:
     egovframework.unstructured.collector: ${LOG_LEVEL:INFO}
+
+# ── 비정형 단일 진입점(UNSTRUCTURED) — admin 연동(스케줄 · 바로 실행 · 긴급 재처리) ──────────────
+#   관리 화면(admin-api)의 UNSTRUCTURED 한 행이 음성(·이미지)을 움직인다. data-collector 와 같은 방식(2026-10-02 회의).
+#   admin:    설정 조회 GET {base-url}/api/batch-schedules/UNSTRUCTURED — 기동 시 + refresh-ms 마다. 비우면 조회 끔
+#   batch:    include-image — 음성 뒤에 이미지 수집도(순차). exec-id-wait-ms — 바로 실행·재처리 접수 응답에 실제 execId 를 싣기 위해 기다리는 상한
+#   수집기가 받는 쪽: POST /internal/schedule/refresh · /internal/batch/run · /internal/batch/reprocess · GET /internal/batch/status
+unstructured:
+  admin:
+    base-url: ${ADMIN_API_BASE_URL:}
+    connect-timeout: ${ADMIN_API_CONNECT_TIMEOUT:2s}
+    read-timeout: ${ADMIN_API_READ_TIMEOUT:3s}
+  schedule:
+    refresh-ms: ${UNSTRUCTURED_SCHEDULE_REFRESH_MS:300000}
+    zone: Asia/Seoul
+  batch:
+    include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:false}
+    exec-id-wait-ms: ${UNSTRUCTURED_EXEC_ID_WAIT_MS:1500}
 
 # ── 제논(Zenon) 전송 — 파이프라인 3단계 SEND ────────────────────────────────
 #   [수집] COLLECT → [정제/분석] ANALYZE(STT) → [적재/전송] SEND(제논). 클라우드 전송·비식별화(에이전트 커넥터)는

@@ -36,6 +36,13 @@ public class OpenApiConfig {
                         STT 결과는 PV 에 남기지 않습니다 — 제논으로 보낸 뒤 그 건의 임시 파일을 지웁니다(Purge).
                         로그 테이블 적재는 **log-collector** API 로만 합니다 — T1(배치) · T2(COLLECT·ANALYZE·SEND) · T4(파일별).
 
+                        ### admin 연동 — `0. 비정형 배치(admin 연동)`
+                        관리자 화면(admin-api)의 비정형(UNSTRUCTURED) 한 행이 이 서비스를 움직입니다(data-collector 와 같은 방식).
+                        `POST /internal/schedule/refresh`(설정 즉시 반영 — 기동 시·5분마다 admin 을 다시 읽기도 함) ·
+                        `POST /internal/batch/run`(바로 실행) · `POST /internal/batch/reprocess`(긴급 재처리 — 원배치 구간 · 실패 단계부터) ·
+                        `GET /internal/batch/status`. 실행은 **비동기**(202 + execId, 실행 중이면 409)이고 스케줄·바로 실행·재처리가 한 잠금을 씁니다.
+                        클러스터 안(admin-api)에서만 부릅니다.
+
                         ### 시연 순서
                         1. `GET /api/v1/voice/status` — 5개 스위치(source·broker·phone·decrypt·stt)가 어느 모드인지 확인
                         2. `GET /api/v1/mock/targets` — 이번에 처리될 대상 미리보기

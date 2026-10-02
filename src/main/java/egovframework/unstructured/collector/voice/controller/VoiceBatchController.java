@@ -3,7 +3,6 @@ package egovframework.unstructured.collector.voice.controller;
 import egovframework.unstructured.collector.voice.batch.IdempotencyGuard;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
-import egovframework.unstructured.collector.voice.batch.VoiceBatchScheduler;
 import egovframework.unstructured.collector.voice.batch.VoiceCollectService;
 import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
@@ -51,7 +50,9 @@ public class VoiceBatchController {
     private int batchConcurrency;
 
     private final VoiceCollectService service;
-    private final VoiceBatchScheduler scheduler;
+    /** 비정형 스케줄(admin 연동) — 상태에 지금 적용된 스케줄을 싣는다. */
+    private final egovframework.unstructured.collector.batch.schedule.UnstructuredBatchScheduler scheduler;
+    private final egovframework.unstructured.collector.batch.UnstructuredJobRunner runner;
     private final egovframework.unstructured.collector.voice.batch.BatchProgress progress;
     private final egovframework.unstructured.collector.common.health.HealthProbeService healthProbe;
     private final egovframework.unstructured.collector.voice.batch.StageFaultState stageFault;
@@ -403,9 +404,10 @@ public class VoiceBatchController {
 
         Map<String, Object> batch = new LinkedHashMap<>();
         batch.put("scheduleEnabled", props.batch().scheduleEnabled());
-        batch.put("running", scheduler.isRunning());
-        batch.put("dailyCron", props.batch().dailyCron());
-        batch.put("periodicCron", props.batch().periodicCron());
+        batch.put("running", runner.isRunning() || progress.isRunning());
+        // 고정 cron(일배치 02:00 · 10분 주기)은 없앴다 — 관리 화면(admin-api) UNSTRUCTURED 설정 하나로 돈다(2026-10-02)
+        batch.put("schedule", scheduler.snapshot());
+        batch.put("job", runner.status());
         batch.put("periodicLagMin", props.batch().periodicLagMin());
         batch.put("maxFilesPerRun", props.batch().maxFilesPerRun());
         batch.put("speclMngSeCd", props.batch().speclMngSeCd());

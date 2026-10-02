@@ -6,7 +6,6 @@ import egovframework.unstructured.collector.voice.batch.BatchProgress;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VerificationService;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
-import egovframework.unstructured.collector.voice.batch.VoiceBatchScheduler;
 import egovframework.unstructured.collector.voice.batch.VoiceCollectService;
 import egovframework.unstructured.collector.voice.batch.Workers;
 import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
@@ -113,7 +112,8 @@ public class PerfRunService {
 
     private final VoiceCollectService collect;
     private final BatchProgress progress;
-    private final VoiceBatchScheduler scheduler;
+    /** admin 연동 실행기 — 스케줄 · 바로 실행 · 재처리가 돌고 있으면 시험을 시작하지 않는다. */
+    private final egovframework.unstructured.collector.batch.UnstructuredJobRunner scheduler;
     private final SimulationDataService sim;
     private final MockDatasetState dataset;
     private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;

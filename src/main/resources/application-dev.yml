@@ -130,9 +130,8 @@ voice:
   batch:
     # 스케줄은 기본으로 꺼 둔다. 개발계에서 예고 없이 배치가 돌면 대상이 소진되어
     # 다른 사람의 시험을 방해한다. 켤 때는 VOICE_SCHEDULE_ENABLED=true.
+    #   실행 시각은 관리 화면(admin-api) 설정이 정한다(아래 unstructured.admin). 이 스위치가 꺼져 있으면 설정만 받는다.
     schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
-    daily-cron: ${VOICE_DAILY_CRON:0 0 2 * * *}
-    periodic-cron: ${VOICE_PERIODIC_CRON:0 */10 * * * *}
     periodic-lag-min: ${VOICE_PERIODIC_LAG_MIN:20}
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:2000}
@@ -152,6 +151,13 @@ logging:
 #   ADMIN_DB_PASSWORD 로 준다(data_HelmChart f60994b). 비어 있으면 매핑 단계가 인증 실패로 남는다.
 #   사진 저장소는 차트가 데이터 PV 를 /k8s 에 붙이고 IMAGE_OUTPUT_DIR=/k8s/unstructured_collector/image 로 준다.
 #   매핑 테이블 DDL(db/admin/V1__tb_src_inmate_photo.sql)은 개발계에 적용돼 있다(2026-09-29).
+
+# ── 비정형 admin 연동 — 개발계 admin-api 에서 UNSTRUCTURED 설정을 읽는다(조회 확인 2026-10-02, 인증 없음) ──
+#   VOICE_SCHEDULE_ENABLED=false 인 동안은 설정만 받고 자동 실행은 하지 않는다(관리 화면 값이 '사용 Y · 02:00').
+unstructured:
+  admin:
+    base-url: ${ADMIN_API_BASE_URL:http://admin-api-yo38xf9iff.service-core.svc.cluster.local:8080}
+
 image:
   admin-db:
     url: ${ADMIN_DB_URL:jdbc:postgresql://admin-db-fy9tjq4tsk.service-core.svc.cluster.local:5432/correction_ai}

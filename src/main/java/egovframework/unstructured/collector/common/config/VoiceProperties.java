@@ -254,13 +254,14 @@ public record VoiceProperties(
 
     /** 배치 스케줄·대상 조건. */
     public record Batch(
-            /** 일배치(정기배치) — 전날 00시부터 오늘 00시까지. 기본 새벽 2시. */
-            @DefaultValue("0 0 2 * * *") String dailyCron,
-            /** 주기배치 — 10분 단위. */
-            @DefaultValue("0 */10 * * * *") String periodicCron,
+            // 고정 cron(dailyCron · periodicCron)은 2026-10-02 없앴다 — 실행 시각은 관리 화면(admin-api) 설정이 정한다
+            //   ({@code UnstructuredBatchScheduler}). FIXED_TIME → 일배치 창, INTERVAL_BASED → 주기 창.
             /** 주기배치가 훑는 지연 폭(분). 회의 합의는 "20분 전 것까지". */
             @DefaultValue("20") int periodicLagMin,
-            /** 스케줄 자동 기동 여부. 개발·시연 중에는 수동 호출만 쓰도록 끌 수 있다. */
+            /**
+             * 스케줄 자동 실행 — <b>최종 안전 스위치</b>. 꺼져 있으면 admin 설정은 받아 상태에 보여 주되 트리거를 걸지 않는다.
+             * 개발·시연 중에는 끈다(관리 화면 값이 켜져 있어도).
+             */
             @DefaultValue("false") boolean scheduleEnabled,
             /** 특별관리구분코드 — 조직(0)·마약(1)·관심(2)·엄격(3)·일일중점(5) */
             @DefaultValue({"0", "1", "2", "3", "5"}) List<String> speclMngSeCd,

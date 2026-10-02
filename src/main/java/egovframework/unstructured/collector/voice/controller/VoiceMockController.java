@@ -74,7 +74,11 @@ public class VoiceMockController {
     private final egovframework.unstructured.collector.common.config.DbKindDetector dbKind;
     private final egovframework.unstructured.collector.common.config.DeployEnvPreset deployEnv;
     private final egovframework.unstructured.collector.common.logging.LogCollectorClient logCollector;
-    private final egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
+    /** 로컬 산출물 정리 — 대시보드 더미(DMY)의 표식·보존물은 남긴다. */
+    private final egovframework.unstructured.collector.mock.LocalArtifacts localArtifacts;
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
+    /** 대시보드 더미 — dev/local 프로필에만 있다(운영은 빈이 없다). */
+    private final org.springframework.beans.factory.ObjectProvider<egovframework.unstructured.collector.mock.DummyDataService> dummyData;
 
     @Operation(summary = "시뮬레이션 데이터 생성 (Complete Clean & Seed)",
             description = """
@@ -115,22 +119,44 @@ public class VoiceMockController {
         return out;
     }
 
-    @Operation(summary = "시뮬레이션 데이터 초기화 (Complete Clean)",
+    @Operation(summary = "용도별 데이터 초기화 (SIMULATOR / DASHBOARD)",
             description = """
-                    시뮬레이션 데이터를 **전부 지웁니다** (만들지는 않습니다).
+                    더미 데이터를 **용도별로** 지웁니다(만들지는 않습니다). 두 용도는 서로의 데이터를 건드리지 않습니다.
 
-                    - DB 의 시뮬레이션 메타 행(SIM 접두: 수용자·녹취·통화·공통파일·XVARM) 일괄 DELETE — 운영·다른 사람 행은 건드리지 않습니다
-                    - XVARM 원본 스토리지의 더미 파일(`mock_*`) 삭제
-                    - 멱등 표식 · 수신 파일 · 작업 산출물 삭제
+                    | target | 지우는 것 |
+                    |---|---|
+                    | `SIMULATOR` (기본 — 인자 없이 부르면 이것) | 음성 SIM 행(수용자·녹취·통화·공통파일·XVARM) · XVARM 원본 더미(`mock_*`) · 이미지 SIM(`SIMIMG…` 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진) · 멱등 표식 · 수신 파일 · 재처리 보존물 — 대시보드 더미(DMY)의 것은 남김 |
+                    | `DASHBOARD` | `DMY` 접두 + 생성자 `dmyadm` 행(보라미 · MOCK_DEV 공통파일/XVARM) · Admin 사진 매핑 · 더미 원본 · 저장 사진 · DMY 멱등 표식/보존물 |
+
+                    - 삭제 조건은 **접두 + `CRT_USR_ID`** 를 같이 겁니다(XVARM 은 생성자 컬럼이 없어 접두 + 우리 공통파일의 문서ID 로 한정).
+                    - **로그 컬렉터 수행 이력(T1~T5)은 지우지 않습니다** — 다른 서비스 소유입니다. 시험 이력(TST)까지 지우려면 `DELETE /api/v1/mock/test-data`.
+                    - `DASHBOARD` 는 dev/local 프로필에서만 됩니다(운영은 404).
                     """)
     @DeleteMapping("/sim-data")
-    public Map<String, Object> deleteSimData() {
+    public org.springframework.http.ResponseEntity<Map<String, Object>> deleteSimData(
+            @RequestParam(required = false) egovframework.unstructured.collector.mock.DummyTarget target) {
+        if (target == egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD) {
+            egovframework.unstructured.collector.mock.DummyDataService dummy = dummyData.getIfAvailable();
+            if (dummy == null) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("error", "NOT_AVAILABLE");
+                out.put("message", "대시보드 더미 데이터는 dev/local 프로필에서만 다룹니다 — 이 프로세스에는 기능이 없습니다");
+                return org.springframework.http.ResponseEntity.status(HttpStatus.NOT_FOUND).body(out);
+            }
+            return org.springframework.http.ResponseEntity.ok(dummy.cleanDashboard());
+        }
         Map<String, Object> cleared = clearLocal();
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put("target", egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR.name());
         out.put("cleared", cleared);
         out.put("sim", sim.clean());
-        out.put("message", "시뮬레이션 데이터 초기화 완료 — DB 메타·더미 파일·멱등 표식을 지웠습니다");
-        return out;
+        // 이미지 SIM — 6번 탭 [SIM 데이터 정리] 와 같은 정리(작업 지시 2-4: 기존 clean() + 이미지 clean())
+        out.put("imageSim", cleanImageSim());
+        out.put("scenarioFaultsForgotten", scenarioFaults.forget(
+                egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR::ownsScenarioKey));
+        out.put("historyKept", "로그 컬렉터 수행 이력(T1~T5)은 지우지 않았습니다 — 남아 있습니다");
+        out.put("message", "시뮬레이터 데이터 초기화 완료 — 음성/이미지 SIM 행·더미 파일·멱등 표식을 지웠습니다(대시보드 더미 DMY 는 그대로)");
+        return org.springframework.http.ResponseEntity.ok(out);
     }
 
     @Operation(summary = "시뮬레이션 데이터 현황",
@@ -202,6 +228,8 @@ public class VoiceMockController {
         out.put("sim", sim.clean());
         // ④ 수용자 이미지 SIM — 6번 탭 [SIM 데이터 정리] 와 같은 API(원천 SIMIMG 행 · Admin 매핑 · 더미 원본 · 저장 사진)
         out.put("imageSim", cleanImageSim());
+        out.put("scenarioFaultsForgotten", scenarioFaults.forget(
+                egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR::ownsScenarioKey));
 
         out.put("testJobId", props.batch().testJobId());
         out.put("message", "시뮬레이션 데이터 초기화 완료 — 테스트(TST) 이력·제논 수신증·음성/이미지 SIM(DB 행·더미·저장 사진)을 지웠습니다. 운영 배치(VOC/STR/EXT)는 건드리지 않았습니다");
@@ -480,7 +508,7 @@ public class VoiceMockController {
             @RequestParam(defaultValue = "5") int phone) {
         // 로컬 H2 에 일배치용 행을 그 건수만큼 시딩한다(주기용 2·2 는 그대로). 개발계 DB 에서는 거절된다.
         Map<String, Object> seed = sim.seed(meet, phone);
-        idempotency.clearAll();
+        idempotency.clearMatching(n -> !egovframework.unstructured.collector.mock.DummyTarget.isDashboardLocalName(n));
         Map<String, Object> out = new LinkedHashMap<>(dataset.snapshot());
         out.put("sim", seed);
         out.put("message", "일배치용 접견 %d · 전화 %d (+주기 2·2) 를 %s 에 시딩했습니다. [전체 실행 (일배치)] 로 돌리세요"
@@ -597,65 +625,15 @@ public class VoiceMockController {
     }
 
     /**
-     * 디렉터리 안의 <b>파일만</b> 지운다(하위 디렉터리는 건드리지 않는다).
+     * 수신·작업 폴더 · 멱등 표식 · 재처리 보존물을 비우고 <b>지우지 못한 것까지</b> 결과에 담는다 — {@code stuckFiles} 가 비어 있지 않으면 초기화가 끝난 것이 아니다.
      *
-     * <p>재귀 삭제를 쓰지 않는 이유: 설정이 잘못돼 엉뚱한 경로가 들어오면 피해가 걷잡을 수 없다.
-     * 초기화에 필요한 것은 평평한 파일 목록뿐이다.</p>
-     */
-    /**
-     * 수신·작업 폴더를 비우고 <b>지우지 못한 것까지</b> 결과에 담는다.
-     *
-     * <p>지운 건수만 돌려주던 때는 "3건 삭제" 라고 보고해 놓고 실제로는 이름이 잡혀 있어,
-     * 다음 실행이 수신 대기 타임아웃으로 죽어도 그 연결을 아무도 못 봤다. 이제는 화면까지 올린다
-     * — {@code stuckFiles} 가 비어 있지 않으면 초기화가 끝난 것이 아니다.</p>
+     * <p><b>대시보드 더미(DMY)의 것은 남긴다</b> — 실제 배치가 처리한 건의 멱등 표식을 지우면 다음 실제 배치가 같은 건을 다시
+     * 처리해 제논 · 로그 이력이 중복된다. 이름 조건과 정리 본체는 {@link egovframework.unstructured.collector.mock.LocalArtifacts}.</p>
      *
      * <p>성능 테스트가 매 회차 준비 단계에서도 부른다({@code PerfRunService}).</p>
      */
     public Map<String, Object> clearLocalFiles() {
-        Map<String, Object> out = new LinkedHashMap<>();
-        List<String> stuck = new ArrayList<>();
-        out.put("idempotencyMarkers", idempotency.clearAll());
-        for (var e : Map.of("meetFiles", dirs.receiveMeet(),
-                "phoneFiles", dirs.receivePhone(),
-                "workFiles", Path.of(dirs.work(), "mock_source_stt").toString()).entrySet()) {
-            StaleFiles.Result r = StaleFiles.deleteAllIn(Path.of(e.getValue()));
-            out.put(e.getKey(), r.deleted());
-            stuck.addAll(r.stuck());
-        }
-        // ── 재처리용 중간 산출물 ─────────────────────────────────────────────
-        //   이것까지 지워야 '처음부터' 다. 남겨 두면 다음 재처리(FROM_ANALYZE·FROM_SEND)가
-        //   지난 시험의 보존물을 집어 가서, 새로 만든 데이터로 돌렸는데 옛 전사가 나온다.
-        //   보존물에는 평문 음성·전사(성명·주민번호)가 들어 있으니 PII 잔재이기도 하다.
-        //
-        //   ① {ROOT}/stt_temp/{execId}/  — 전사 결과(SEND 재처리용). 폴더째 지운다
-        out.put("sttTempFiles", sttTemp.clearAll());
-        //   ② {ROOT}/xvram/decoding/decrypted_*  — 복호화 오디오(ANALYZE 재처리용).
-        //      이 폴더에는 다른 것도 사니 우리 접두사만 지운다
-        int audio = 0;
-        Path work = Path.of(dirs.work());
-        if (Files.isDirectory(work)) {
-            try (Stream<Path> ws = Files.list(work)) {
-                for (Path f : ws.filter(Files::isRegularFile)
-                        .filter(f -> f.getFileName().toString().startsWith("decrypted_")).toList()) {
-                    if (StaleFiles.delete(f)) {
-                        audio++;
-                    } else {
-                        stuck.add(f.getFileName().toString());
-                    }
-                }
-            } catch (IOException e) {
-                log.warn("[Mock] 복호화 보존물 목록 실패 — {} ({})", work, e.getMessage());
-            }
-        }
-        out.put("decryptedAudio", audio);
-
-        if (!stuck.isEmpty()) {
-            out.put("stuckFiles", stuck);
-            out.put("stuckWarning", "이 파일들을 지우지 못했습니다 — 다른 프로그램(탐색기 미리보기·재생기·백신)이 "
-                    + "열고 있으면 같은 이름으로 새 파일을 만들 수 없어 다음 실행이 '수신 파일 대기 타임아웃'으로 "
-                    + "끝납니다. 해당 파일을 닫고 초기화를 다시 눌러 주세요");
-        }
-        return out;
+        return localArtifacts.clearExceptDashboard();
     }
 
     private List<Map<String, Object>> listFiles(String dir) {

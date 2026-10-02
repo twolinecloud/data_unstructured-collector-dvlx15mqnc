@@ -106,6 +106,37 @@ public class IdempotencyGuard {
         }
     }
 
+    /**
+     * 이름이 조건에 맞는 표식만 지운다 — 용도별 초기화(시뮬레이터 / 대시보드 더미)가 서로의 표식을 건드리지 않게.
+     *
+     * @param name 표식 파일명({@code meet-DMY-MEET-…} 처럼 {@code 종류-키}) 조건
+     * @return 지운 건수
+     */
+    public int clearMatching(java.util.function.Predicate<String> name) {
+        Path dir = markerDir();
+        if (!Files.isDirectory(dir)) {
+            return 0;
+        }
+        int n = 0;
+        try (var stream = Files.list(dir)) {
+            for (Path p : stream.filter(f -> name.test(f.getFileName().toString())).toList()) {
+                try {
+                    if (Files.deleteIfExists(p)) {
+                        n++;
+                    }
+                } catch (IOException ignored) {
+                    // 지우지 못한 표식은 남겨 둔다 — 중복 처리보다 낫다
+                }
+            }
+        } catch (IOException e) {
+            log.warn("[Idempotency] 표식 목록 조회 실패 — {}", e.getMessage());
+        }
+        if (n > 0) {
+            log.info("[Idempotency] 표식 {}건 삭제(조건부)", n);
+        }
+        return n;
+    }
+
     private Path markerDir() {
         return Path.of(dirs.work(), MARKER_DIR);
     }

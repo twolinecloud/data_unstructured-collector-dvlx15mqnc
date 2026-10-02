@@ -92,6 +92,11 @@ public class ImageCollectService {
     private final ImageTrace trace;
     /** 브로커 주소 — 기록의 cURL 에 쓴다. */
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
+    /**
+     * 더미 키 표식 장애 — 교정번호에 표식(CF·AF·SF)을 단 건을 그 단계에서 한 번만 실패시킨다(수신 · 복호화 · 매핑).
+     * 의도적 실패(주입)와 달리 실제 수집 API 로도 동작한다 — 대시보드 더미가 실제 배치에서 실패해야 하기 때문이다. 운영 제외.
+     */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
 
     private final AtomicBoolean running = new AtomicBoolean();
     /** 이번 실행에서 표본(첫 건)을 이미 잡았는가 — 워커가 여럿이어도 한 건만 적는다. */
@@ -356,6 +361,9 @@ public class ImageCollectService {
             // ── 브로커 수신 ──
             long s = ImageMetrics.start();
             watcher.clearStale(dir, t.receiveName());
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL, t.corrNo())) {
+                throw new IllegalStateException("XVARM 추출 실패 — 브로커가 이 건을 거부했습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
+            }
             XvarmBrokerClient.FileRequest fr = new XvarmBrokerClient.FileRequest(
                     t.docId(), t.fileKey(), t.requestId(execId), t.receiveName());
             XvarmBrokerClient.ExtractResult r = via.extractFile(fr);
@@ -386,6 +394,9 @@ public class ImageCollectService {
             s = ImageMetrics.start();
             byte[] cipher = Files.readAllBytes(received);
             byte[] plain = store.decrypt(t, cipher);
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.ANALYZE_FAIL, t.corrNo())) {
+                throw new IllegalStateException("복호화 결과가 이미지가 아닙니다 — 매직 넘버 불일치 [더미 시나리오 ANALYZE_FAIL · 1회]");
+            }
             m.add(ImageStage.DECRYPT, s);
             if (sample) {
                 trace.add(ImageTrace.Step.RECEIVE, "복호화 — 접견과 같은 RVS 키(AES/CBC) · 결과가 이미지인지 매직 넘버로 확인", "CODE",
@@ -415,8 +426,15 @@ public class ImageCollectService {
                     t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
                     saved.ext(), execId);
             InmatePhotoRepository.MapResult mr;
+            // 커밋 전에 부른다 — 여기서 던지면 매핑이 롤백된다(의도적 실패 주입 · 더미 시나리오 SEND_FAIL)
+            Runnable beforeCommit = () -> {
+                injectIf(injectAt, ImageStage.MAP);
+                if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL, t.corrNo())) {
+                    throw new IllegalStateException("Admin DB 매핑 실패 — 커밋 전 롤백 [더미 시나리오 SEND_FAIL · 1회]");
+                }
+            };
             try {
-                mr = repo.upsert(row, injectAt == ImageStage.MAP ? () -> injectIf(injectAt, ImageStage.MAP) : null);
+                mr = repo.upsert(row, beforeCommit);
             } catch (RuntimeException e) {
                 if (sample) {
                     trace.add(ImageTrace.Step.MAP, "DB 매핑 UPSERT — 실패(트랜잭션 롤백 · 커넥션 반납)", "SQL",

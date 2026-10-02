@@ -262,6 +262,36 @@ public class SttTempStore {
         return n;
     }
 
+    /**
+     * 파일명이 조건에 맞는 보존물만 지운다 — 용도별 초기화가 서로의 보존물을 건드리지 않게. 비게 된 배치 폴더도 치운다.
+     *
+     * @param fileName 보존물 파일명({@code meet-DMY-MEET-….json}) 조건
+     * @return 지운 파일 수
+     */
+    public int clearMatching(java.util.function.Predicate<String> fileName) {
+        Path root = root();
+        if (!Files.isDirectory(root)) {
+            return 0;
+        }
+        int n = 0;
+        try (Stream<Path> s = Files.list(root)) {
+            for (Path d : s.filter(Files::isDirectory).toList()) {
+                try (Stream<Path> inner = Files.list(d)) {
+                    for (Path f : inner.filter(Files::isRegularFile)
+                            .filter(f -> fileName.test(f.getFileName().toString())).toList()) {
+                        if (Files.deleteIfExists(f)) {
+                            n++;
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.warn("[SttTemp] 조건부 삭제 실패 — {} ({})", root, e.getMessage());
+        }
+        pruneEmptyDirs();
+        return n;
+    }
+
     private static String safe(String s) {
         return s == null ? "unknown" : s.replaceAll("[^A-Za-z0-9._가-힣-]", "_");
     }

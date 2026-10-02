@@ -159,3 +159,9 @@ logging:
 #   개발계 Admin DB 로 붙어 보려면 포트포워딩 후 환경변수로 준다(DDL 이 적용돼 있어야 한다):
 #     kubectl -n service-core port-forward svc/admin-db-fy9tjq4tsk 15434:5432
 #     ADMIN_DB_URL=jdbc:postgresql://localhost:15434/correction_ai  ADMIN_DB_USERNAME=…  ADMIN_DB_PASSWORD=…
+
+# ── 더미 데이터 — 로컬은 대시보드 더미(DMY) 생성을 허용한다(H2 · 로컬 파일). 매일 자동 생성은 끔 ──
+unstructured:
+  mock:
+    dashboard:
+      enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}

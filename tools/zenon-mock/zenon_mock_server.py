@@ -11,9 +11,12 @@
        - metadata  : JSON 문자열 {"exec_id", "inmate_no", "type": "VOICE"|"IMAGE", "file_name", ...}
        - ?delay=<초>        응답 전에 기다린다(수집기 read-timeout 재현)
        - ?status_code=500|400  그 상태 코드로 실패 응답(장애 재현)
+       - 더미 시나리오 SEND_FAIL — metadata.idempotency_key 가 SF 표식 키(예 DMY-MEET-20261001-SF-0003)면
+         그 키는 처음 한 번만 503 으로 거부한다(수집기 FROM_SEND 재처리는 통과). 수집기 MOCK 모드와 같은 규칙
        → 200 {"code":"SUCCESS","exec_id","received_at","file_name","file_size_bytes"}
   GET  /health                 수집기 헬스 배지(HealthProbeService)가 부른다
   GET  /api/v1/zenon/received  받아 둔 파일 목록(확인용)
+  GET|DELETE /api/v1/zenon/scenario-faults  SF 표식 키 중 이미 한 번 거부한 것 · 비우기(다시 한 번 거부하게)
 
 받은 파일은 ./mock_received_files/{exec_id}/{file_name} 에 저장하고, 옆에 {file_name}.metadata.json 을 남긴다.
 
@@ -42,6 +45,10 @@ ALLOWED_TYPES = {"VOICE", "IMAGE"}
 MAX_DELAY_SEC = 600.0
 # 로그에 값을 찍지 않을 헤더 — 토큰·쿠키가 콘솔에 남지 않게
 MASKED_HEADERS = {"authorization", "cookie", "proxy-authorization", "x-api-key"}
+# 더미 시나리오 SEND_FAIL 표식 키 — 수집기 FailureScenario 와 같은 형식만(실제 키는 어떤 경우에도 걸리지 않는다)
+SEND_FAIL_KEY = re.compile(r"^(SIM|DMY)-(MEET|PHONE)-\d{8}-SF-\d{4}$")
+# 이미 한 번 거부한 키 — 메모리(재기동하면 비워져 다시 한 번 거부한다)
+_FAILED_ONCE: dict[str, str] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s [zenon-mock] %(message)s")
 log = logging.getLogger("zenon-mock")
@@ -63,6 +70,15 @@ def _safe(name: str, fallback: str) -> str:
     base = re.sub(r"[^0-9A-Za-z가-힣._-]", "_", base)
     base = base.lstrip(".")
     return base[:200] or fallback
+
+
+def scenario_send_fail(meta: dict[str, Any]) -> Optional[str]:
+    """SF 표식 키를 처음 받으면 그 키를 돌려준다(이번에 거부한다). 두 번째부터는 None — 재처리는 통과한다."""
+    key = str(meta.get("idempotency_key") or "").strip()
+    if not SEND_FAIL_KEY.match(key) or key in _FAILED_ONCE:
+        return None
+    _FAILED_ONCE[key] = _now()
+    return key
 
 
 def _headers_for_log(request: Request) -> dict[str, str]:
@@ -118,6 +134,10 @@ async def receive(
     if status_code is not None:
         log.warning("  → 의도적 실패 응답 HTTP %d (exec_id=%s)", status_code, exec_id)
         return _error(status_code, "ERROR", f"Mock 장애 재현 — status_code={status_code}", exec_id)
+    failed_key = scenario_send_fail(meta)
+    if failed_key:
+        log.warning("  → 더미 시나리오 SEND_FAIL — %s 를 이번 한 번 503 으로 거부 (exec_id=%s)", failed_key, exec_id)
+        return _error(503, "ERROR", f"더미 시나리오 SEND_FAIL — {failed_key} 1회 거부(재전송은 받는다)", exec_id)
 
     # ── 규약 검증 ──
     if not exec_id:
@@ -160,6 +180,20 @@ async def received(exec_id: Optional[str] = Query(None, description="이 실행 
                     rows.append({"exec_id": d.name, "file_name": f.name, "file_size_bytes": f.stat().st_size,
                                  "saved_at": datetime.fromtimestamp(f.stat().st_mtime).replace(microsecond=0).isoformat()})
     return {"receive_dir": str(RECEIVE_DIR), "total": len(rows), "files": rows}
+
+
+@app.get("/api/v1/zenon/scenario-faults")
+async def scenario_faults() -> dict[str, Any]:
+    """SF 표식 키 중 이미 한 번 거부한 것 — 여기 있는 키는 다음 전송을 받는다."""
+    return {"total": len(_FAILED_ONCE), "rows": [{"key": k, "failed_at": v} for k, v in sorted(_FAILED_ONCE.items())]}
+
+
+@app.delete("/api/v1/zenon/scenario-faults")
+async def reset_scenario_faults() -> dict[str, Any]:
+    """거부 기록을 비운다 — SF 표식 키를 다음 전송에서 한 번 더 거부한다."""
+    n = len(_FAILED_ONCE)
+    _FAILED_ONCE.clear()
+    return {"cleared": n}
 
 
 if __name__ == "__main__":

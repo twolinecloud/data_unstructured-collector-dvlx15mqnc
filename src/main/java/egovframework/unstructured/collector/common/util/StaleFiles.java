@@ -88,12 +88,19 @@ public final class StaleFiles {
      * 초기화에 필요한 것은 평평한 파일 목록뿐이다.</p>
      */
     public static Result deleteAllIn(Path dir) {
+        return deleteMatching(dir, name -> true);
+    }
+
+    /**
+     * 위와 같되, 파일명이 조건에 맞는 것만 지운다 — 용도별 초기화(시뮬레이터 / 대시보드 더미)가 서로의 파일을 건드리지 않게.
+     */
+    public static Result deleteMatching(Path dir, java.util.function.Predicate<String> name) {
         if (!Files.isDirectory(dir)) {
             return new Result(0, List.of());
         }
         List<Path> files;
         try (Stream<Path> s = Files.list(dir)) {
-            files = s.filter(Files::isRegularFile).sorted().toList();
+            files = s.filter(Files::isRegularFile).filter(f -> name.test(f.getFileName().toString())).sorted().toList();
         } catch (IOException e) {
             log.warn("[Cleanup] 디렉터리 조회 실패 — {} ({})", dir, e.getMessage());
             return new Result(0, List.of());

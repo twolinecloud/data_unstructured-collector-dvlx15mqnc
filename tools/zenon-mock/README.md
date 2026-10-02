@@ -37,6 +37,10 @@ uvicorn zenon_mock_server:app --host 0.0.0.0 --port 8000
 | `delay=<초>` | 응답 전에 기다립니다(0~600). 수집기 `zenon.read-timeout-ms`(기본 30초)보다 길게 주면 **타임아웃**을 재현합니다 |
 | `status_code=500` · `status_code=400` | 그 상태 코드로 실패 응답(`{"code":"ERROR",...}`) — 수집기는 SEND 실패로 처리하고 전사를 보존합니다 |
 
+**더미 시나리오 SEND_FAIL(키 표식)** — `metadata.idempotency_key` 가 SF 표식 키(`DMY-MEET-20261001-SF-0003` · `SIM-PHONE-20261001-SF-0001` 형식)면
+그 키는 **처음 한 번만 503** 으로 거부합니다. 같은 키를 다시 보내면(수집기 `FROM_SEND` 재처리) 받습니다. 수집기 MOCK 모드(`ZENON_MODE=MOCK`)와 같은 규칙이라,
+REST 모드로 바꿔도 "실패 → 재처리 → 성공" 시나리오가 그대로 재현됩니다. 표식 키는 시뮬레이터 [더미 데이터 생성] · `POST /api/v1/mock/sim-data/generate` 가 만듭니다.
+
 성공 응답(200):
 
 ```json
@@ -50,6 +54,7 @@ uvicorn zenon_mock_server:app --host 0.0.0.0 --port 8000
 
 - `GET /health` — 수집기 상단 헬스 배지(제논 전송)가 REST 모드에서 부릅니다.
 - `GET /api/v1/zenon/received?exec_id=...` — 받아 둔 파일 목록(수집기 [제논 전송 확인] 과 대조).
+- `GET /api/v1/zenon/scenario-faults` — SF 표식 키 중 이미 한 번 거부한 것 · `DELETE` 로 비우면 다음 전송에서 한 번 더 거부(메모리 — 재기동하면 비워짐).
 
 ## 3. cURL 예시
 

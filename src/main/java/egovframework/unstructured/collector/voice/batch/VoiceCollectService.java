@@ -95,6 +95,8 @@ public class VoiceCollectService {
     private final StageFaultState stageFault;
     private final egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
     private final PerfStageMeter meter;
+    /** 더미 키 표식(CF) 장애 — 접견 수집에서 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
 
     /**
      * 건을 동시에 처리할 워커 수 — <b>운영 기본은 1(순차)</b>.
@@ -225,6 +227,9 @@ public class VoiceCollectService {
         ctx.collectStepId = logCollector.createStep(execId, (short) 1, FileProcOutcome.STEP_COLLECT);
 
         List<VoiceTarget> found = findTargets(window, targets);
+        if (testRun) {
+            found = withoutDashboardDummies(found);
+        }
         List<FileProcOutcome> outcomes = new ArrayList<>(found.size());
 
         // 화면 진행률 — 대상 수가 확정된 지금부터 센다. 배치 REST 는 동기라 이것 없이는
@@ -624,9 +629,19 @@ public class VoiceCollectService {
      * <p>로그 컬렉터·브로커·파일은 건드리지 않는다. 보라미 조회와 멱등 표식 확인뿐이다.</p>
      */
     public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds) {
+        return pending(window, kinds, false);
+    }
+
+    /**
+     * 위와 같되, 시험 실행({@code testRun})이면 대시보드 더미({@code DMY-…})를 빼고 센다 — 시험 실행이 실제로 집는 것과 같게.
+     */
+    public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds, boolean testRun) {
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
                 ? List.of(VoiceKind.MEET, VoiceKind.PHONE) : kinds;
         List<VoiceTarget> found = findTargets(window, targets, true);
+        if (testRun) {
+            found = withoutDashboardDummies(found);
+        }
         long processed = found.stream().filter(idempotency::isProcessed).count();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("window", window.toString());
@@ -640,6 +655,22 @@ public class VoiceCollectService {
 
     private List<VoiceTarget> findTargets(BatchWindow window, List<VoiceKind> kinds) {
         return findTargets(window, kinds, false);
+    }
+
+    /**
+     * 시험 실행(시뮬레이터 {@code test=true})은 <b>대시보드 더미</b>({@code DMY-…})를 집지 않는다.
+     *
+     * <p>대시보드 더미는 실제 배치(VOICE_ANALYSIS)가 읽어 로그 컬렉터 이력 · 관리 화면에 나와야 하는 데이터다. 시험 실행이 먼저
+     * 처리하면 멱등 표식이 남아 실제 배치가 '건너뜀' 으로 넘겨 대시보드에 아무것도 나오지 않는다.</p>
+     */
+    private static List<VoiceTarget> withoutDashboardDummies(List<VoiceTarget> found) {
+        List<VoiceTarget> out = found.stream()
+                .filter(t -> !egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD.ownsKey(t.idempotencyKey()))
+                .toList();
+        if (out.size() < found.size()) {
+            log.info("[Batch] 시험 실행 — 대시보드 더미(DMY) {}건은 실제 배치 몫이라 건너뛴다", found.size() - out.size());
+        }
+        return out;
     }
 
     private List<VoiceTarget> findTargets(BatchWindow window, List<VoiceKind> kinds, boolean quiet) {
@@ -1084,6 +1115,12 @@ public class VoiceCollectService {
         // 요청 전에 그 이름에 남아 있는 것은 이번 요청의 산출물일 수 없다 — 먼저 치운다.
         watcher.clearStale(target);
         if (target.kind() == VoiceKind.MEET) {
+            // 더미 시나리오 COLLECT_FAIL — 브로커에 요청하기 전에 끊는다. 개발계 브로커(DUMMY 어댑터)는 FILEKEY 가 없거나
+            //   읽히지 않아도 무음 WAV 를 만들어 주므로 메타 누락만으로는 실패하지 않는다. 표식 건만 · 한 번만 · 운영 제외.
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL,
+                    target.idempotencyKey())) {
+                throw new IllegalStateException("XVARM 추출 요청 거부 — FILEKEY 를 확인할 수 없습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
+            }
             log.info("[Track:MEET] ② XVARM 추출 요청 — {} via 브로커 {} (execId={})", target.shortId(), broker.mode(), execId);
             XvarmBrokerClient.ExtractResult extracted = broker.extract(target, execId);
             log.info("[Track:MEET] ③ ESB 수신 대기 — {} (브로커 산출 {})",

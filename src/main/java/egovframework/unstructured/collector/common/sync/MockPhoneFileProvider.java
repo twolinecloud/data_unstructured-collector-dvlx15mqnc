@@ -31,9 +31,16 @@ public class MockPhoneFileProvider implements PhoneFileProvider {
     private final EsbFileNamingPolicy namingPolicy;
     private final MockDatasetState dataset;
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
+    /** 더미 키 표식(CF) 장애 — 이 건의 파일 연계를 한 번만 거부한다. 운영 프로필에서는 아무 일도 하지 않는다. */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
 
     @Override
     public void request(VoiceTarget target) {
+        if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL,
+                target.idempotencyKey())) {
+            // 파일을 안 만들어 두면 수신 대기 제한(개발계 300초)까지 멈춰 있게 된다 — 제공자가 거부한 것으로 곧바로 끊는다
+            throw new IllegalStateException("전화 파일 연계 실패 — 제공자(MOCK)가 이 건을 거부했습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
+        }
         Path dir = dirs.receiveDir(target.kind());
         Path file = dir.resolve(namingPolicy.expectedFileName(target, props.sync().namingPolicy()));
         try {

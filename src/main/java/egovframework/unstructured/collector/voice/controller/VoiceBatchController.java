@@ -167,19 +167,31 @@ public class VoiceBatchController {
 
                     이미 성공한 건은 멱등 표식 때문에 `건너뜀` 이 되므로, 실패했던 건만 다시 처리됩니다.
                     `fromExecId` 를 주면 그 배치의 보존물만 봅니다(비우면 가장 최근 것).
+
+                    `from`·`to` 를 주면 그 구간만 다시 봅니다(`lookbackMin` 무시) — 더미 데이터의 시나리오별 구간
+                    (`POST /api/v1/mock/sim-data/generate` 응답의 `windows`)을 그 시나리오의 기대 모드로 재처리할 때 씁니다.
                     """)
+    /** 구간 없이 — 최근 {@code lookbackMin} 분(종전 시그니처). */
+    public VoiceBatchResult resume(ResumeMode resume, String fromExecId, List<VoiceKind> kinds, boolean test, int lookbackMin) {
+        return resume(resume, fromExecId, kinds, test, lookbackMin, null, null);
+    }
+
     @PostMapping("/batches/resume")
     public VoiceBatchResult resume(
             @RequestParam(defaultValue = "FROM_ANALYZE") ResumeMode resume,
             @RequestParam(required = false) String fromExecId,
             @RequestParam(required = false) List<VoiceKind> kinds,
             @RequestParam(defaultValue = "false") boolean test,
-            @RequestParam(defaultValue = "2880") int lookbackMin) {
+            @RequestParam(defaultValue = "2880") int lookbackMin,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
         LocalDateTime now = LocalDateTime.now();
         // 재처리는 실패한 건을 다시 잡아야 하므로 창을 넉넉히 연다. 기본 이틀치 —
         //   주기 창(20분)으로 잡으면 조금 전에 깨진 건도 이미 창 밖이고, 하루치로 잡으면
         //   일배치 픽스처의 첫 건(어제 00:00:00)이 24시간을 넘겨 빠진다.
-        BatchWindow window = BatchWindow.manual(now.minusMinutes(Math.max(1, lookbackMin)), now.plusMinutes(1));
+        BatchWindow window = (from != null && to != null)
+                ? BatchWindow.manual(from, to)
+                : BatchWindow.manual(now.minusMinutes(Math.max(1, lookbackMin)), now.plusMinutes(1));
         log.info("[Batch] 재처리 — resume={} fromExecId={} 창=[{} ~ {})", resume, fromExecId, window.from(), window.to());
         return service.run(window, kinds, "RESUME", test, resume, fromExecId, batchConcurrency);
     }
@@ -282,7 +294,8 @@ public class VoiceBatchController {
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "type 은 daily · periodic · on-demand 중 하나입니다: " + type);
         };
-        Map<String, Object> out = new java.util.LinkedHashMap<>(service.pending(w, kinds));
+        // 시험 실행은 대시보드 더미(DMY)를 집지 않는다 — 실제로 집을 것과 같게 센다
+        Map<String, Object> out = new java.util.LinkedHashMap<>(service.pending(w, kinds, test));
         out.put("type", type);
         return out;
     }

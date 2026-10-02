@@ -179,6 +179,18 @@ public class VoiceCollectService {
      */
     public VoiceBatchResult run(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
                                 ResumeMode resume, String fromExecId, Workers workers) {
+        return run(window, kinds, triggerBy, testRun, resume, fromExecId, workers, null);
+    }
+
+    /**
+     * 배치를 1회 실행한다 — execId 를 받자마자 알린다.
+     *
+     * @param onExecId T1 을 열어 execId 를 받은 직후 한 번 불린다({@code (execId, 컬렉터 채번인가)} — 미연동이면 로컬 임시 ID · false).
+     *                 admin 연동의 비동기 실행(바로 실행 · 긴급 재처리)이 접수 응답에 실제 execId 를 싣는 데 쓴다. null 이면 안 부른다
+     */
+    public VoiceBatchResult run(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
+                                ResumeMode resume, String fromExecId, Workers workers,
+                                java.util.function.BiConsumer<String, Boolean> onExecId) {
         long startedAt = System.currentTimeMillis();
         Workers w = workers == null ? Workers.sequential() : workers;
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
@@ -186,6 +198,13 @@ public class VoiceCollectService {
 
         String collectorExecId = openBatch(window, triggerBy, testRun);
         String execId = collectorExecId != null ? collectorExecId : localExecId(testRun);
+        if (onExecId != null) {
+            try {
+                onExecId.accept(execId, collectorExecId != null);
+            } catch (RuntimeException e) {
+                log.warn("[Batch] execId 알림 실패(배치는 계속) — {}", e.getMessage());
+            }
+        }
         log.info("[Batch] 시작 — execId={} {} kinds={}{}", execId, window, targets,
                 testRun ? "  [시험 실행 — TST 로 채번, 초기화로 삭제 가능]" : "");
         // 트랙별로 따로 찍는다. 두 시나리오는 연동 주체가 달라서 한 줄에 섞으면

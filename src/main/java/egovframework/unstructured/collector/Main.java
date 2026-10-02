@@ -34,7 +34,8 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
  */
 @EnableScheduling
 @EnableConfigurationProperties({VoiceProperties.class, ImageProperties.class,
-        egovframework.unstructured.collector.common.transfer.ZenonProperties.class})
+        egovframework.unstructured.collector.common.transfer.ZenonProperties.class,
+        egovframework.unstructured.collector.batch.UnstructuredBatchProperties.class})
 @SpringBootApplication
 public class Main {
 

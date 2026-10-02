@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 1,300건이면 수 분 동안 화면이 멈춰 있고, 사용자는 도는 중인지 죽은 것인지 알 수 없다.
  * 응답을 스트리밍으로 바꾸면 결과 JSON 계약이 흔들리므로, 진행 상태만 밖에서 읽게 뺐다.</p>
  *
- * <p><b>한 번에 하나만 센다</b>: 배치는 {@code VoiceBatchScheduler} 의 가드로 동시에 하나만 돈다.
+ * <p><b>한 번에 하나만 센다</b>: 스케줄 · 바로 실행 · 재처리는 {@code UnstructuredJobRunner} 의 잠금으로 동시에 하나만 돈다.
  * 겹쳐 시작하면 나중 것이 이깁(덮어씁)니다 — 진행률은 참고 표시이지 정합성 근거가 아니다.
  * 모든 필드가 {@code volatile} 이다(배치 스레드가 쓰고 API 스레드가 읽는다).</p>
  */

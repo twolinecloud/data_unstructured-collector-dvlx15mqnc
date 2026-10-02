@@ -1125,7 +1125,8 @@ let DIR_KEYS = [
 // ── API base ──
 //   이 화면은 수집기(8085)가 직접 서빙할 수도, 배포 환경의 admin-fe(nginx)가 정적으로 서빙할 수도 있다.
 //   admin-fe 에서는 /api/v1/mock 이 커넥터로 가므로 수집기 API 는 /voice 프리픽스로 프록시된다.
-//   ?api=http://host:port 로 강제할 수 있고, 아니면 '' → '/voice' 순으로 살아 있는 쪽을 찾는다.
+//   ?api=http://host:port 로 강제할 수 있고, 아니면 '' → '/unstruct' → '/voice' 순으로 살아 있는 쪽을 찾는다.
+//   (admin-fe 프리픽스를 /voice/ → /unstruct/ 로 옮기는 중 — 둘 다 받는다. 패치 초안: ref/admin-fe_unstruct_nginx_패치초안.md)
 let API_BASE = new URLSearchParams(location.search).get('api') || '';
 let API_DOWN = false;   // 두 후보 모두 응답이 없으면 true — 화면이 "왜 비어 있는지" 를 말해 준다
 // ── Swagger 링크 — 접속 호스트로 분기한다 ───────────────────────────────
@@ -1160,7 +1161,7 @@ setSwaggerLink();   // API 감지를 기다리지 않는다 — 감지가 실패
 async function detectApiBase() {
   if (new URLSearchParams(location.search).get('api')) { setSwaggerLink(); return API_BASE; }
   let found = false;
-  for (const base of ['', '/voice']) {
+  for (const base of ['', '/unstruct', '/voice']) {
     try {
       const r = await fetch(base + '/api/v1/voice/status', { headers:{ 'Accept':'application/json' } });
       if (r.ok) { API_BASE = base; found = true; break; }
@@ -1168,7 +1169,7 @@ async function detectApiBase() {
   }
   API_DOWN = !found;
   if (API_DOWN) {
-    $('env-line').innerHTML = `<span class="text-danger"><b>수집기 API 응답 없음</b> — 시도: <code>${esc(location.origin)}/api/v1/voice/status</code> · <code>${esc(location.origin)}/voice/api/v1/voice/status</code>.
+    $('env-line').innerHTML = `<span class="text-danger"><b>수집기 API 응답 없음</b> — 시도: <code>${esc(location.origin)}/api/v1/voice/status</code> · <code>${esc(location.origin)}/unstruct/api/v1/voice/status</code> · <code>${esc(location.origin)}/voice/api/v1/voice/status</code>.
       배포 환경이면 unstructured-collector 차트가 <code>data-pipeline</code> 에 배포됐는지(Service <code>unstructured-collector-dvlx15mqnc:8080</code>), 로컬이면 8085 기동 여부를 확인. 아래 값은 서버 값이 아니라 빈 화면입니다.</span>`;
   }
   setSwaggerLink();
@@ -1599,6 +1600,20 @@ function pipePaint(steps) {
   const z = zenonStep(), zt = $('pipe-zenon');
   if (zt) zt.textContent = z.mode === 'REST' ? `REST ${z.endpoint}` : 'MOCK (수집기 내장)';
 }
+/**
+ * 스케줄 한 줄 — 관리 화면(admin-api) UNSTRUCTURED 설정과 자동 실행 스위치(VOICE_SCHEDULE_ENABLED).
+ * 고정 cron(일배치 02:00 · 10분 주기)은 없앴다 — 관리 화면 값 하나로 돈다(2026-10-02).
+ */
+function scheduleText(b) {
+  const sc = b.schedule || {};
+  const kind = { FIXED_TIME: '매일', INTERVAL_BASED: '주기' }[sc.execSchedTypeCd] || sc.execSchedTypeCd || '';
+  const val = sc.activeYn == null ? (sc.adminEnabled ? '아직 못 받음' : 'admin 미연동')
+    : sc.activeYn === 'Y' ? `${kind} ${sc.schedVal}` : '사용 N';
+  const auto = b.scheduleEnabled ? (sc.armed ? `다음 ${String(sc.nextRunAt || '-').replace('T', ' ')}` : '자동 실행 대기')
+    : '자동 실행 꺼짐(VOICE_SCHEDULE_ENABLED)';
+  const src = sc.appliedFrom ? ` · 반영 ${sc.appliedFrom} ${String(sc.appliedAt || '').replace('T', ' ')}` : '';
+  return `스케줄(관리 화면) <b>${esc(val)}</b> · ${esc(auto)}${esc(src)}`;
+}
 async function loadStatus(quiet) {
   const s = await call('GET', '/api/v1/voice/status', '현재 구성 조회', quiet);
   if (!s) return;
@@ -1608,7 +1623,7 @@ async function loadStatus(quiet) {
   if (s.db) renderDbLine(s.db);
   $('logc').innerHTML = flagCard('로그 컬렉터 (T1 · T2 COLLECT/ANALYZE/SEND · T4)', s.logCollector.enabled, s.logCollector.baseUrl || '주소 미설정');
   $('batch-line').innerHTML =
-      `파일명 정책 <code>${esc(s.dirs.namingPolicy)}</code> · 스케줄 ${s.batch.scheduleEnabled?'켜짐':'꺼짐'} · 대상코드 <code>${(s.batch.speclMngSeCd||[]).join(',')}</code> · 1회 상한 ${s.batch.maxFilesPerRun}건`;
+      `파일명 정책 <code>${esc(s.dirs.namingPolicy)}</code> · ${scheduleText(s.batch)} · 대상코드 <code>${(s.batch.speclMngSeCd||[]).join(',')}</code> · 1회 상한 ${s.batch.maxFilesPerRun}건`;
   renderDirs(s.dirs);
   pipePaint(LAST?.result?.steps);
   if (s.endpoints?.brokerBaseUrlConfigured && !$('rt-ok-url').dataset.touched) $('rt-ok-url').value = s.endpoints.brokerBaseUrlConfigured;

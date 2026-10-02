@@ -409,7 +409,12 @@
             background:#212529; color:#f8f9fa; border-radius:.3rem; padding:.3rem .5rem; box-shadow:0 2px 8px rgba(0,0,0,.2); }
   /* 성능 테스트가 도는 동안 — 다른 탭의 배치·초기화 버튼을 막는다(같은 원천 데이터를 흔들면 측정이 망가진다) */
   body.pf-running #controls button, body.pf-running #scen-box button,
-  body.pf-running #btn-reset, body.pf-running #btn-test-clear { pointer-events:none; opacity:.5; }
+  body.pf-running #btn-reset, body.pf-running #btn-test-clear, body.pf-running #btn-dmy-clear,
+  body.pf-running #dm-box button, body.pf-running #ks-box button { pointer-events:none; opacity:.5; }
+  /* 더미 데이터(용도별 생성) 패널 · 3번 탭 ⑤ 키 표식 시나리오 */
+  .dm-tbl th, .dm-tbl td { font-size:.75rem; vertical-align:top; }
+  .dm-num { width:4.6rem; }
+  .ks-ok { color:#198754; font-weight:600; } .ks-ng { color:#dc3545; font-weight:600; }
 </style>
 </head>
 <body>
@@ -430,14 +435,65 @@
               title="Complete Clean &amp; Seed — 멱등 표식·수신 파일 삭제 + DB 메타(접견 7·전화 7: 트랙별 일배치 5·주기 2) + XVARM 원본 더미 파일 생성">
         시뮬레이션 데이터 생성
       </button>
+      <button class="btn btn-sm btn-outline-secondary" id="btn-dm-open"
+              title="용도(시뮬레이터 SIM / 대시보드 DMY) · 유형 · 대상일 · 건수 · 장애 시나리오를 골라 더미 데이터를 추가합니다 — POST /api/v1/mock/sim-data/generate">
+        더미 데이터 생성 ▾
+      </button>
       <button class="btn btn-sm btn-outline-danger" id="btn-test-clear"
-              title="테스트 데이터(EXEC_ID 작업코드 TST 의 로그 이력·제논 수신증·재처리 보존물)와 시뮬레이션 데이터(음성 DB 메타 SIM 행·더미 파일·멱등 표식 + 6번 탭 이미지 SIM: SIMIMG 보라미 행·Admin 매핑 tb_src_inmate_photo·더미 원본·저장 사진)를 모두 지웁니다. 6번 탭 [SIM 데이터 정리] 와 같은 API 를 함께 부릅니다. 운영 배치(VOC/STR/EXT)는 건드리지 않습니다.">
-        시뮬레이션 데이터 초기화
+              title="DELETE /api/v1/mock/sim-data?target=SIMULATOR — 시뮬레이터 데이터(음성 SIM 행·더미 파일·멱등 표식·재처리 보존물 + 6번 탭 이미지 SIM: SIMIMG 보라미 행·Admin 매핑·더미 원본·저장 사진)를 지웁니다. 대시보드 더미(DMY)와 로그 컬렉터 수행 이력(T1~T5)은 남습니다(확인 창에서 시험 이력 TST 까지 지우기를 고를 수 있습니다).">
+        시뮬레이터 데이터 초기화
+      </button>
+      <button class="btn btn-sm btn-outline-danger" id="btn-dmy-clear"
+              title="DELETE /api/v1/mock/sim-data?target=DASHBOARD — 대시보드 더미(DMY 접두 + 생성자 dmyadm 행 · Admin 사진 매핑 · 더미 원본 · 저장 사진 · DMY 멱등 표식)를 지웁니다. 시뮬레이터 데이터(SIM)와 로그 컬렉터 수행 이력(T1~T5)은 남습니다.">
+        대시보드 테스트 데이터 초기화
       </button>
       <button class="btn btn-sm btn-outline-secondary" id="btn-health"
               title="5종 연계 상태를 지금 다시 확인합니다 (자동 확인은 1분마다, 배치·시나리오 중에는 멈춥니다)">연결 새로고침</button>
       <button class="btn btn-sm btn-outline-primary" id="btn-refresh">상태 새로고침</button>
     </div>
+  </div>
+
+  <!-- 더미 데이터 생성 · 용도별 — 기존 [시뮬레이션 데이터 생성](Clean & Seed)은 그대로 두고 옆에 추가(append)한다 -->
+  <div class="acc mb-3" id="dm-acc">
+    <div class="acc-head" data-acc="dm-acc">
+      <span class="grow small"><b>더미 데이터 생성 — 용도별</b>
+        <span class="text-secondary">· 시뮬레이터(SIM · 시험 실행) / 대시보드(DMY · 실제 배치) · 유형 · 대상일 · 건수 · 장애 시나리오</span>
+        <span class="hint" id="dm-sum"></span></span>
+      <button class="acc-tgl" type="button">&#9660;</button>
+    </div>
+    <div class="acc-body"><div class="acc-inner"><div class="pad" id="dm-box">
+      <div class="d-flex flex-wrap gap-3 align-items-end">
+        <div><label class="hint d-block">용도</label>
+          <div class="btn-group btn-group-sm" role="group">
+            <input type="radio" class="btn-check" name="dm-target" id="dm-t-sim" value="SIMULATOR" checked>
+            <label class="btn btn-outline-secondary" for="dm-t-sim" title="SIM 접두 · simadm — 시뮬레이터 시험 실행(test=true, TEST_BATCH)이 읽는다">시뮬레이터 (SIM)</label>
+            <input type="radio" class="btn-check" name="dm-target" id="dm-t-dmy" value="DASHBOARD">
+            <label class="btn btn-outline-primary" for="dm-t-dmy" title="DMY 접두 · dmyadm — 실제 스케줄러 · 바로 실행 · 긴급 재처리가 읽어 로그 컬렉터 이력 · 대시보드에 나온다">대시보드 (DMY)</label>
+          </div></div>
+        <div><label class="hint d-block">유형</label>
+          <div class="d-flex gap-2 small">
+            <label><input type="checkbox" id="dm-ty-PHONE" checked> 전화</label>
+            <label><input type="checkbox" id="dm-ty-MEET" checked> 접견</label>
+            <label><input type="checkbox" id="dm-ty-IMAGE" checked> 이미지</label>
+          </div></div>
+        <div><label class="hint d-block" for="dm-date">대상일 (CRT_DT 분산)</label>
+          <input type="date" class="form-control form-control-sm" id="dm-date"></div>
+        <div><label class="hint d-block" for="dm-count">유형별 건수</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="dm-count" value="5" min="1" max="300"></div>
+        <div><label class="hint d-block" for="dm-cf">수집 장애 CF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="dm-cf" value="0" min="0"></div>
+        <div><label class="hint d-block" for="dm-af">분석 장애 AF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="dm-af" value="0" min="0"></div>
+        <div><label class="hint d-block" for="dm-sf">전송 장애 SF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="dm-sf" value="0" min="0"></div>
+        <div class="small"><label><input type="checkbox" id="dm-append" checked> 추가(append) — 끄면 그 용도 데이터를 먼저 지움</label></div>
+        <div><button class="btn btn-sm btn-success" id="dm-gen">더미 데이터 생성</button></div>
+      </div>
+      <div class="hint mt-1">장애 건수는 유형별입니다(나머지는 정상). 표식(CF·AF·SF)을 단 건은 실제 경로의 그 단계에서 <b>한 번만</b> 실패하고 재처리는 통과합니다 —
+        수집 → <code>FULL</code> · 분석 → <code>FROM_ANALYZE</code> · 전송 → <code>FROM_SEND</code> (이미지는 다시 돌리면 실패 건만 재처리).
+        초기화는 상단 [시뮬레이터 데이터 초기화] · [대시보드 테스트 데이터 초기화] — <b>로그 컬렉터 수행 이력(T1~T5)은 남습니다.</b></div>
+      <div id="dm-result" class="mt-2"></div>
+    </div></div></div>
   </div>
 
   <!-- 탭 -->
@@ -661,6 +717,48 @@
         보존물이 없으면 앞 단계부터 다시 합니다(<code>keep-on-failure=false</code> 환경에서도 재처리가 동작합니다).
         이미 성공한 건은 멱등 표식 때문에 <code>건너뜀</code> 이 됩니다.
       </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 키 표식 장애 — 더미 데이터의 키에 표식(CF·AF·SF)을 박아 실제 경로에서 한 번만 실패시킨다 -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>⑤ 키 표식 장애 시나리오 — 더미 데이터(용도 선택)</strong>
+      <span class="hint">스위치가 아니라 데이터로 — 표식 건이 실제 경로에서 한 번만 실패하고, 시나리오별 기대 모드 재처리로 성공합니다</span>
+    </div>
+    <div class="card-body py-2" id="ks-box">
+      <div class="d-flex flex-wrap gap-3 align-items-end mb-2">
+        <div><label class="hint d-block" for="ks-target">용도</label>
+          <select class="form-select form-select-sm" id="ks-target">
+            <option value="SIMULATOR">시뮬레이터 (SIM · 시험 실행 TST)</option>
+            <option value="DASHBOARD">대시보드 (DMY · 실제 배치 VOC)</option>
+          </select></div>
+        <div><label class="hint d-block">유형</label>
+          <div class="d-flex gap-2 small">
+            <label><input type="checkbox" id="ks-ty-MEET" checked> 접견</label>
+            <label><input type="checkbox" id="ks-ty-PHONE" checked> 전화</label>
+            <label><input type="checkbox" id="ks-ty-IMAGE" checked> 이미지</label>
+          </div></div>
+        <div><label class="hint d-block" for="ks-date">대상일</label>
+          <input type="date" class="form-control form-control-sm" id="ks-date"></div>
+        <div><label class="hint d-block" for="ks-normal">정상</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="ks-normal" value="2" min="0"></div>
+        <div><label class="hint d-block" for="ks-cf">수집 CF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="ks-cf" value="1" min="0"></div>
+        <div><label class="hint d-block" for="ks-af">분석 AF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="ks-af" value="1" min="0"></div>
+        <div><label class="hint d-block" for="ks-sf">전송 SF</label>
+          <input type="number" class="form-control form-control-sm dm-num" id="ks-sf" value="1" min="0"></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <button class="btn btn-success btn-sm" id="ks-auto">🚀 원클릭 (생성 → 1차 실행 → 기대 모드 재처리 → 확인)</button>
+        <button class="btn btn-outline-secondary btn-sm" id="ks-gen">① 생성</button>
+        <button class="btn btn-outline-danger btn-sm" id="ks-run">② 1차 실행 (대상일 하루)</button>
+        <button class="btn btn-outline-primary btn-sm" id="ks-resume">③ 재처리 (시나리오별 구간 · 기대 모드)</button>
+        <span class="hint ms-auto" id="ks-sum"></span>
+      </div>
+      <div id="ks-res"><div class="hint">[🚀 원클릭] 을 누르면 건별로 "1차에 기대한 단계에서 실패했는가 → 기대 모드 재처리로 성공했는가" 가 여기에 표로 나옵니다.
+        대시보드(DMY)는 실제 배치(VOC)로 돌아 로그 컬렉터 이력에 남습니다 — 초기화로 지워지지 않습니다.</div></div>
     </div>
   </div>
   </div>
@@ -1009,7 +1107,7 @@
           </select>
           <label class="small text-nowrap"><input type="checkbox" class="form-check-input me-1" id="im-rerun-fail">재실행에도 실패 주입</label>
         </span>
-        <button class="btn btn-sm btn-outline-danger" id="im-clean" disabled title="SIMIMG… 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진을 지웁니다 — 상단 [시뮬레이션 데이터 초기화] 도 같은 API 를 함께 부릅니다">SIM 데이터 정리</button>
+        <button class="btn btn-sm btn-outline-danger" id="im-clean" disabled title="SIMIMG… 보라미 행 · Admin 매핑 · 더미 원본 · 저장 사진을 지웁니다 — 상단 [시뮬레이터 데이터 초기화] 도 같은 정리를 함께 합니다">SIM 데이터 정리</button>
         <button class="btn btn-outline-danger d-none" id="im-cancel" title="처리 중인 건만 끝내고 멈춥니다. SIM 데이터는 남겨 둡니다">중지</button>
       </div>
       <div class="im-sim mb-1" id="im-sim"></div>
@@ -2652,12 +2750,84 @@ $('btn-files').onclick = async () => {
 
 // 상단 툴바 버튼은 어느 탭에서나 눌린다. 결과 카드(#sim-box)와 SQL 로그는 파이프라인 탭에 있지만
 // 요약은 완료 팝업이 알려 주므로, 보던 탭을 그대로 둔다.
+//
+// 초기화는 용도별로 둘이다(2026-10-02) — [시뮬레이터 데이터 초기화](SIM) · [대시보드 테스트 데이터 초기화](DMY).
+//   둘 다 로그 컬렉터 수행 이력(T1~T5)은 지우지 않는다(다른 서비스 소유). 시험 이력(TST)까지 지우던 예전 동작은
+//   시뮬레이터 초기화 확인 창의 체크박스로 남긴다(DELETE /api/v1/mock/test-data).
 $('btn-test-clear').onclick = async () => {
   if (IM_TIMER) { log('수용자 이미지 검증이 도는 중입니다 — 끝난 뒤 초기화하십시오', 'wr'); return; }
-  if (!confirm('테스트 이력(EXEC_ID 작업코드 TST 의 로그·제논 수신증)과 시뮬레이션 데이터를 모두 지웁니다.\n'
-      + '· 음성 — DB 메타 SIM 행 · XVARM 원본 더미 파일 · 멱등 표식 · 재처리 보존물\n'
-      + '· 수용자 이미지(6번 탭 [SIM 데이터 정리]) — 보라미 SIMIMG… 행 · Admin 매핑(tb_src_inmate_photo) · 더미 원본 · 저장 사진\n'
-      + '운영 배치(VOC·STR·EXT)와 실제 수용자 행은 지워지지 않습니다. 계속할까요?')) return;
+  const ok = await confirmPopup('시뮬레이터 데이터 초기화', `<div class="pop-lead">시뮬레이터 데이터(SIM)를 지웁니다.</div>
+    <ul class="pop-list">
+      <li>음성 — DB 메타 SIM 행 · XVARM 원본 더미 파일(mock_*) · 멱등 표식 · 재처리 보존물</li>
+      <li>수용자 이미지(6번 탭 [SIM 데이터 정리]) — 보라미 SIMIMG… 행 · Admin 매핑(tb_src_inmate_photo) · 더미 원본 · 저장 사진</li>
+      <li>대시보드 더미(DMY)와 실제 수용자 행은 건드리지 않습니다</li>
+    </ul>
+    <div class="pop-note">로그 컬렉터 수행 이력(T1~T5)은 남습니다.</div>
+    <label class="d-block mt-2 small"><input type="checkbox" id="pop-with-hist"> 시험 이력(TST · 로그 컬렉터 T1~T5 · 제논 수신증)도 함께 지우기
+      <span class="text-secondary">— 예전 [시뮬레이션 데이터 초기화] 와 같음</span></label>`, '초기화', '취소');
+  if (!ok) return;
+  const withHist = !!document.getElementById('pop-with-hist')?.checked;
+  if (withHist) await simClearWithHistory(); else await simClearSimulator();
+};
+
+/** 시뮬레이터 데이터만(SIM) — 수행 이력은 남긴다. */
+async function simClearSimulator() {
+  const info = await callFull('DELETE', '/api/v1/mock/sim-data?target=SIMULATOR', '시뮬레이터 데이터 초기화 (SIM · 수행 이력은 남김)');
+  const d = info.ok ? info.body : null;
+  if (!d) return;
+  const l = d.cleared || {};
+  log(`  └ 로컬 — 표식 ${l.idempotencyMarkers} · 접견파일 ${l.meetFiles} · 전화파일 ${l.phoneFiles} · 작업파일 ${l.workFiles}`
+    + ` · 보존물 전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}`, 'ok');
+  const sim = d.sim || {};
+  log(`  └ DB 메타 삭제 — ${Object.entries(sim.cleaned||{}).map(([k,v]) => `${k} ${v}`).join(' · ')} · 더미 파일 접견 ${sim.filesDeleted?.MEET ?? 0} · 전화 ${sim.filesDeleted?.PHONE ?? 0}`, 'ok');
+  logSqls(sim);
+  const im = d.imageSim;
+  if (im && typeof im === 'object') {
+    const c = im.counts || {};
+    log(`  └ 이미지 SIM 정리 — 이미지 ${c.imageRows ?? 0}행 · 공통파일 ${c.cmfiRows ?? 0}행 · XVARM ${c.xvarmRows ?? 0}행 · 매핑 ${c.photoRows ?? 0}행`
+      + ` · 더미 ${c.originalFiles ?? 0}개 · 저장 사진 ${c.savedFiles ?? 0}개`, 'ok');
+  } else if (im) {
+    log(`  └ 이미지 SIM — ${im}`, 'wr');
+  }
+  log(`  └ ${d.message} · ${d.historyKept || ''}`, 'ok');
+  renderSimResult('시뮬레이터 데이터 초기화', { sim, cleared: l }, false);
+  await afterSimReset();
+  showPopup('시뮬레이터 데이터 초기화 완료', simClearPopupHtml(d));
+}
+
+function simClearPopupHtml(d) {
+  const sim = d.sim || {}, c = sim.counts || {}, l = d.cleared || {}, fd = sim.filesDeleted || {};
+  const localFiles = ['meetFiles', 'phoneFiles', 'workFiles'].reduce((n, k) => n + (Number(l[k]) || 0), 0);
+  const dummy = c.dummyFiles ?? 0;
+  const detail = Object.entries(sim.cleaned || {}).map(([k, v]) => k + ' ' + v).join(' · ');
+  return `<div class="pop-lead">시뮬레이터 데이터(SIM)가 초기화되었습니다.</div>
+    <ul class="pop-list">
+      <li>삭제된 DB 레코드: <span class="n">${c.dbRows ?? 0}</span>건
+        <div class="sub">${esc(detail)}</div></li>
+      <li>삭제된 디렉토리 파일: <span class="n">${dummy + localFiles}</span>건
+        <div class="sub">XVARM 원본 더미 ${dummy} (접견 ${fd.MEET ?? 0} · 전화 ${fd.PHONE ?? 0}) · ESB 수신·작업 파일 ${localFiles}</div></li>
+      ${imageSimLi(d.imageSim)}
+      <li>그 외: 멱등 표식 ${l.idempotencyMarkers ?? 0}건 · 재처리 보존물(전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}) · 키 표식 장애 소진 표시 ${d.scenarioFaultsForgotten ?? 0}건</li>
+    </ul>
+    <div class="pop-note">로그 컬렉터 수행 이력(T1~T5)은 남습니다 · 대시보드 더미(DMY)는 그대로입니다.</div>
+    <div class="sub mt-2">대상 DB — ${esc(sim.db || '')}</div>`;
+}
+
+/** 초기화 뒤 화면 정리 — 결과 칸 · 대상 미리보기 · 상태 · 6번 탭 · 더미 현황. */
+async function afterSimReset() {
+  $('stats').innerHTML = ''; $('last-exec').textContent = '—';
+  $('result-acc-wrap').innerHTML = '<div class="hint">시뮬레이션 데이터를 초기화했습니다. 다시 돌리려면 [시뮬레이션 데이터 생성] 을 누르십시오.</div>';
+  $('files-acc-wrap').innerHTML = '';
+  LAST = null;
+  $('targets-card').classList.add('d-none');
+  pipePaint(null);
+  await loadStatus(true);
+  await imLoadStatus();   // 6번 탭 — 남은 SIM 표시 · [기존 데이터로 재실행] 버튼을 바로 맞춘다
+  await dmLoadStatus();
+}
+
+/** 예전 [시뮬레이션 데이터 초기화] — 시험 이력(TST) + 음성/이미지 SIM. 대시보드 더미(DMY)는 이때도 남는다. */
+async function simClearWithHistory() {
   // 탭을 옮기지 않는다 — 결과는 팝업이 알려 주므로 보던 자리를 뺏을 이유가 없다.
   const info = await callFull('DELETE', '/api/v1/mock/test-data', '시뮬레이션 데이터 초기화 (테스트 이력 + 음성/이미지 SIM)');
   const d = info.ok ? info.body : null;
@@ -2681,15 +2851,314 @@ $('btn-test-clear').onclick = async () => {
   }
   log(`  └ ${d.message}`, 'ok');
   renderSimResult('시뮬레이션 데이터 초기화', d, false);
-  $('stats').innerHTML = ''; $('last-exec').textContent = '—';
-  $('result-acc-wrap').innerHTML = '<div class="hint">시뮬레이션 데이터를 초기화했습니다. 다시 돌리려면 [시뮬레이션 데이터 생성] 을 누르십시오.</div>';
-  $('files-acc-wrap').innerHTML = '';
-  LAST = null;
-  $('targets-card').classList.add('d-none');
-  pipePaint(null);
-  await loadStatus(true);
-  await imLoadStatus();   // 6번 탭 — 남은 SIM 표시 · [기존 데이터로 재실행] 버튼을 바로 맞춘다
+  await afterSimReset();
   showPopup('시뮬레이션 데이터 초기화 완료', cleanPopupHtml(d));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  더미 데이터 — 용도(SIMULATOR=SIM · DASHBOARD=DMY) · 유형 · 대상일 · 건수 · 장애 시나리오
+//  상단 패널(생성) · [대시보드 테스트 데이터 초기화] · 3번 탭 ⑤ 키 표식 장애 시나리오
+// ══════════════════════════════════════════════════════════════════════
+const DM_TYPES = ['PHONE', 'MEET', 'IMAGE'];
+const DM_TYPE_LABEL = { PHONE: '전화', MEET: '접견', IMAGE: '이미지' };
+const DM_SCEN = [
+  { key: 'COLLECT_FAIL', short: 'CF', label: '수집',      voice: 'COLLECT', image: 'ACQUIRE', resume: 'FULL' },
+  { key: 'ANALYZE_FAIL', short: 'AF', label: '정제/분석', voice: 'ANALYZE', image: 'DECRYPT', resume: 'FROM_ANALYZE' },
+  { key: 'SEND_FAIL',    short: 'SF', label: '적재/전송', voice: 'SEND',    image: 'MAP',     resume: 'FROM_SEND' },
+];
+let DM_INFO = null;   // GET /api/v1/mock/sim-data/generated — 없으면(운영 프로필 · 옛 서버) 패널을 잠근다
+
+function ymdLocal(d) { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+function ymdShift(ymd, days) { const d = new Date(ymd + 'T00:00:00'); d.setDate(d.getDate() + days); return ymdLocal(d); }
+function dmTarget() { return document.querySelector('input[name="dm-target"]:checked')?.value || 'SIMULATOR'; }
+
+async function dmInit() {
+  const today = ymdLocal(new Date());
+  ['dm-date', 'ks-date'].forEach(id => { $(id).max = today; if (!$(id).value) $(id).value = ymdShift(today, -1); });
+  await dmLoadStatus();
+}
+
+/** 용도별 현황 — 대시보드 생성이 꺼져 있으면 그 선택지를 막는다. */
+async function dmLoadStatus() {
+  const d = await quietGet('/api/v1/mock/sim-data/generated');
+  DM_INFO = d;
+  const ok = !!d;
+  document.querySelectorAll('#dm-box button, #ks-box button').forEach(b => b.disabled = !ok);
+  $('btn-dmy-clear').disabled = !ok;
+  if (!ok) { $('dm-sum').textContent = ' — 이 서버에는 더미 생성 기능이 없습니다(운영 프로필이거나 옛 버전)'; return; }
+  const dash = !!d.dashboardEnabled;
+  $('dm-t-dmy').disabled = !dash;
+  $('ks-target').querySelector('option[value="DASHBOARD"]').disabled = !dash;
+  if (!dash && dmTarget() === 'DASHBOARD') $('dm-t-sim').checked = true;
+  if (!dash && $('ks-target').value === 'DASHBOARD') $('ks-target').value = 'SIMULATOR';
+  const s = d.SIMULATOR || {}, m = d.DASHBOARD || {};
+  const n = (v) => typeof v === 'number' ? v : '?';
+  $('dm-sum').textContent = ` — 현재 SIM 접견 ${n(s.meet)} · 전화 ${n(s.phone)} · 이미지 ${n(s.imageInmates)}명`
+    + ` / DMY 접견 ${n(m.meet)} · 전화 ${n(m.phone)} · 이미지 ${n(m.imageInmates)}명${dash ? '' : ' · 대시보드 생성 꺼짐'}`;
+}
+
+/** 생성 호출 — 결과를 로그에 풀어 적고 응답을 돌려준다. */
+async function dmGenerate(body, label) {
+  const info = await callFull('POST', '/api/v1/mock/sim-data/generate', label || '더미 데이터 생성', { json: body });
+  if (!info.ok || !info.body) return null;
+  const g = info.body;
+  log(`  └ ${g.targetLabel} · 대상일 ${g.targetDate} · 유형별 ${g.count}건 · 정상 ${g.totals?.normal} · 장애 ${g.totals?.fail} · 더미 원본 ${g.totals?.files}개`
+    + ` · CRT_DT ${String(g.crtDtRange?.from || '').replace('T', ' ')} ~ ${String(g.crtDtRange?.to || '').replace('T', ' ')}`, 'ok');
+  Object.values(g.types || {}).forEach(t => Object.entries(t.failures || {}).forEach(([k, f]) =>
+    log(`    · ${DM_TYPE_LABEL[t.type] || t.type} ${k} → ${f.failsAt} 실패 · 기대 재처리 ${f.expectedResume} — ${(f.keys || []).join(', ')}`, 'wr')));
+  log(`  └ 건드린 테이블 — ${(g.sqlTables || []).join(' · ')}`, 'ok');
+  logSqls({ sqls: g.sqls, sqlTotal: g.sqlTotal, db: g.db });
+  await dmLoadStatus();
+  return g;
+}
+
+function dmResultHtml(g) {
+  const rows = Object.values(g.types || {}).map(t => {
+    const f = Object.entries(t.failures || {}).map(([k, x]) => `<div><span class="vf-b FAIL">${esc(k)}</span> ${esc((x.keys || []).join(', '))}
+        <span class="text-secondary">→ ${esc(x.failsAt)} 실패 · 재처리 <b>${esc(x.expectedResume)}</b></span></div>`).join('')
+      || '<span class="text-secondary">없음(전부 정상)</span>';
+    const files = t.files || [];
+    const keys = t.keys || [];
+    return `<tr><td>${esc(t.label)}</td><td>${t.count} <span class="text-secondary">(정상 ${t.normal} · 장애 ${t.fail})</span></td>
+      <td class="font-monospace">${esc(keys[0] || '')}${keys.length > 1 ? ' … ' + esc(keys[keys.length - 1]) : ''}<div class="hint">순번 ${t.seqFrom}~${t.seqTo}</div></td>
+      <td>${esc(String(t.crtDt?.from || '').replace('T', ' '))}<br>~ ${esc(String(t.crtDt?.to || '').replace('T', ' '))}</td>
+      <td>${f}</td>
+      <td>${files.filter(x => x.written).length}/${files.length}<div class="hint">${esc(t.originalDir || '')}</div></td></tr>`;
+  }).join('');
+  const win = Object.entries(g.windows || {}).map(([k, w]) => `<li><b>${esc(k)}</b> ${esc(String(w.from).replace('T', ' '))} ~ ${esc(String(w.to).replace('T', ' '))}
+      (유형별 ${w.count}건)${w.expectedResume ? ` → 재처리 <code>${esc(w.expectedResume)}</code>` : ''}</li>`).join('');
+  const how = (g.howToRun || []).map(h => `<li>${esc(h)}</li>`).join('');
+  return `<div class="hint mb-1">${esc(g.targetLabel)} · 접두 <code>${esc(g.prefix)}</code> · 생성자 <code>${esc(g.crtUsrId)}</code> · 대상일 ${esc(g.targetDate)}
+      · ${g.append ? '추가(append)' : '기존 삭제 후 생성'} · ${esc(g.db)}${g.encrypted ? ' · 더미 원본 암호화(복호화 REAL)' : ''}</div>
+    <div class="table-responsive"><table class="table table-sm mb-1 dm-tbl"><thead class="table-light"><tr>
+      <th>유형</th><th>건수</th><th>키</th><th>CRT_DT</th><th>장애 시나리오</th><th>더미 원본</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row g-2"><div class="col-md-6"><div class="hint">시나리오별 CRT_DT 구간 — 그 시나리오만 기대 모드로 재처리할 때 씁니다</div><ul class="small mb-1">${win}</ul></div>
+      <div class="col-md-6"><div class="hint">실행 방법</div><ul class="small mb-1">${how}</ul></div></div>
+    <div class="hint">건드린 테이블: ${esc((g.sqlTables || []).join(' · '))} — 수용자기본(TB_IRIM_PRBS_BS) · 신상(TB_IRIM_PEIN_BS)에는 쓰지 않습니다</div>`;
+}
+
+/** 대시보드 더미를 만들기 전에 한 번 묻는다 — 실제 배치가 읽어 이력 · 대시보드에 남는다. */
+async function dmConfirmDashboard(title) {
+  return await confirmPopup(title, `<div class="pop-lead">대시보드용 더미(DMY)를 만듭니다.</div>
+    <ul class="pop-list">
+      <li>실제 배치(스케줄 · 바로 실행 · 긴급 재처리)가 읽어 로그 컬렉터 이력 · 관리 화면 대시보드에 나옵니다</li>
+      <li>실존하지 않는 가상 교정번호(DMY…)만 씁니다 — 수용자기본·신상 테이블에는 쓰지 않아 정형 수집기 결과(JSON·원장·학습셋)에서 빠집니다</li>
+      <li>정형 배치의 변경 감지 건수(T1 대상·성공 · T3 테이블별 수집 건수)에는 더미가 포함될 수 있습니다</li>
+    </ul>
+    <div class="pop-note">지울 때는 [대시보드 테스트 데이터 초기화] — 로그 컬렉터 수행 이력(T1~T5)은 남습니다.</div>`, '생성', '취소');
+}
+
+$('btn-dm-open').onclick = () => { accToggle('dm-acc', true); $('dm-acc').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
+$('dm-gen').onclick = async () => {
+  const types = DM_TYPES.filter(t => $('dm-ty-' + t).checked);
+  if (!types.length) { log('유형을 하나 이상 고르십시오', 'wr'); return; }
+  const target = dmTarget();
+  if (target === 'DASHBOARD' && !(await dmConfirmDashboard('대시보드 테스트 데이터 생성'))) return;
+  const body = {
+    target, dataTypes: types, targetDate: $('dm-date').value || null, count: Number($('dm-count').value || 5),
+    failures: { COLLECT_FAIL: Number($('dm-cf').value || 0), ANALYZE_FAIL: Number($('dm-af').value || 0), SEND_FAIL: Number($('dm-sf').value || 0) },
+    append: $('dm-append').checked,
+  };
+  $('dm-gen').disabled = true;
+  try {
+    const g = await dmGenerate(body, `더미 데이터 생성 — ${target} · ${types.join('·')} · 유형별 ${body.count}건`);
+    if (!g) return;
+    $('dm-result').innerHTML = dmResultHtml(g);
+    showPopup('더미 데이터 생성 완료', `<div class="pop-lead">${esc(g.targetLabel)} 더미를 만들었습니다.</div>
+      <ul class="pop-list">
+        <li>유형별 <span class="n">${g.count}</span>건 × ${Object.keys(g.types || {}).length}유형 — 정상 ${g.totals?.normal ?? 0} · 장애 ${g.totals?.fail ?? 0}</li>
+        <li>CRT_DT ${esc(String(g.crtDtRange?.from || '').replace('T', ' '))} ~ ${esc(String(g.crtDtRange?.to || '').replace('T', ' '))} · 더미 원본 ${g.totals?.files ?? 0}개</li>
+        <li>접두 ${esc(g.prefix)} · 생성자 ${esc(g.crtUsrId)}</li>
+      </ul>
+      <div class="pop-note">${g.target === 'DASHBOARD' ? '실제 배치가 읽습니다 — 시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않습니다.' : '시뮬레이터 시험 실행(2·3번 탭)이 읽습니다.'}</div>`);
+  } finally {
+    $('dm-gen').disabled = false;
+  }
+};
+
+$('btn-dmy-clear').onclick = async () => {
+  const ok = await confirmPopup('대시보드 테스트 데이터 초기화', `<div class="pop-lead">대시보드용 더미(DMY)를 지웁니다.</div>
+    <ul class="pop-list">
+      <li>보라미 원천 — DMY 접두 + 생성자 dmyadm 행(특이수용자 · 녹취 · 통화 · 공통파일/XVARM · 이미지)</li>
+      <li>Admin DB 사진 매핑(DMYIMG…) · 더미 원본 · 저장 사진 · DMY 멱등 표식 · 재처리 보존물</li>
+      <li>시뮬레이터 데이터(SIM)는 건드리지 않습니다</li>
+    </ul>
+    <div class="pop-note">로그 컬렉터 수행 이력(T1~T5)은 다른 서비스 소유라 지우지 않습니다 — 대시보드 이력은 남습니다.</div>`, '초기화', '취소');
+  if (!ok) return;
+  const info = await callFull('DELETE', '/api/v1/mock/sim-data?target=DASHBOARD', '대시보드 테스트 데이터 초기화 (DMY · 수행 이력은 남김)');
+  const d = info.ok ? info.body : null;
+  if (!d) return;
+  const rows = d.rows || {}, f = d.files || {}, l = d.local || {};
+  log(`  └ DB — ${Object.entries(rows).map(([k, v]) => `${k} ${v}`).join(' · ')} · Admin 사진 매핑 ${d.photoRows}`, 'ok');
+  log(`  └ 파일 — ${Object.entries(f).map(([k, v]) => `${k} ${v}`).join(' · ')} · 멱등 표식 ${l.idempotencyMarkers ?? 0} · 보존물 전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}`, 'ok');
+  log(`  └ ${d.message} · ${d.historyKept || ''}`, 'ok');
+  logSqls({ sqls: d.sqls, sqlTotal: d.sqlTotal });
+  await dmLoadStatus();
+  showPopup('대시보드 테스트 데이터 초기화 완료', `<div class="pop-lead">대시보드 더미(DMY)를 지웠습니다.</div>
+    <ul class="pop-list">
+      <li>삭제된 DB 레코드: <span class="n">${d.counts?.dbRows ?? 0}</span>건
+        <div class="sub">${esc(Object.entries(rows).map(([k, v]) => `${k} ${v}`).join(' · '))} · Admin 사진 매핑 ${esc(d.photoRows)}</div></li>
+      <li>삭제된 파일: <span class="n">${d.counts?.files ?? 0}</span>건
+        <div class="sub">${esc(Object.entries(f).map(([k, v]) => `${k} ${v}`).join(' · '))}</div></li>
+      <li>그 외: 멱등 표식 ${l.idempotencyMarkers ?? 0}건 · 재처리 보존물(전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}) · 키 표식 장애 소진 표시 ${d.scenarioFaultsForgotten ?? 0}건</li>
+    </ul>
+    <div class="pop-note">${esc(d.historyKept || '로그 컬렉터 수행 이력(T1~T5)은 남습니다')} · 시뮬레이터 데이터(SIM)는 그대로입니다.</div>`);
+};
+
+// ── 3번 탭 ⑤ — 키 표식 장애 시나리오 ────────────────────────────────────
+let KS = null;   // { g: 생성 응답, first: { voice, image }, resume: { COLLECT_FAIL…: 배치 결과, image } }
+
+function ksLock(on) {
+  document.querySelectorAll('#ks-box button').forEach(b => b.disabled = on);
+  $('ks-auto').innerHTML = on ? '<span class="spinner-border spinner-border-sm me-1"></span>실행 중…'
+    : '🚀 원클릭 (생성 → 1차 실행 → 기대 모드 재처리 → 확인)';
+}
+function ksVoiceKinds(g) { return Object.keys(g.types || {}).filter(t => t === 'MEET' || t === 'PHONE'); }
+function ksKindsQuery(kinds) { return kinds.map(k => `&kinds=${k}`).join(''); }
+
+async function ksGenerate() {
+  const types = DM_TYPES.filter(t => $('ks-ty-' + t).checked);
+  if (!types.length) { log('유형을 하나 이상 고르십시오', 'wr'); return null; }
+  const cf = Number($('ks-cf').value || 0), af = Number($('ks-af').value || 0), sf = Number($('ks-sf').value || 0);
+  const count = Number($('ks-normal').value || 0) + cf + af + sf;
+  if (count < 1) { log('건수가 0 입니다 — 정상 또는 장애 건수를 넣으십시오', 'wr'); return null; }
+  const target = $('ks-target').value;
+  const g = await dmGenerate({ target, dataTypes: types, targetDate: $('ks-date').value || null, count,
+      failures: { COLLECT_FAIL: cf, ANALYZE_FAIL: af, SEND_FAIL: sf }, append: true },
+    `[⑤] 더미 생성 — ${target} · 유형별 ${count}건(CF ${cf} · AF ${af} · SF ${sf})`);
+  if (!g) return null;
+  KS = { g, first: {}, resume: {} };
+  ksPaint();
+  return g;
+}
+
+/** 음성 배치 한 번 — 진행률을 같이 띄운다. 시뮬레이터 용도는 시험(TST), 대시보드 용도는 실제(VOC)로 돈다. */
+async function ksVoicePost(path, query, label) {
+  progStart();
+  healthPause();
+  let info;
+  try { info = await callFull('POST', `${path}?${query}`, label); } finally { await progStop(); healthResume(); }
+  if (info && info.ok && info.body) renderResult(info, info.body, null);
+  return info && info.ok ? info.body : null;
+}
+
+async function ksRunFirst() {
+  const g = KS?.g;
+  if (!g) { log('먼저 [① 생성] 을 누르십시오', 'wr'); return; }
+  const test = g.target === 'SIMULATOR';
+  const kinds = ksVoiceKinds(g);
+  if (kinds.length) {
+    KS.first.voice = await ksVoicePost('/api/v1/voice/batches/manual',
+      `from=${g.targetDate}T00:00:00&to=${ymdShift(g.targetDate, 1)}T00:00:00&test=${test}` + ksKindsQuery(kinds),
+      `[⑤] 1차 실행 — ${test ? '시험(TST)' : '실제(VOC)'} · 대상일 ${g.targetDate} 하루`);
+  }
+  if (g.types?.IMAGE) {
+    KS.first.image = await call('POST', '/api/v1/image/batches', `[⑤] 이미지 1차 실행 — corrNoPrefix ${g.types.IMAGE.corrNoPrefix}`,
+      false, { corrNoPrefix: g.types.IMAGE.corrNoPrefix });
+  }
+  ksPaint();
+}
+
+async function ksResume() {
+  const g = KS?.g;
+  if (!g) { log('먼저 [① 생성] 을 누르십시오', 'wr'); return; }
+  const test = g.target === 'SIMULATOR';
+  const kinds = ksVoiceKinds(g);
+  for (const sc of DM_SCEN) {
+    const w = (g.windows || {})[sc.key];
+    if (!w || !kinds.length) continue;
+    KS.resume[sc.key] = await ksVoicePost('/api/v1/voice/batches/resume',
+      `resume=${sc.resume}&from=${w.from}&to=${w.to}&test=${test}` + ksKindsQuery(kinds),
+      `[⑤] 재처리 ${sc.key} → ${sc.resume} (구간 ${String(w.from).replace('T', ' ')} ~ ${String(w.to).replace('T', ' ')})`);
+  }
+  if (g.types?.IMAGE) {
+    KS.resume.image = await call('POST', '/api/v1/image/batches', '[⑤] 이미지 재실행 — 실패했던 건만 다시 처리',
+      false, { corrNoPrefix: g.types.IMAGE.corrNoPrefix });
+  }
+  ksPaint();
+}
+
+/** 건별 판정 — 1차에 기대한 단계에서 실패했는가 · 기대 모드 재처리로 성공했는가. */
+function ksRows() {
+  const g = KS?.g;
+  if (!g) return [];
+  const rows = [];
+  Object.values(g.types || {}).forEach(t => {
+    const scenOf = {};
+    Object.entries(t.failures || {}).forEach(([k, f]) => (f.keys || []).forEach(key => { scenOf[key] = k; }));
+    (t.keys || []).forEach(key => {
+      const sc = DM_SCEN.find(x => x.key === scenOf[key]);
+      const isImage = t.type === 'IMAGE';
+      const expectStep = sc ? (isImage ? sc.image : sc.voice) : null;
+      let first = null, again = null;
+      if (isImage) {
+        first = (KS.first.image?.outcomes || []).find(o => o.corrNo === key);
+        again = (KS.resume.image?.outcomes || []).find(o => o.corrNo === key);
+      } else {
+        first = (KS.first.voice?.outcomes || []).find(o => o.target?.idempotencyKey === key);
+        again = sc ? (KS.resume[sc.key]?.outcomes || []).find(o => o.target?.idempotencyKey === key) : null;
+      }
+      const firstStep = first ? (isImage ? first.failedAt : first.failedStep) : null;
+      const firstOk = first ? (sc ? first.status === 'FAIL' && firstStep === expectStep : first.status === 'SUCCESS') : null;
+      const againOk = sc ? (again ? again.status === 'SUCCESS' : null) : true;
+      rows.push({ type: t.type, key, sc, expectStep, first, firstStep, firstOk, again, againOk,
+        resume: sc ? (isImage ? 'IMAGE_RERUN' : sc.resume) : '—' });
+    });
+  });
+  return rows;
+}
+
+function ksPaint() {
+  const rows = ksRows();
+  if (!rows.length) return;
+  const mark = (v) => v === null ? '<span class="text-secondary">—</span>' : v ? '<span class="ks-ok">✔</span>' : '<span class="ks-ng">✖</span>';
+  const st = (o, step) => o ? `${vfBadge(o.status)}${step ? ` <span class="text-secondary">${esc(step)}</span>` : ''}` : '<span class="text-secondary">—</span>';
+  const done = rows.filter(r => r.firstOk && r.againOk).length;
+  const ran = !!(KS.first.voice || KS.first.image);
+  const resumed = Object.keys(KS.resume).length > 0;
+  $('ks-sum').innerHTML = ran ? `기대대로 <b>${done}</b>/${rows.length}건${resumed ? '' : ' (재처리 전)'}` : '생성됨 — 1차 실행 전';
+  $('ks-res').innerHTML = `<div class="hint mb-1">${esc(KS.g.targetLabel)} · 대상일 ${esc(KS.g.targetDate)} — 표식 건은 그 단계에서 한 번만 실패하고, 재처리는 시나리오별 CRT_DT 구간을 기대 모드로 돌립니다(이미지는 다시 돌리면 실패 건만)</div>
+    <div class="table-responsive" style="max-height:360px"><table class="table table-sm table-hover mb-0 dm-tbl"><thead class="table-light sticky-top"><tr>
+      <th>유형</th><th>키</th><th>시나리오</th><th>기대 실패 단계</th><th>1차 결과</th><th></th><th>기대 재처리</th><th>재처리 결과</th><th></th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${esc(DM_TYPE_LABEL[r.type] || r.type)}</td><td class="font-monospace">${esc(r.key)}</td>
+        <td>${r.sc ? `<span class="vf-b FAIL">${esc(r.sc.short)}</span> ${esc(r.sc.label)}` : '<span class="vf-b SUCCESS">정상</span>'}</td>
+        <td>${esc(r.expectStep || '성공')}</td><td>${st(r.first, r.firstStep)}</td><td>${mark(r.first ? r.firstOk : null)}</td>
+        <td><code>${esc(r.resume)}</code></td><td>${st(r.again, null)}</td><td>${mark(r.sc ? r.againOk : null)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function ksVerdict() {
+  const rows = ksRows();
+  const bad = rows.filter(r => !(r.firstOk && r.againOk));
+  return { ok: rows.length > 0 && bad.length === 0, total: rows.length, bad };
+}
+
+$('ks-gen').onclick = async () => {
+  if ($('ks-target').value === 'DASHBOARD' && !(await dmConfirmDashboard('[⑤] 대시보드 더미 생성'))) return;
+  ksLock(true);
+  try { await ksGenerate(); } finally { ksLock(false); }
+};
+$('ks-run').onclick = async () => { ksLock(true); try { await ksRunFirst(); } finally { ksLock(false); } };
+$('ks-resume').onclick = async () => { ksLock(true); try { await ksResume(); } finally { ksLock(false); } };
+$('ks-auto').onclick = async () => {
+  if ($('ks-target').value === 'DASHBOARD' && !(await dmConfirmDashboard('[⑤] 대시보드 더미 — 원클릭'))) return;
+  ksLock(true);
+  healthPause();
+  log('🚀 키 표식 장애 시나리오 — 생성 → 1차 실행 → 기대 모드 재처리 → 확인', 'hd');
+  try {
+    if (!(await ksGenerate())) return;
+    await sleep(300);
+    await ksRunFirst();
+    await sleep(300);
+    await ksResume();
+    const v = ksVerdict();
+    log(v.ok ? `✔ 키 표식 시나리오 — ${v.total}건 모두 기대대로(1차 실패 단계 · 재처리 성공)`
+      : `⚠ 키 표식 시나리오 — 기대와 다른 건 ${v.bad.length}/${v.total}: ${v.bad.map(r => r.key).join(', ')}`, v.ok ? 'ok' : 'wr');
+  } finally {
+    ksLock(false);
+    healthResume();
+  }
 };
 
 $('btn-refresh').onclick = () => loadStatus(false);
@@ -3092,7 +3561,7 @@ async function pfFinish(c) {
   } else {
     log(`✖ 기본 부하 검증 실패 — ${c.error || c.message}`, 'er');
     showPopup('기본 부하 검증 실패', `<div class="pop-lead">${esc(c.error || c.message || '')}</div>
-      <div class="hint mt-2">SIM 데이터 정리는 시도했습니다. 남아 있으면 [시뮬레이션 데이터 초기화] 로 지우십시오.</div>`);
+      <div class="hint mt-2">SIM 데이터 정리는 시도했습니다. 남아 있으면 상단 [시뮬레이터 데이터 초기화] 로 지우십시오.</div>`);
   }
 }
 
@@ -3158,7 +3627,7 @@ function pfRenderReport(r) {
     `조회 ${esc(m.source)} · 브로커 ${esc(m.broker)} · 복호화 ${esc(m.decrypt)}`, esc(r.db || '')].join(' · ');
   const cl = r.cleanup || {};
   const clean = cl.ok === false
-    ? `<span class="text-danger">SIM 정리 실패 — ${esc(cl.error || '')} · [시뮬레이션 데이터 초기화]로 지우십시오</span>`
+    ? `<span class="text-danger">SIM 정리 실패 — ${esc(cl.error || '')} · 상단 [시뮬레이터 데이터 초기화]로 지우십시오</span>`
     : `SIM 정리 ${cl.counts?.dbRows ?? 0}행 · 더미 ${cl.counts?.dummyFiles ?? 0}개 삭제`;
   $('pf-report').innerHTML = `
     <div class="hint mb-2">${cond}</div>
@@ -3263,7 +3732,7 @@ function pfCsv() {
 async function pfClearHistory() {
   const ok = await confirmPopup('실행 이력 비우기',
     `<div class="pop-lead">기본 부하 검증 이력 ${PF_HIST.length}회를 지웁니다.</div>
-     <div class="hint mt-2">이력 파일(<code>${esc(PF_INFO?.historyFile || '')}</code>)만 지웁니다. 로그 컬렉터의 TST 이력은 [시뮬레이션 데이터 초기화] 가 지웁니다. 먼저 [CSV 내보내기] 로 남겨 두십시오.</div>`,
+     <div class="hint mt-2">이력 파일(<code>${esc(PF_INFO?.historyFile || '')}</code>)만 지웁니다. 로그 컬렉터의 TST 이력은 상단 [시뮬레이터 데이터 초기화] 확인 창의 '시험 이력도 함께 지우기' 가 지웁니다. 먼저 [CSV 내보내기] 로 남겨 두십시오.</div>`,
     '지우기', '취소');
   if (!ok) return;
   const d = await call('DELETE', '/api/v1/mock/perf/runs', '기본 부하 검증 이력 비우기');
@@ -4369,6 +4838,7 @@ log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 X
   await loadConfig();
   pfInit();
   imInit();
+  await dmInit();
   await loadStatus(false);
   await loadOnDemandHint();
   await checkHealth(true);

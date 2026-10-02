@@ -126,11 +126,21 @@ public class LogCollectorClient {
      */
     public String createBatch(String jobId, String dataTypeCd, String execTypeCd, String triggerBy,
                               LocalDateTime targetFrom, LocalDateTime targetTo) {
+        return createBatch(jobId, null, dataTypeCd, execTypeCd, triggerBy, targetFrom, targetTo);
+    }
+
+    /**
+     * 위와 같되 작업명({@code JOB_NM})을 준다 — 컬렉터 {@code JobId} 열거형에 없는 작업(예: 수용자 이미지 {@code IMAGE_COLLECT})은
+     * 이름을 주지 않으면 작업 ID 문자열이 그대로 이름으로 적힌다. 채번 접두사는 작업이 아니라 데이터 구분(C01)으로 정해진다
+     * (UNSTRUCTURED → VOC, 작업이 TEST_BATCH 면 TST).
+     */
+    public String createBatch(String jobId, String jobNm, String dataTypeCd, String execTypeCd, String triggerBy,
+                              LocalDateTime targetFrom, LocalDateTime targetTo) {
         if (!isEnabled()) {
             return null;
         }
         JsonNode result = exchange(HttpMethod.POST, url("/api/v1/logs/batches"),
-                new BatchCreateReq(jobId, null, dataTypeCd,
+                new BatchCreateReq(jobId, jobNm, dataTypeCd,
                         targetFrom == null ? null : targetFrom.withNano(0),
                         targetTo == null ? null : targetTo.withNano(0),
                         execTypeCd, LocalDateTime.now().withNano(0), triggerBy));
@@ -387,10 +397,32 @@ public class LogCollectorClient {
      * @param fileSize  byte
      * @param procStsCd C04 — SUCCESS / FAIL
      * @param errStack  실패 사유, 컬렉터 표준 {@code [코드] 상세} 한 줄({@link #errStackOf}). 성공이면 null.
-     *                  PII 가 섞이지 않도록 원문을 넣지 않는다
+     *                  PII 가 섞이지 않도록 원문을 넣지 않는다. 실패 단계를 {@code [코드] [단계] 상세} 로 함께 적는다
+     * @param stepTypeCd 그 파일이 끝난 단계(C05 비정형 3단계) — 실패면 실패한 단계, 성공이면 {@code SEND}.
+     *                  <b>2026-10-02 로그 컬렉터 T4({@code tb_file_proc_log})에는 아직 이 컬럼이 없다</b> — 컬렉터는 모르는 필드를
+     *                  버리므로 보내도 해가 없고, 컬럼이 생기면 그대로 적재된다(그 전까지 실패 단계는 {@code errStack} 의 {@code [단계]} 로 남는다)
      */
     public record FileProcReq(String recFileId, String filePath, String fileNm, String inmatePid,
-                              Long fileSize, String procStsCd, String errStack) {
+                              Long fileSize, String procStsCd, String errStack, String stepTypeCd) {
+
+        /** 단계 없이 — 종전 시그니처. */
+        public FileProcReq(String recFileId, String filePath, String fileNm, String inmatePid,
+                           Long fileSize, String procStsCd, String errStack) {
+            this(recFileId, filePath, fileNm, inmatePid, fileSize, procStsCd, errStack, null);
+        }
+
+        /**
+         * 실패 사유를 {@code [코드] [단계] 상세} 로 — T4 에 단계 컬럼이 없는 동안 실패 단계를 ERR_STACK 에서 읽을 수 있게.
+         * 컬렉터의 정규화는 맨 앞 {@code [코드]} 만 떼어 쓰므로 단계 표시는 상세에 그대로 남는다.
+         */
+        public static String errStackOf(egovframework.unstructured.collector.common.model.StepType step, String reason) {
+            String base = errStackOf(reason);
+            if (base == null || step == null) {
+                return base;
+            }
+            int end = base.indexOf("] ");
+            return base.substring(0, end + 2) + "[" + step.name() + "] " + base.substring(end + 2);
+        }
 
         /**
          * 실패 사유를 컬렉터 표준 {@code [코드] 상세} 로 만든다. 코드는 C12(ERR_TYPE_CD) 중에서 고른다 —

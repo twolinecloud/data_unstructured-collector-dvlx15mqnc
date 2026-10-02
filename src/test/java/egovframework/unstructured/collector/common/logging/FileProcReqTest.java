@@ -30,7 +30,7 @@ class FileProcReqTest {
 
         assertThat(json.fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("recFileId", "filePath", "fileNm", "inmatePid",
-                        "fileSize", "procStsCd", "errStack");
+                        "fileSize", "procStsCd", "errStack", "stepTypeCd");
         assertThat(json.path("recFileId").asText()).isEqualTo("MEET-002-0000000000000000");
         assertThat(json.path("procStsCd").asText()).isEqualTo("SUCCESS");
         assertThat(json.path("errStack").isNull()).as("성공 건은 errStack 이 null").isTrue();

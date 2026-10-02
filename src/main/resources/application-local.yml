@@ -28,7 +28,7 @@ spring:
 #
 #   ⚠ 컬렉터가 안 떠 있어도 이 서비스는 정상 동작한다. LogCollectorClient 는 호출 실패를
 #     경고만 남기고 넘어간다(이력 적재가 수집을 막지 않는다). 다만 EXEC_ID 를 못 받아
-#     로컬 임시 ID(…VOC-LOCAL)로 돌아간다.
+#     로컬 임시 ID(yyyyMMdd + UNS + 시각)로 돌아간다.
 log-collector:
   enabled: ${LOG_COLLECTOR_ENABLED:true}
   base-url: ${LOG_COLLECTOR_BASE_URL:}     # 비우면 환경 프리셋(로컬 http://localhost:8090/logc)

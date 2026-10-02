@@ -189,7 +189,7 @@ public class VoiceMockController {
 
                     시뮬레이터에서 실행한 배치는 `JOB_ID=TEST_BATCH` 로 열려 EXEC_ID 의
                     작업코드 자리가 **`TST`** 가 됩니다 (예: `20260914TST001`).
-                    운영 배치는 `VOC`(음성)·`STR`(정형)·`PUB`(공공)·`LAW`(법제처)라 **섞이지 않습니다.**
+                    운영 배치는 `UNS`(비정형 — 예전 `VOC`)·`STR`(정형)·`PUB`(공공)·`LAW`(법제처)라 **섞이지 않습니다.**
 
                     네 가지를 지웁니다.
 
@@ -232,7 +232,7 @@ public class VoiceMockController {
                 egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR::ownsScenarioKey));
 
         out.put("testJobId", props.batch().testJobId());
-        out.put("message", "시뮬레이션 데이터 초기화 완료 — 테스트(TST) 이력·제논 수신증·음성/이미지 SIM(DB 행·더미·저장 사진)을 지웠습니다. 운영 배치(VOC/STR/EXT)는 건드리지 않았습니다");
+        out.put("message", "시뮬레이션 데이터 초기화 완료 — 테스트(TST) 이력·제논 수신증·음성/이미지 SIM(DB 행·더미·저장 사진)을 지웠습니다. 운영 배치(UNS/STR/PUB/LAW)는 건드리지 않았습니다");
         log.info("[Mock] 테스트 데이터 초기화 — 컬렉터={} 로컬={}", out.get("logCollector"), local);
         return out;
     }

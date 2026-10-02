@@ -190,7 +190,7 @@ voice:
     periodic-lag-min: 20
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:500}
-    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum — VOICE_ANALYSIS → 작업코드 VOC
+    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum(작업명 매핑) — 채번 작업코드는 data-type-cd 가 정한다(UNSTRUCTURED → UNS)
     data-type-cd: UNSTRUCTURED               # 컬렉터 C01 4종 중 비정형(음성). VOICE 는 C01 에 없는 코드였다
     retain-source-file: ${VOICE_RETAIN_SOURCE:false}
     # 워커 — 확보(I/O)와 STT(연산)를 나눈다. 둘 다 1 이면 순차(운영 기본), 아니면 생산자-소비자.

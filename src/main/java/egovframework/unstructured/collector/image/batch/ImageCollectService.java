@@ -62,11 +62,11 @@ import java.util.regex.Pattern;
  * <p>한 번에 하나만 돈다.</p>
  *
  * <p><b>처리 이력 — 로그 컬렉터 T1 · T2 · T4</b>(2026-10-02, 음성과 같은 표). 실행마다 T1 을 하나 연다 — 작업
- * {@code image.job-id}(기본 {@code IMAGE_COLLECT}, 작업명 '수용자 이미지 수집') · 데이터 구분 UNSTRUCTURED(채번 VOC) ·
+ * {@code image.job-id}(기본 {@code IMAGE_COLLECT}, 작업명 '수용자 이미지 수집') · 데이터 구분 UNSTRUCTURED(채번 UNS) ·
  * 시험 실행이면 {@code TEST_BATCH}(채번 TST). 수집 구간이 없는 배치라 T1 구간은 비운다 — 음성 [바로 실행] 워터마크에 끼지 않는다.
  * T2 는 비정형 3단계({@link StepType}) — COLLECT(조회 · FILEKEY · 브로커 수신)는 시작에, ANALYZE(복호화 · 이미지 확인)와
  * SEND(저장 · Admin DB 매핑)는 처음 닿을 때 연다. T4 는 처리한 사진 1장 = 1행(건너뛴 건은 남기지 않는다 — 음성과 같다).
- * 로그 컬렉터가 꺼져 있으면 실행 ID 는 로컬 {@code IMG-…} 이고 아무것도 보내지 않는다.</p>
+ * 로그 컬렉터가 꺼져 있으면 실행 ID 는 음성과 같은 자리의 로컬 {@code yyyyMMdd + UNS|TST + HHmmssSSS} 이고 아무것도 보내지 않는다.</p>
  */
 @Log4j2
 @Service
@@ -76,9 +76,11 @@ public class ImageCollectService {
     /**
      * 실행 ID 시각 — 밀리초까지. 초 단위면 연달아 돈 두 배치(신규 실행 → 곧바로 재실행)가 같은 ID 가 되어
      * 매핑의 {@code last_batch_exec_id} 로 "이번 실행이 쓴 행"을 가릴 수 없고, 브로커 요청 키도 겹친다.
-     * {@code IMG-yyyyMMdd-HHmmssSSS-TST} = 26자(컬럼 30자).
+     * 로컬 ID 는 음성과 같은 모양 {@code yyyyMMdd + UNS|TST + HHmmssSSS} = 20자(컬럼 30자) — 9~11번째 자리가 작업코드라
+     * 시험 이력 정리(TST)가 같은 규칙으로 걸러진다. (2026-10-02 전에는 {@code IMG-yyyyMMdd-HHmmssSSS[-TST]})
      */
-    private static final DateTimeFormatter EXEC_ID = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmssSSS");
+    private static final DateTimeFormatter EXEC_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter EXEC_TIME = DateTimeFormatter.ofPattern("HHmmssSSS");
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
     /** 결과에 싣는 건별 목록 상한 — 수천 건 배치의 응답이 커지지 않게. */
     private static final int OUTCOME_LIMIT = 300;
@@ -243,10 +245,11 @@ public class ImageCollectService {
         Map<String, ImageStage> inject = Boolean.TRUE.equals(req.testRun()) && req.injectFailures() != null
                 ? Map.copyOf(req.injectFailures()) : Map.of();
 
-        // ── T1 — 로그 컬렉터가 채번한다(UNSTRUCTURED → VOC · 시험 → TST). 미연동이면 로컬 ID ──
+        // ── T1 — 로그 컬렉터가 채번한다(UNSTRUCTURED → UNS · 시험 → TST). 미연동이면 로컬 ID(같은 자리에 UNS/TST) ──
         String collectorExecId = logCollector.createBatch(test ? voiceProps.batch().testJobId() : props.jobId(),
                 test ? JOB_NM + "(시험)" : JOB_NM, voiceProps.batch().dataTypeCd(), execTypeOf(trigger), trigger, null, null);
-        execId = collectorExecId != null ? collectorExecId : "IMG-" + LocalDateTime.now().format(EXEC_ID) + (test ? "-TST" : "");
+        LocalDateTime now = LocalDateTime.now();
+        execId = collectorExecId != null ? collectorExecId : now.format(EXEC_DATE) + (test ? "TST" : "UNS") + now.format(EXEC_TIME);
         if (onExecId != null) {
             try {
                 onExecId.accept(execId, collectorExecId != null);

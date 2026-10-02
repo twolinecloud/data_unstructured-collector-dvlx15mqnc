@@ -20,13 +20,13 @@ class UnstructuredJobRunnerTest {
         UnstructuredJobRunner r = new UnstructuredJobRunner(() -> null);
         CountDownLatch hold = new CountDownLatch(1);
         UnstructuredJobRunner.Job job = r.submitAndAwaitExecId(UnstructuredJobRunner.Kind.RUN, "ADMIN", Map.of("k", "v"), sink -> {
-            sink.publish("20261002VOC001", true);
+            sink.publish("20261002UNS001", true);
             block(hold);
             return "done";
         }, 2000);
-        assertThat(job.currentExecId()).isEqualTo("20261002VOC001");
+        assertThat(job.currentExecId()).isEqualTo("20261002UNS001");
         assertThat(job.execIdSource()).isEqualTo("COLLECTOR");
-        assertThat(r.status("20261002VOC001").get("status")).isEqualTo("RUNNING");
+        assertThat(r.status("20261002UNS001").get("status")).isEqualTo("RUNNING");
         hold.countDown();
         await().atMost(3, TimeUnit.SECONDS).until(() -> "DONE".equals(r.status().get("status")));
         assertThat(r.status(job.handle()).get("result")).isEqualTo("done");
@@ -38,14 +38,14 @@ class UnstructuredJobRunnerTest {
         UnstructuredJobRunner r = new UnstructuredJobRunner(() -> null);
         CountDownLatch hold = new CountDownLatch(1);
         r.submitAndAwaitExecId(UnstructuredJobRunner.Kind.SCHEDULE, "SCHEDULER", null, sink -> {
-            sink.publish("20261002VOC002", true);
+            sink.publish("20261002UNS002", true);
             block(hold);
             return "ok";
         }, 2000);
         assertThatThrownBy(() -> r.submit(UnstructuredJobRunner.Kind.REPROCESS, "ADMIN", null, sink -> "x"))
                 .isInstanceOfSatisfying(UnstructuredJobRunner.AlreadyRunningException.class, e -> {
                     assertThat(e.kind()).isEqualTo("SCHEDULE");
-                    assertThat(e.execId()).isEqualTo("20261002VOC002");
+                    assertThat(e.execId()).isEqualTo("20261002UNS002");
                 });
         hold.countDown();
         await().atMost(3, TimeUnit.SECONDS).until(() -> !r.isRunning());
@@ -84,7 +84,7 @@ class UnstructuredJobRunnerTest {
     void localExecId() {
         UnstructuredJobRunner r = new UnstructuredJobRunner(() -> null);
         UnstructuredJobRunner.Job job = r.submitAndAwaitExecId(UnstructuredJobRunner.Kind.RUN, "ADMIN", null, sink -> {
-            sink.publish("20261002VOC101530123", false);
+            sink.publish("20261002UNS101530123", false);
             return "ok";
         }, 2000);
         assertThat(job.execIdSource()).isEqualTo("LOCAL");

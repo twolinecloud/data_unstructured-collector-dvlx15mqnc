@@ -57,7 +57,7 @@ public class AdminLinkController {
     /** 긴급 재처리 본문 — admin-api {@code ReprocessRequest(execId, dataTypeCd, stepTypeCd, stepSeq)}. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReprocessReq(
-            @Schema(description = "재처리할 원배치 실행 ID", example = "20261001VOC001") String execId,
+            @Schema(description = "재처리할 원배치 실행 ID", example = "20261002UNS001") String execId,
             @Schema(example = "UNSTRUCTURED") String dataTypeCd,
             @Schema(description = "단계(C05) COLLECT · ANALYZE · SEND. 비우면 처음부터(전체 재처리)", example = "SEND") String stepTypeCd,
             @Schema(description = "단계 순번 — 비정형은 단계가 한 번씩이라 쓰지 않는다(기록만)", example = "3") Integer stepSeq) {}

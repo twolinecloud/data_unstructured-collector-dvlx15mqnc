@@ -109,8 +109,8 @@ public class LogCollectorClient {
      * T1 배치를 생성하고 <b>컬렉터가 채번한 EXEC_ID</b> 를 돌려준다(중앙 채번).
      *
      * <p>채번 규칙은 컬렉터가 소유한다 — {@code 실행일자(8) + 작업코드(3) + 회차(3)}.
-     * 음성은 작업코드 {@code VOC} 로 떨어져야 한다(예: {@code 20260915VOC001}).
-     * {@code jobId} 가 어떤 값일 때 {@code VOC} 가 되는지는 컬렉터 규칙이라 확인이 필요하다(계획서 Q4).</p>
+     * 비정형(음성 · 이미지)은 작업코드 {@code UNS} 로 떨어진다(예: {@code 20261002UNS001} — 2026-10-02 전 이력은 {@code VOC}).
+     * 접두사는 {@code jobId} 가 아니라 데이터 구분({@code dataTypeCd=UNSTRUCTURED})이 정한다 — 컬렉터 {@code DataTypeCd}.</p>
      *
      * @return 채번된 execId. 미연동·실패 시 null
      */
@@ -132,7 +132,7 @@ public class LogCollectorClient {
     /**
      * 위와 같되 작업명({@code JOB_NM})을 준다 — 컬렉터 {@code JobId} 열거형에 없는 작업(예: 수용자 이미지 {@code IMAGE_COLLECT})은
      * 이름을 주지 않으면 작업 ID 문자열이 그대로 이름으로 적힌다. 채번 접두사는 작업이 아니라 데이터 구분(C01)으로 정해진다
-     * (UNSTRUCTURED → VOC, 작업이 TEST_BATCH 면 TST).
+     * (UNSTRUCTURED → UNS, 작업이 TEST_BATCH 면 TST).
      */
     public String createBatch(String jobId, String jobNm, String dataTypeCd, String execTypeCd, String triggerBy,
                               LocalDateTime targetFrom, LocalDateTime targetTo) {
@@ -254,7 +254,7 @@ public class LogCollectorClient {
      *
      * <p>컬렉터가 {@code JOB_ID='TEST_BATCH'} 인 배치와 그 하위(T2~T8)를 FK 안전 순서로 지운다.
      * 그 조건에 걸리는 EXEC_ID 는 작업코드 자리가 {@code TST} 인 것뿐이라,
-     * 운영 배치({@code STR}/{@code VOC}/{@code EXT})는 어떤 경우에도 지워지지 않는다.</p>
+     * 운영 배치({@code STR}/{@code UNS}/{@code PUB}/{@code LAW} · 예전 {@code VOC})는 어떤 경우에도 지워지지 않는다.</p>
      *
      * @return 테이블별 삭제 건수. 컬렉터 미연동이거나 실패하면 {@code null}
      */
@@ -399,8 +399,8 @@ public class LogCollectorClient {
      * @param errStack  실패 사유, 컬렉터 표준 {@code [코드] 상세} 한 줄({@link #errStackOf}). 성공이면 null.
      *                  PII 가 섞이지 않도록 원문을 넣지 않는다. 실패 단계를 {@code [코드] [단계] 상세} 로 함께 적는다
      * @param stepTypeCd 그 파일이 끝난 단계(C05 비정형 3단계) — 실패면 실패한 단계, 성공이면 {@code SEND}.
-     *                  <b>2026-10-02 로그 컬렉터 T4({@code tb_file_proc_log})에는 아직 이 컬럼이 없다</b> — 컬렉터는 모르는 필드를
-     *                  버리므로 보내도 해가 없고, 컬럼이 생기면 그대로 적재된다(그 전까지 실패 단계는 {@code errStack} 의 {@code [단계]} 로 남는다)
+     *                  건너뜀은 null. 로그 컬렉터 V16({@code tb_file_proc_log.step_type_cd})이 그대로 저장하고 C05 밖의 값이면 400 이다.
+     *                  V16 전 컬렉터는 모르는 필드로 버리므로 실패 단계는 {@code errStack} 의 {@code [단계]} 에도 함께 남긴다
      */
     public record FileProcReq(String recFileId, String filePath, String fileNm, String inmatePid,
                               Long fileSize, String procStsCd, String errStack, String stepTypeCd) {
@@ -412,7 +412,7 @@ public class LogCollectorClient {
         }
 
         /**
-         * 실패 사유를 {@code [코드] [단계] 상세} 로 — T4 에 단계 컬럼이 없는 동안 실패 단계를 ERR_STACK 에서 읽을 수 있게.
+         * 실패 사유를 {@code [코드] [단계] 상세} 로 — T4 단계 컬럼(V16 step_type_cd)과 함께 ERR_STACK 만 봐도 실패 단계를 알 수 있게(V16 전 컬렉터 호환).
          * 컬렉터의 정규화는 맨 앞 {@code [코드]} 만 떼어 쓰므로 단계 표시는 상세에 그대로 남는다.
          */
         public static String errStackOf(egovframework.unstructured.collector.common.model.StepType step, String reason) {

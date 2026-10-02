@@ -137,7 +137,7 @@ voice:
     periodic-lag-min: ${VOICE_PERIODIC_LAG_MIN:20}
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:2000}
-    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum — VOICE_ANALYSIS → 작업코드 VOC (VOICE_BATCH 는 enum 에 없어 VOI 로 채번됐다)
+    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum(작업명 매핑) — 채번 작업코드는 data-type-cd 가 정한다(UNSTRUCTURED → UNS)
     retain-source-file: ${VOICE_RETAIN_SOURCE:false}
 
   inmate-pid:

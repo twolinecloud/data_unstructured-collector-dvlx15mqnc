@@ -568,11 +568,11 @@ public class VoiceCollectService {
      * 컬렉터가 없을 때의 임시 EXEC_ID — 같은 자리에 작업코드가 오게 만든다.
      *
      * <p>컬렉터 채번 규칙: yyyyMMdd(8) + 작업코드(3) + 회차(3) → 9~11번째 자리가 작업코드다.
-     * 테스트 데이터 삭제가 그 자리(TST)를 보므로 로컬 ID 도 자리를 맞춘다.</p>
+     * 테스트 데이터 삭제가 그 자리(TST)를 보므로 로컬 ID 도 자리를 맞춘다. 비정형 작업코드는 {@code UNS}(2026-10-02 — 그 전 VOC).</p>
      */
     private static String localExecId(boolean testRun) {
         LocalDateTime now = LocalDateTime.now();
-        String local = LOCAL_DATE.format(now) + (testRun ? "TST" : "VOC") + LOCAL_TIME.format(now);
+        String local = LOCAL_DATE.format(now) + (testRun ? "TST" : "UNS") + LOCAL_TIME.format(now);
         log.info("[Batch] 로그 컬렉터 미연동 — 로컬 임시 execId 사용: {}", local);
         return local;
     }
@@ -661,7 +661,7 @@ public class VoiceCollectService {
      *       시험이 먼저 처리하면 멱등 표식이 남아 실제 배치가 '건너뜀' 으로 넘겨 대시보드에 아무것도 나오지 않는다.</li>
      *   <li><b>실제 실행</b>(스케줄러 · {@code /internal/batch/run} · {@code /internal/batch/reprocess} · {@code test=false}) —
      *       시뮬레이터 데이터({@code SIM-…})를 집지 않는다. SIM 은 시뮬레이터 화면의 수동 시험 전용이다 — 자동 실행이 집으면
-     *       시뮬레이터가 만든 데이터를 먼저 처리해 버려(선점) 시험이 '건너뜀' 으로 끝나고, VOC 이력 · 대시보드에 시험 데이터가 섞인다.
+     *       시뮬레이터가 만든 데이터를 먼저 처리해 버려(선점) 시험이 '건너뜀' 으로 끝나고, 운영(UNS) 이력 · 대시보드에 시험 데이터가 섞인다.
      *       이미지는 실제 수집이 원래 {@code SIMIMG…} 를 뺀다({@code ImageSourceService}).</li>
      * </ul>
      * <p>실제 보라미 행(접두 없음)은 어느 쪽에서도 빼지 않는다.</p>

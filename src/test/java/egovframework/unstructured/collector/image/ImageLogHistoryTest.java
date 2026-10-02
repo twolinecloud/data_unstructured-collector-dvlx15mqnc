@@ -145,7 +145,7 @@ class ImageLogHistoryTest {
     }
 
     @Test
-    @DisplayName("이미지 수집 — T1(IMAGE_COLLECT · VOC 채번) · T2 3단계(COLLECT·ANALYZE·SEND 건수) · T4 사진 1장 = 1행(단계 · 상태 · 경로 · 가명ID)")
+    @DisplayName("이미지 수집 — T1(IMAGE_COLLECT · UNS 채번) · T2 3단계(COLLECT·ANALYZE·SEND 건수) · T4 사진 1장 = 1행(단계 · 상태 · 경로 · 가명ID)")
     void imageRunWritesT1T2T4() {
         Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD,
                 List.of(DummyDataType.IMAGE), D, 4, oneEach(), true, null));
@@ -153,7 +153,7 @@ class ImageLogHistoryTest {
 
         ImageCollectService.ImageRunResult r = image.run(new ImageCollectService.ImageRunRequest(null, "DMYIMG", null, 2, false,
                 0L, "API", false, null, null));
-        assertThat(r.execId()).as("로그 컬렉터가 채번한 실행 ID").matches("\\d{8}VOC\\d{3}");
+        assertThat(r.execId()).as("로그 컬렉터가 채번한 실행 ID").matches("\\d{8}UNS\\d{3}");
 
         Map<String, Object> b = t1(r.execId());
         assertThat(b.get("job_id")).isEqualTo("IMAGE_COLLECT");
@@ -197,7 +197,7 @@ class ImageLogHistoryTest {
             } else {
                 assertThat(row.get("proc_sts_cd")).isEqualTo("FAIL");
                 assertThat(row.get("step_type_cd")).isEqualTo(stepOf.get(s));
-                assertThat((String) row.get("err_stack")).as("T4 에 단계 컬럼이 없는 동안 실패 단계는 ERR_STACK 에")
+                assertThat((String) row.get("err_stack")).as("실패 단계는 V16 컬럼과 함께 ERR_STACK 에도(V16 전 컬렉터 호환)")
                         .startsWith("[DATA] [" + stepOf.get(s) + "] ").contains("더미 시나리오 " + s.name());
                 assertThat(row.get("file_nm")).as("저장 못 했으니 원본 파일명").isEqualTo(corr + "_2.jpg");
             }

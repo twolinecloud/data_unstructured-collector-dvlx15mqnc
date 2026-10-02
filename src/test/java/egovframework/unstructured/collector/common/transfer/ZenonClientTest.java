@@ -100,11 +100,11 @@ class ZenonClientTest {
         ZenonClient c = new ZenonClient(props(ZenonProperties.Mode.MOCK), om, new RestTemplate());
 
         c.send(doc("20261001TST001"));
-        c.send(doc("20261001VOC001"));
+        c.send(doc("20261001UNS001"));
 
         assertThat(c.receipts(null)).hasSize(2);
         assertThat(c.receipts("20261001TST001").get(0).location()).isEqualTo("zenon:mock/meet-SIM-MEET-001.json");
         assertThat(c.clearTestReceipts()).isEqualTo(1);
-        assertThat(c.receipts(null)).extracting(ZenonClient.Receipt::execId).containsExactly("20261001VOC001");
+        assertThat(c.receipts(null)).extracting(ZenonClient.Receipt::execId).containsExactly("20261001UNS001");
     }
 }

@@ -29,7 +29,7 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
  * <b>STT 텍스트로 만들고 처리 이력을 남기는 것까지</b>다. STT 텍스트를 외부로 전송하지 않는다
  * (비식별 커넥터 연동은 아키텍처 변경으로 제외). 로그 적재는 로그 컬렉터 API 로만 한다.</p>
  *
- * <p><b>배치 주체</b>: EXEC_ID 작업코드 {@code VOC}(음성) 로 배치를 연다.
+ * <p><b>배치 주체</b>: EXEC_ID 작업코드 {@code UNS}(비정형 — 음성 · 이미지) 로 배치를 연다.
  * {@code STR}(정형)은 데이터 수집 서비스, {@code EXT}(외부)는 외부 연계 수집 서비스가 쓴다.</p>
  */
 @EnableScheduling

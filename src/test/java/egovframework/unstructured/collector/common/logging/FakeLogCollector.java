@@ -29,10 +29,10 @@ import java.util.regex.Pattern;
  *
  * <p>진짜 로그 컬렉터는 PostgreSQL(kcais) 전용이라 로컬 · CI 에서 띄울 수 없다. 경로 · 요청 본문 · 응답 봉투
  * ({@code {success, code, result}})는 로그 컬렉터 {@code origin/dev} 와 같게 맞췄고, 표 이름 · 컬럼도 kcais 스키마를 따른다.
- * <b>T4 에는 {@code step_type_cd} 를 하나 더 둔다</b> — 2026-10-02 현재 진짜 T4 에는 이 컬럼이 없다(수집기는 보내고 컬렉터는 버린다).
+ * <b>T4 에는 {@code step_type_cd} 가 있다</b> — 로그 컬렉터 V16(2026-10-02)과 같다.
  * 컬럼이 생긴 뒤의 모습을 미리 보는 것이고, 실패 단계는 컬럼과 상관없이 {@code err_stack} 의 {@code [단계]} 로도 남는다.</p>
  *
- * <p>채번은 로그 컬렉터 규칙을 흉내 낸다 — {@code yyyyMMdd + (TEST_BATCH 면 TST, 아니면 VOC) + 회차 3자리}.</p>
+ * <p>채번은 로그 컬렉터 규칙을 흉내 낸다 — {@code yyyyMMdd + (TEST_BATCH 면 TST, 아니면 UNS) + 회차 3자리} (컬렉터 {@code DataTypeCd.UNSTRUCTURED} — 2026-10-02 VOC → UNS).</p>
  */
 public final class FakeLogCollector implements AutoCloseable {
 
@@ -169,7 +169,7 @@ public final class FakeLogCollector implements AutoCloseable {
     }
 
     private Map<String, Object> createBatch(JsonNode b) {
-        String code = "TEST_BATCH".equalsIgnoreCase(text(b, "jobId")) ? "TST" : "VOC";
+        String code = "TEST_BATCH".equalsIgnoreCase(text(b, "jobId")) ? "TST" : "UNS";
         String execId = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + code + "%03d".formatted(seq.incrementAndGet());
         String jobNm = text(b, "jobNm") == null ? text(b, "jobId") : text(b, "jobNm");
         jdbc.update("INSERT INTO tb_batch_exec_log (exec_id, job_id, job_nm, data_type_cd, exec_type_cd, trigger_by,"

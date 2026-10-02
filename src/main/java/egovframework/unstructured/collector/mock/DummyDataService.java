@@ -110,18 +110,44 @@ public class DummyDataService {
             @Schema(description = "유형별 장애 건수 — COLLECT_FAIL · ANALYZE_FAIL · SEND_FAIL. 나머지는 정상",
                     example = "{\"COLLECT_FAIL\":1,\"ANALYZE_FAIL\":1,\"SEND_FAIL\":1}") Map<FailureScenario, Integer> failures,
             @Schema(description = "기존 데이터를 지우지 않고 추가(기본 true). false 면 그 용도의 데이터를 먼저 지운다", example = "true")
-            Boolean append) {}
+            Boolean append,
+            @Schema(description = "(선택) 유형별 건수를 따로 — 지정한 유형은 count 대신 이 값(1~300). 합계 300 이하. "
+                    + "장애 건수(failures)는 유형마다 그대로 들어가므로 가장 적은 유형의 건수를 넘을 수 없다",
+                    example = "{\"PHONE\":5,\"MEET\":5,\"IMAGE\":3}") Map<DummyDataType, Integer> counts) {}
 
-    /** 검증을 마친 생성 계획. */
-    private record Plan(DummyTarget target, List<DummyDataType> types, LocalDate date, int count,
+    /**
+     * 검증을 마친 생성 계획. 건수는 유형별({@code counts}) — 장애 건수는 유형마다 같다.
+     *
+     * <p>시각 칸({@link Slots})은 <b>가장 많은 유형의 건수</b>로 나눈다. 건의 순서가 [장애… → 정상…] 이고 장애 건수가
+     * 유형마다 같으므로 장애 구간(windows)은 유형을 가로질러 그대로 같고, 적은 유형은 정상 구간에서 일찍 끝날 뿐이다.</p>
+     */
+    private record Plan(DummyTarget target, List<DummyDataType> types, LocalDate date, Map<DummyDataType, Integer> counts,
                         Map<FailureScenario, Integer> failures, boolean append) {
+
+        int count(DummyDataType type) {
+            return counts.get(type);
+        }
+
+        /** 가장 많은 유형의 건수 — 시각 칸 · 정상 구간의 끝. */
+        int maxCount() {
+            return counts.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        }
+
+        int total() {
+            return counts.values().stream().mapToInt(Integer::intValue).sum();
+        }
+
+        /** 모든 유형이 같은 건수인가 — 응답의 {@code count} 는 그때만 하나의 값이다. */
+        boolean uniform() {
+            return counts.values().stream().distinct().count() <= 1;
+        }
 
         int failTotal() {
             return failures.values().stream().mapToInt(Integer::intValue).sum();
         }
 
         /** 건의 순서 — [CF… → AF… → SF… → 정상…]. null 이 정상. */
-        List<FailureScenario> order() {
+        List<FailureScenario> order(int count) {
             List<FailureScenario> o = new ArrayList<>(count);
             failures.forEach((s, n) -> {
                 for (int i = 0; i < n; i++) {
@@ -157,7 +183,10 @@ public class DummyDataService {
         out.put("prefix", p.target().prefix());
         out.put("crtUsrId", p.target().usr());
         out.put("targetDate", p.date().toString());
-        out.put("count", p.count());
+        out.put("count", p.uniform() ? p.maxCount() : null);
+        Map<String, Integer> countsOut = new LinkedHashMap<>();
+        p.counts().forEach((t, n) -> countsOut.put(t.name(), n));
+        out.put("counts", countsOut);
         out.put("dataTypes", p.types().stream().map(Enum::name).toList());
         out.put("append", p.append());
         out.put("db", db.label());
@@ -169,16 +198,15 @@ public class DummyDataService {
 
         MediaDecryptor enc = encryptor();
         LocalDateTime now = LocalDateTime.now().withNano(0);
-        Slots slots = Slots.of(p.date(), p.count(), now);
-        List<FailureScenario> order = p.order();
+        Slots slots = Slots.of(p.date(), p.maxCount(), now);
         List<FileJob> jobs = new ArrayList<>();
         Map<String, Map<String, Object>> types = new LinkedHashMap<>();
         new TransactionTemplate(txManager).executeWithoutResult(st -> {
             for (DummyDataType type : p.types()) {
                 types.put(type.name(), switch (type) {
-                    case MEET -> meet(p, order, slots, enc, sql, jobs);
-                    case PHONE -> phone(p, order, slots, enc, sql, jobs);
-                    case IMAGE -> image(p, order, slots, enc, sql, jobs);
+                    case MEET -> meet(p, p.order(p.count(type)), slots, enc, sql, jobs);
+                    case PHONE -> phone(p, p.order(p.count(type)), slots, enc, sql, jobs);
+                    case IMAGE -> image(p, p.order(p.count(type)), slots, enc, sql, jobs);
                 });
             }
         });
@@ -213,20 +241,20 @@ public class DummyDataService {
         }
         out.put("expectedResume", expected);
         out.put("types", types);
-        int total = p.count() * p.types().size();
+        int total = p.total();
         int fail = p.failTotal() * p.types().size();
         out.put("totals", Map.of("rows", total, "normal", total - fail, "fail", fail, "files", written));
         out.put("encrypted", enc != null);
         out.put("howToRun", howToRun(p));
         sql.into(out);
-        log.info("[Dummy] 생성 — {} · {} · 대상일 {} · 유형별 {}건(장애 {}) · 파일 {}개 · {}", p.target(), p.types(), p.date(),
-                p.count(), p.failures(), written, db.label());
+        log.info("[Dummy] 생성 — {} · 대상일 {} · 유형별 {}건(장애 {}) · 파일 {}개 · {}", p.target(), p.date(),
+                p.counts(), p.failures(), written, db.label());
         return out;
     }
 
     private Plan plan(GenerateRequest req) {
         if (req == null) {
-            req = new GenerateRequest(null, null, null, null, null, null);
+            req = new GenerateRequest(null, null, null, null, null, null, null);
         }
         DummyTarget target = req.target() == null ? DummyTarget.SIMULATOR : req.target();
         if (target == DummyTarget.DASHBOARD && !mockProps.dashboard().enabled()) {
@@ -240,12 +268,18 @@ public class DummyDataService {
             throw new IllegalArgumentException("대상일은 오늘 이전이어야 합니다: " + date);
         }
         int count = req.count() == null ? DEFAULT_COUNT : req.count();
-        if (count < 1 || count > MAX_TOTAL) {
-            throw new IllegalArgumentException("건수는 유형별 1~" + MAX_TOTAL + " 입니다: " + count);
+        Map<DummyDataType, Integer> counts = new EnumMap<>(DummyDataType.class);
+        for (DummyDataType type : types) {
+            Integer own = req.counts() == null ? null : req.counts().get(type);
+            int n = own == null ? count : own;
+            if (n < 1 || n > MAX_TOTAL) {
+                throw new IllegalArgumentException("건수는 유형별 1~" + MAX_TOTAL + " 입니다: " + type + "=" + n);
+            }
+            counts.put(type, n);
         }
-        if (count * types.size() > MAX_TOTAL) {
-            throw new IllegalArgumentException("한 번에 만드는 건수는 유형 합계 " + MAX_TOTAL + " 이하입니다 — " + count + " × "
-                    + types.size() + "유형 = " + count * types.size());
+        int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+        if (total > MAX_TOTAL) {
+            throw new IllegalArgumentException("한 번에 만드는 건수는 유형 합계 " + MAX_TOTAL + " 이하입니다 — " + counts + " = " + total);
         }
         Map<FailureScenario, Integer> failures = new EnumMap<>(FailureScenario.class);
         if (req.failures() != null) {
@@ -263,10 +297,13 @@ public class DummyDataService {
             });
         }
         int failTotal = failures.values().stream().mapToInt(Integer::intValue).sum();
-        if (failTotal > count) {
-            throw new IllegalArgumentException("장애 건수 합(" + failTotal + ")이 유형별 건수(" + count + ")보다 많습니다");
+        for (Map.Entry<DummyDataType, Integer> e : counts.entrySet()) {
+            if (failTotal > e.getValue()) {
+                throw new IllegalArgumentException("장애 건수 합(" + failTotal + ")이 " + e.getKey().label() + " 건수(" + e.getValue()
+                        + ")보다 많습니다 — 장애는 유형마다 같은 건수로 들어갑니다");
+            }
         }
-        return new Plan(target, types, date, count, failures, req.append() == null || req.append());
+        return new Plan(target, types, date, counts, failures, req.append() == null || req.append());
     }
 
     // ── 유형별 ───────────────────────────────────────────────────────────
@@ -278,7 +315,7 @@ public class DummyDataService {
         LocalDate d = p.date();
         int seq0 = nextSeq(sql, tables.rerdTfinDs(), "TARE_FILE_NO", DummyKeys.meetKeyHead(t, d),
                 t.prefix() + DummyDataType.MEET.letter() + DummyKeys.ymd8(d));
-        checkSeq(seq0, p.count());
+        checkSeq(seq0, order.size());
         Path meetDir = dirs.xvarmOriginalDir(VoiceKind.MEET);
         String encYn = enc != null ? props.source().flag().encrypted() : "N";
         List<Object[]> inmates = new ArrayList<>();
@@ -286,7 +323,7 @@ public class DummyDataService {
         List<Object[]> xvarm = new ArrayList<>();
         List<Object[]> rerd = new ArrayList<>();
         Collector c = new Collector(order);
-        for (int i = 0; i < p.count(); i++) {
+        for (int i = 0; i < order.size(); i++) {
             FailureScenario s = order.get(i);
             int seq = seq0 + i;
             LocalDateTime at = slots.at(i, seq);
@@ -317,7 +354,7 @@ public class DummyDataService {
                 + "  TBLT_RECRD_FILE_ID, TBLT_VTR_FILE_ID, TARE_FILE_NM, TARE_BGNG_HMS, TARE_END_HMS, TARE_FILE_MG_VL, TARE_FLPTH_NM,"
                 + "  DEL_YN, RECRD_FILE_DEL_YN, RECRD_BKUP_FILE_DEL_YN, CRT_DT, CRT_USR_ID, MDFCN_DT, MDFCN_USR_ID)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rerd);
-        Map<String, Object> out = c.result(DummyDataType.MEET, seq0, p.count());
+        Map<String, Object> out = c.result(DummyDataType.MEET, seq0, order.size());
         out.put("rows", Map.of("inmates", inmates.size(), "meet", rerd.size(), "cmfi", cmfi.size(), "xvarm", xvarm.size()));
         out.put("originalDir", slash(meetDir));
         return out;
@@ -330,13 +367,13 @@ public class DummyDataService {
         LocalDate d = p.date();
         int seq0 = nextSeq(sql, tables.imphUcdrDs(), "VRFC_ESTL_ID", DummyKeys.phoneKeyHead(t, d),
                 t.prefix() + DummyDataType.PHONE.letter() + DummyKeys.ymd8(d));
-        checkSeq(seq0, p.count());
+        checkSeq(seq0, order.size());
         Path phoneDir = dirs.xvarmOriginalDir(VoiceKind.PHONE);
         VoiceProperties.Flag flag = props.source().flag();
         List<Object[]> inmates = new ArrayList<>();
         List<Object[]> calls = new ArrayList<>();
         Collector c = new Collector(order);
-        for (int i = 0; i < p.count(); i++) {
+        for (int i = 0; i < order.size(); i++) {
             FailureScenario s = order.get(i);
             int seq = seq0 + i;
             LocalDateTime at = slots.at(i, seq);
@@ -363,7 +400,7 @@ public class DummyDataService {
                 + "  TELP_RECRD_FLPTH_NM, TELP_RECRD_FILE_NM, TELP_RECRD_FILE_ID, TELP_STT_FLPTH_NM, DEL_DT,"
                 + "  CRT_DT, CRT_USR_ID, MDFCN_DT, MDFCN_USR_ID)"
                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", calls);
-        Map<String, Object> out = c.result(DummyDataType.PHONE, seq0, p.count());
+        Map<String, Object> out = c.result(DummyDataType.PHONE, seq0, order.size());
         out.put("rows", Map.of("inmates", inmates.size(), "phone", calls.size()));
         out.put("originalDir", slash(phoneDir));
         return out;
@@ -378,14 +415,14 @@ public class DummyDataService {
         DummyTarget t = p.target();
         LocalDate d = p.date();
         int seq0 = nextSeq(sql, tables.irimBsifDs(), "CORR_NO", DummyKeys.imageCorrHead(t, d), null);
-        checkSeq(seq0, p.count());
+        checkSeq(seq0, order.size());
         Path dir = imageSim.originalDir();
         String encYn = enc != null ? props.source().flag().encrypted() : "N";
         List<Object[]> images = new ArrayList<>();
         List<Object[]> cmfi = new ArrayList<>();
         List<Object[]> xvarm = new ArrayList<>();
         Collector c = new Collector(order);
-        for (int i = 0; i < p.count(); i++) {
+        for (int i = 0; i < order.size(); i++) {
             FailureScenario s = order.get(i);
             int seq = seq0 + i;
             LocalDateTime at = slots.at(i, seq);
@@ -414,8 +451,8 @@ public class DummyDataService {
                 + " (CMMN_FILE_ID, DOC_ID, FILE_NM, CORR_WRK_SE_CD, FILE_TY_CD, REG_DT, RPRS_YN, CMMN_FILE_ENC_YN, DEL_YN,"
                 + "  CRT_DT, CRT_USR_ID, MDFCN_DT, MDFCN_USR_ID) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", cmfi);
         sql.batch(jdbc, "INSERT INTO " + tables.asysContentElement() + " (ELEMENTID, FILEKEY) VALUES (?,?)", xvarm);
-        Map<String, Object> out = c.result(DummyDataType.IMAGE, seq0, p.count());
-        out.put("rows", Map.of("inmates", p.count(), "image", images.size(), "cmfi", cmfi.size(), "xvarm", xvarm.size()));
+        Map<String, Object> out = c.result(DummyDataType.IMAGE, seq0, order.size());
+        out.put("rows", Map.of("inmates", order.size(), "image", images.size(), "cmfi", cmfi.size(), "xvarm", xvarm.size()));
         out.put("originalDir", slash(dir));
         out.put("corrNoPrefix", t.imagePrefix());
         out.put("note", t == DummyTarget.SIMULATOR
@@ -516,7 +553,10 @@ public class DummyDataService {
         }
     }
 
-    /** 시나리오마다 CRT_DT 구간 — [from, to). 유형마다 건수 · 순서가 같아 유형을 가로질러 같은 구간이다. */
+    /**
+     * 시나리오마다 CRT_DT 구간 — [from, to). 장애 건수 · 순서가 유형마다 같아 유형을 가로질러 같은 구간이다.
+     * 정상 구간의 끝은 가장 많은 유형 기준이다(적은 유형은 그 안에서 일찍 끝난다).
+     */
     private static Map<String, Object> windows(Plan p, Slots slots) {
         Map<String, Object> w = new LinkedHashMap<>();
         int idx = 0;
@@ -532,9 +572,9 @@ public class DummyDataService {
             w.put(s.name(), one);
             idx += e.getValue();
         }
-        if (idx < p.count()) {
-            w.put("NORMAL", Map.of("from", TS.format(slots.from(idx)), "to", TS.format(slots.from(p.count())),
-                    "count", p.count() - idx));
+        if (idx < p.maxCount()) {
+            w.put("NORMAL", Map.of("from", TS.format(slots.from(idx)), "to", TS.format(slots.from(p.maxCount())),
+                    "count", p.maxCount() - idx));
         }
         return w;
     }

@@ -52,7 +52,7 @@ public class MockDataScheduler {
             failures.put(FailureScenario.ANALYZE_FAIL, d.analyzeFail());
             failures.put(FailureScenario.SEND_FAIL, d.sendFail());
             Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, d.types(),
-                    today.minusDays(1), d.count(), failures, true));
+                    today.minusDays(1), d.count(), failures, true, null));
             out.put("generated", g.get("totals"));
             log.info("[Dummy:daily] {} 대시보드 더미 추가 — {}", today.minusDays(1), g.get("totals"));
         } catch (Exception e) {

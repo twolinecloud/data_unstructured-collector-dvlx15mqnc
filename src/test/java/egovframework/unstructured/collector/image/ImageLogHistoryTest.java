@@ -148,7 +148,7 @@ class ImageLogHistoryTest {
     @DisplayName("이미지 수집 — T1(IMAGE_COLLECT · VOC 채번) · T2 3단계(COLLECT·ANALYZE·SEND 건수) · T4 사진 1장 = 1행(단계 · 상태 · 경로 · 가명ID)")
     void imageRunWritesT1T2T4() {
         Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD,
-                List.of(DummyDataType.IMAGE), D, 4, oneEach(), true));
+                List.of(DummyDataType.IMAGE), D, 4, oneEach(), true, null));
         List<String> corrs = keys(g, DummyDataType.IMAGE);
 
         ImageCollectService.ImageRunResult r = image.run(new ImageCollectService.ImageRunRequest(null, "DMYIMG", null, 2, false,
@@ -207,7 +207,7 @@ class ImageLogHistoryTest {
     @Test
     @DisplayName("이미지 재처리(긴급 재처리 → 이미지 재실행) — 새 실행 ID 의 T4 에 실패했던 3건만 SUCCESS 로 추가(정상 건은 건너뜀 · 남기지 않음)")
     void imageReprocessAddsT4ForFailedOnly() {
-        dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.IMAGE), D, 4, oneEach(), true));
+        dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.IMAGE), D, 4, oneEach(), true, null));
         ImageCollectService.ImageRunResult first = image.run(new ImageCollectService.ImageRunRequest(null, "DMYIMG", null, 2, false,
                 0L, "SCHEDULER", false, null, null));
         assertThat(t1(first.execId()).get("exec_type_cd")).isEqualTo("SCHEDULED");
@@ -237,7 +237,7 @@ class ImageLogHistoryTest {
         f.put(FailureScenario.ANALYZE_FAIL, 1);
         f.put(FailureScenario.SEND_FAIL, 1);
         Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.MEET),
-                D, 3, f, true));
+                D, 3, f, true, null));
         var r = voice.run(BatchWindow.manual(D.atStartOfDay(), D.plusDays(1).atStartOfDay()), List.of(VoiceKind.MEET), "SCHEDULER", false);
         Map<String, Map<String, Object>> t4 = logc.rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", r.execId()).stream()
                 .collect(Collectors.toMap(x -> (String) x.get("rec_file_id"), Function.identity()));

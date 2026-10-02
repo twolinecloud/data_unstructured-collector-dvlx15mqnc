@@ -122,7 +122,7 @@ class AdminLinkE2ETest {
     void runNowTakesDashboardDummiesOnly() throws Exception {
         dummy.cleanDashboard();
         Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null,
-                LocalDate.now().minusDays(1), 2, Map.of(), true));
+                LocalDate.now().minusDays(1), 2, Map.of(), true, null));
         try {
             String res = mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"dataTypeCd\":\"UNSTRUCTURED\"}"))

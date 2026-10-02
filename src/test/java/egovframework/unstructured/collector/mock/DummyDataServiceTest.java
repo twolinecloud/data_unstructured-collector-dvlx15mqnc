@@ -118,7 +118,7 @@ class DummyDataServiceTest {
 
     private static DummyDataService.GenerateRequest req(DummyTarget t, List<DummyDataType> types, LocalDate d, int count,
                                                         Map<FailureScenario, Integer> failures) {
-        return new DummyDataService.GenerateRequest(t, types, d, count, failures, true);
+        return new DummyDataService.GenerateRequest(t, types, d, count, failures, true, null);
     }
 
     private static Map<FailureScenario, Integer> oneEach() {
@@ -419,6 +419,48 @@ class DummyDataServiceTest {
         assertThat(touched).isNotEmpty();
         assertThat(touched).noneMatch(t -> t.toUpperCase().contains("PRBS_BS") || t.toUpperCase().contains("PEIN_BS"));
         assertThat((List<String>) out.get("sqls")).noneMatch(s -> s.toUpperCase().contains("PRBS_BS") || s.toUpperCase().contains("PEIN_BS"));
+    }
+
+    @Test
+    @DisplayName("유형별 건수(counts) — 유형마다 다른 건수 · 장애는 유형마다 같고 장애 구간(windows)은 유형을 가로질러 같다")
+    @SuppressWarnings("unchecked")
+    void perTypeCounts() {
+        Map<DummyDataType, Integer> counts = new EnumMap<>(DummyDataType.class);
+        counts.put(DummyDataType.PHONE, 4);
+        counts.put(DummyDataType.MEET, 2);
+        counts.put(DummyDataType.IMAGE, 3);
+        Map<FailureScenario, Integer> f = new EnumMap<>(FailureScenario.class);
+        f.put(FailureScenario.COLLECT_FAIL, 1);
+        f.put(FailureScenario.SEND_FAIL, 1);
+        Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null, D, 99, f, true, counts));
+
+        assertThat(g.get("count")).as("유형마다 건수가 다르면 하나의 count 는 없다").isNull();
+        assertThat((Map<String, Object>) g.get("counts")).containsEntry("PHONE", 4).containsEntry("MEET", 2).containsEntry("IMAGE", 3);
+        assertThat(type(g, DummyDataType.PHONE)).containsEntry("count", 4).containsEntry("normal", 2).containsEntry("fail", 2);
+        assertThat(type(g, DummyDataType.MEET)).containsEntry("count", 2).containsEntry("normal", 0).containsEntry("fail", 2);
+        assertThat(type(g, DummyDataType.IMAGE)).containsEntry("count", 3).containsEntry("normal", 1).containsEntry("fail", 2);
+        assertThat((Map<String, Object>) g.get("totals")).containsEntry("rows", 9).containsEntry("fail", 6).containsEntry("normal", 3);
+        assertThat(count(tables.rerdTfinDs(), "TARE_FILE_NO LIKE 'DMY-MEET-%'")).isEqualTo(2);
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE 'DMY-PHONE-%'")).isEqualTo(4);
+        assertThat(count(tables.irimBsifDs(), "CORR_NO LIKE 'DMYIMG%' AND IMAGE_SN = 2")).isEqualTo(3);
+
+        // 장애 키는 유형마다 같은 시각 칸 — CF 는 첫 칸, SF 는 둘째 칸
+        Map<String, Object> w = (Map<String, Object>) g.get("windows");
+        assertThat(w).containsKeys("COLLECT_FAIL", "SEND_FAIL", "NORMAL");
+        assertThat((Map<String, Object>) w.get("NORMAL")).as("정상 구간 끝은 가장 많은 유형(전화 4건) 기준").containsEntry("count", 2);
+        assertThat(failKeys(g, DummyDataType.MEET, FailureScenario.SEND_FAIL)).singleElement().asString().contains("-SF-");
+        assertThat(failKeys(g, DummyDataType.IMAGE, FailureScenario.COLLECT_FAIL)).singleElement().asString().endsWith("CF");
+
+        // 장애 합이 가장 적은 유형의 건수를 넘으면 거절 — 접견 1건에 장애 2건
+        counts.put(DummyDataType.MEET, 1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dummy.generate(
+                        new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null, D, 5, f, true, counts)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("접견");
+        // 유형 합계 300 초과
+        counts.put(DummyDataType.MEET, 298);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dummy.generate(
+                        new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null, D, 5, f, true, counts)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("300");
     }
 
     @Test

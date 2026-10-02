@@ -63,7 +63,7 @@ class DummyProfileTest {
                 new MockDataProperties.Daily(false, "0 30 1 * * *", List.of(DummyDataType.PHONE), 1, 0, 0, 0, 7));
         DummyDataService svc = new DummyDataService(null, null, null, null, null, null, null, null, null, null, null, null,
                 null, null, off);
-        assertThatThrownBy(() -> svc.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null, null, 1, Map.of(), true)))
+        assertThatThrownBy(() -> svc.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, null, null, 1, Map.of(), true, null)))
                 .isInstanceOf(DummyDataService.DashboardDisabledException.class);
     }
 

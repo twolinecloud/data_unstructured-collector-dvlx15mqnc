@@ -165,3 +165,6 @@ unstructured:
   mock:
     dashboard:
       enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}
+  # 개발계와 같게 — 스케줄 · 바로 실행이 음성 뒤에 이미지 수집도 돈다
+  batch:
+    include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:true}

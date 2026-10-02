@@ -64,10 +64,12 @@ voice:
     # 주소는 미리 꽂아 두고 스위치만 REST 로 올리면 붙는다.
     #   MOCK → 수집 서비스 안에서 더미 파일을 만든다(브로커 없이 기동 가능)
     #   REST → 위 파드의 POST /api/v1/xvarm/extract 를 실제로 호출한다
-    # 기본을 MOCK 으로 두는 것은 Fail-fast 정책이다 — 실물 전환은 항상 명시적으로 한다.
-    # 브로커가 개발계에 떠 있으므로 기본을 REST 로 둔다. MOCK 이면 접견이 실물 경로를 타지 않아
-    # "배포했는데 왜 Mock 이냐" 가 된다. 브로커 없이 돌려야 하면 화면에서 내리거나 VOICE_BROKER_MODE=MOCK.
-    mode: ${VOICE_BROKER_MODE:REST}          # MOCK | REST
+    # 2026-10-02 결정 — 개발계 기본은 수집기 내장 Mock 브로커(MOCK)다. 복호화 실패 · 경로 문제를 막는다:
+    #   REST(파드 DUMMY 어댑터)는 FILEKEY 원본을 못 읽으면 무음 WAV 를 만들어 주어, 사진은 복호화·이미지 확인에서
+    #   전건 실패하고(대시보드 더미 이미지) 접견은 메타와 무관한 파일을 받는다. 내장 Mock 은 접견이면 메타대로
+    #   암호화한 더미를 만들고, 사진이면 FILEKEY 원본(수집기 저장소)을 그대로 옮긴다.
+    #   실물 브로커를 다시 쓰려면 시뮬레이터에서 REST 로 올리거나(재기동 시 원복) VOICE_BROKER_MODE=REST.
+    mode: ${VOICE_BROKER_MODE:MOCK}          # MOCK | REST
     # 주소를 명시한다 — 비워 두면 DeployEnvPreset 이 정하는데, 그 판정은 'Windows 이거나 local
     #   프로파일이면 LOCAL' 이라 Windows 에서 dev 로 띄우면 localhost:8082 로 떨어진다.
     #   컨테이너에서는 어차피 K8s 로 가지만, 기본값이 OS 에 따라 달라지면 확인이 어렵다.
@@ -162,6 +164,10 @@ unstructured:
   mock:
     dashboard:
       enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}
+  # 2026-10-02 결정 — 개발계는 스케줄 · 바로 실행이 음성 뒤에 이미지 수집도 돈다(대시보드 더미 이미지 DMYIMG 포함).
+  #   운영(prod)은 base 기본 false 그대로 — 정형 수집기 PHOTO_REF 반영 순서가 정해진 뒤 켠다
+  batch:
+    include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:true}
 
 image:
   admin-db:

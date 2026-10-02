@@ -16,7 +16,7 @@ import java.util.List;
  *     daily:
  *       enabled: false         # 매일 어제 날짜로 대시보드 더미를 추가(append) — 기본 끔
  *       cron: "0 30 1 * * *"   # 일배치(관리 화면 02:00) 전
- *       types: [PHONE, MEET]
+ *       types: [PHONE, MEET, IMAGE]   # 운영 전환 전까지 이미지 더미도 늘 같이 만든다
  *       count: 5               # 유형별 건수
  *       collect-fail: 0
  *       analyze-fail: 0
@@ -49,7 +49,7 @@ public record MockDataProperties(
     public record Daily(
             @DefaultValue("false") boolean enabled,
             @DefaultValue("0 30 1 * * *") String cron,
-            @DefaultValue({"PHONE", "MEET"}) List<DummyDataType> types,
+            @DefaultValue({"PHONE", "MEET", "IMAGE"}) List<DummyDataType> types,
             @DefaultValue("5") int count,
             @DefaultValue("0") int collectFail,
             @DefaultValue("0") int analyzeFail,

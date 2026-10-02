@@ -102,7 +102,8 @@ public class AdminLinkController {
                       (`execIdSource=COLLECTOR`). 잠깐 기다려도 안 오면 접수 handle(`HANDLE`) — 진행은 `GET /internal/batch/status?execId=`
                     - **409** — 이미 실행 중(스케줄 · 재처리 · 시뮬레이터 수동 배치 포함). 본문에 실행 중 execId
                     - **400** — `dataTypeCd` 가 `UNSTRUCTURED` 가 아님(주소 설정 오류) · `targetToDtm` 이 미래 · 이미 그 시각까지 수집함
-                    - 음성만 돈다. `unstructured.batch.include-image=true` 면 음성 → 이미지 순차
+                    - 음성 → (`unstructured.batch.include-image=true` 면 — 개발계 기본) 이미지 순차
+                    - 시뮬레이터 데이터(`SIM…`)는 집지 않는다 — 시뮬레이터 수동 시험 전용. 대시보드 더미(`DMY…`)와 실제 행만
                     """)
     @PostMapping("/batch/run")
     public ResponseEntity<Map<String, Object>> run(@RequestBody(required = false) BatchRunReq body) {

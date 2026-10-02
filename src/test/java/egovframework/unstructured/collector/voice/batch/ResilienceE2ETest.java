@@ -135,7 +135,7 @@ class ResilienceE2ETest {
         faultInjector.configure(true, 100, 0, 0L);
 
         VoiceBatchResult[] holder = new VoiceBatchResult[1];
-        assertThatCode(() -> holder[0] = service.run(wide(), null, "TEST"))
+        assertThatCode(() -> holder[0] = service.run(wide(), null, "TEST", true))
                 .as("건별 실패가 배치 밖으로 새어 나오면 안 된다")
                 .doesNotThrowAnyException();
 
@@ -154,7 +154,7 @@ class ResilienceE2ETest {
     void noPiiResidueEvenWhenAllFail() {
         faultInjector.configure(true, 100, 0, 0L);
 
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.failCnt()).isEqualTo(STT_DEPENDENT);
         assertThat(residue())
@@ -170,7 +170,7 @@ class ResilienceE2ETest {
     @Test
     @DisplayName("성공한 배치에서도 원본 음성이 남지 않는다")
     void noPiiResidueOnSuccess() {
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.successCnt()).isEqualTo(TOTAL);
         assertThat(residue()).isZero();
@@ -186,7 +186,7 @@ class ResilienceE2ETest {
         // 50% 로 두면 확률상 성공·실패가 섞인다. 어느 쪽이든 합계는 대상 수와 같아야 한다.
         faultInjector.configure(true, 50, 0, 0L);
 
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.successCnt() + r.failCnt()).isEqualTo(r.targetCnt());
         assertThat(r.outcomes()).hasSize(TOTAL);
@@ -200,7 +200,7 @@ class ResilienceE2ETest {
         sim.seed(2, 2);          // 일배치 2·2 + 주기 2·2 = 8 (전화 기존 STT 건 없음 → 전부 STT 를 탄다)
 
         long t0 = System.currentTimeMillis();
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
         long elapsed = System.currentTimeMillis() - t0;
 
         // 일배치용 2·2 + 주기배치용 2·2
@@ -213,13 +213,13 @@ class ResilienceE2ETest {
     @DisplayName("실패한 건은 멱등 표식이 남지 않는다 — 다음 배치에서 다시 시도해야 한다")
     void failedItemsAreRetriable() {
         faultInjector.configure(true, 100, 0, 0L);
-        VoiceBatchResult first = service.run(wide(), null, "TEST");
+        VoiceBatchResult first = service.run(wide(), null, "TEST", true);
         assertThat(first.failCnt()).isEqualTo(STT_DEPENDENT);
 
         // 장애를 끄고 다시 돌린다. 실패했던 건은 표식이 없으니 재시도되어야 하고,
         // 성공했던 1건(기존 STT)만 건너뛰어야 한다.
         faultInjector.configure(false, 0, 0, 0L);
-        VoiceBatchResult second = service.run(wide(), null, "TEST");
+        VoiceBatchResult second = service.run(wide(), null, "TEST", true);
 
         assertThat(second.successCnt())
                 .as("실패했던 건은 표식이 없어 다시 처리된다")
@@ -235,7 +235,7 @@ class ResilienceE2ETest {
     void handlesLargerDataset() {
         sim.seed(50, 50);        // 로컬 H2 에 일배치 50·50 시딩
 
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.targetCnt()).isEqualTo(104);   // 일배치용 100 + 주기배치용 4
         assertThat(r.successCnt()).isEqualTo(104);
@@ -259,7 +259,7 @@ class ResilienceE2ETest {
     void stepSummaryReflectsWhereItFailed() {
         faultInjector.configure(true, 100, 0, 0L);
 
-        VoiceBatchResult r = service.run(wide(), null, "TEST");
+        VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
                 .containsExactly("COLLECT", "ANALYZE", "SEND");

@@ -81,7 +81,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("Mock 전 구간이 이어져 배치가 끝까지 돈다")
     void runsEndToEnd() {
-        VoiceBatchResult result = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
         // 넓은 창 = 일배치용(접견 5·전화 5, 어제) + 주기배치용(접견 2·전화 2, 최근 10분) = 14
         assertThat(result.targetCnt()).as("시뮬레이션 대상 접견 7 + 전화 7").isEqualTo(14);
@@ -94,7 +94,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("STT 텍스트가 실제로 만들어진다 — 빈 텍스트면 처리한 의미가 없다")
     void producesSttText() {
-        VoiceBatchResult result = service.run(wideWindow(), List.of(VoiceKind.PHONE), "TEST");
+        VoiceBatchResult result = service.run(wideWindow(), List.of(VoiceKind.PHONE), "TEST", true);
 
         assertThat(result.outcomes()).isNotEmpty();
         assertThat(result.outcomes())
@@ -105,7 +105,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("STT 결과는 제논(Zenon)으로 보낸다 — 건마다 수신증 하나, PV 에는 결과 폴더(xenon)가 생기지 않는다")
     void sendsSttResultsToZenon() throws Exception {
-        VoiceBatchResult result = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
         assertThat(result.zenon()).containsEntry("mode", "MOCK").containsEntry("sent", String.valueOf(result.successCnt()));
         List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> receipts = zenon.receipts(result.execId());
@@ -125,7 +125,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("T2 단계 요약 — 3단계(COLLECT · ANALYZE · SEND) 세 행, 전부 성공")
     void recordsCollectAndAnalyzeSteps() {
-        VoiceBatchResult result = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
         // SEND 는 제논 전송 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
         assertThat(result.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
@@ -141,7 +141,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("보라미가 이미 가진 STT 는 오디오를 거치지 않고 재사용한다(Q1 시나리오)")
     void reusesSourceSttWhenAvailable() {
-        VoiceBatchResult result = service.run(wideWindow(), List.of(VoiceKind.PHONE), "TEST");
+        VoiceBatchResult result = service.run(wideWindow(), List.of(VoiceKind.PHONE), "TEST", true);
 
         // 전화 7건(일배치 5 + 주기 2) 중 1건이 기존 STT 보유 시나리오다. 그 건도 성공해야 한다.
         assertThat(result.successCnt()).isEqualTo(7);
@@ -151,10 +151,10 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("두 번 돌려도 같은 건을 다시 처리하지 않는다 — 주기배치 창이 겹치기 때문")
     void isIdempotentAcrossRuns() {
-        VoiceBatchResult first = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult first = service.run(wideWindow(), null, "TEST", true);
         assertThat(first.successCnt()).isEqualTo(14);
 
-        VoiceBatchResult second = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult second = service.run(wideWindow(), null, "TEST", true);
 
         assertThat(second.skippedCnt()).as("두 번째 실행은 전부 건너뛴다").isEqualTo(14);
         assertThat(second.successCnt()).isZero();
@@ -165,10 +165,10 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("멱등 표식을 지우면 다시 처리할 수 있다 — 시연 반복용")
     void canReprocessAfterClearing() {
-        service.run(wideWindow(), null, "TEST");
+        service.run(wideWindow(), null, "TEST", true);
         idempotency.clearAll();
 
-        VoiceBatchResult again = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult again = service.run(wideWindow(), null, "TEST", true);
 
         assertThat(again.successCnt()).isEqualTo(14);
         assertThat(again.skippedCnt()).isZero();
@@ -177,7 +177,7 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("종류를 지정하면 그것만 처리한다")
     void filtersByKind() {
-        VoiceBatchResult meetOnly = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST");
+        VoiceBatchResult meetOnly = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST", true);
 
         assertThat(meetOnly.targetCnt()).isEqualTo(7);
         assertThat(meetOnly.outcomes())
@@ -189,8 +189,8 @@ class VoiceCollectE2ETest {
     void mockRespectsWindows() {
         LocalDateTime now = LocalDateTime.now();
         long t0 = System.currentTimeMillis();
-        VoiceBatchResult daily = service.run(BatchWindow.daily(now), null, "TEST");
-        VoiceBatchResult periodic = service.run(BatchWindow.periodic(now, 20), null, "TEST");
+        VoiceBatchResult daily = service.run(BatchWindow.daily(now), null, "TEST", true);
+        VoiceBatchResult periodic = service.run(BatchWindow.periodic(now, 20), null, "TEST", true);
         long elapsed = System.currentTimeMillis() - t0;
 
         assertThat(daily.targetCnt()).isEqualTo(10);
@@ -206,9 +206,9 @@ class VoiceCollectE2ETest {
     @Test
     @DisplayName("SKIPPED 건은 T4 집계에서 빠진다 — 정합성 대사가 어긋나지 않게")
     void skippedNotCountedAsSuccess() {
-        service.run(wideWindow(), null, "TEST");
+        service.run(wideWindow(), null, "TEST", true);
 
-        VoiceBatchResult second = service.run(wideWindow(), null, "TEST");
+        VoiceBatchResult second = service.run(wideWindow(), null, "TEST", true);
 
         // T1.SUCCESS_CNT == Σ(T3·T4·T5) 규칙상, 건너뛴 건을 성공으로 세면 대사가 깨진다
         assertThat(second.successCnt()).isZero();

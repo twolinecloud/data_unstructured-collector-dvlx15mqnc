@@ -49,8 +49,8 @@ public class DummyDataController {
 
                     | target | 접두 · 생성자 | 누가 읽나 |
                     |---|---|---|
-                    | `SIMULATOR` (기본) | `SIM` · `simadm` | 시뮬레이터 시험 실행(`test=true`, TEST_BATCH). 이미지 `SIMIMG…` 는 실제 수집이 뺀다 |
-                    | `DASHBOARD` | `DMY` · `dmyadm` — 실존하지 않는 가상 교정번호 | 실제 스케줄러 · `/internal/batch/run` · `/internal/batch/reprocess` → 로그 컬렉터 이력 · 대시보드. 시험 실행은 집지 않는다 |
+                    | `SIMULATOR` (기본) | `SIM` · `simadm` | 시뮬레이터 시험 실행(`test=true`, TEST_BATCH) **전용** — 실제 실행(스케줄러 · `/internal/batch/run` · `test=false`)은 음성 · 이미지 모두 집지 않는다 |
+                    | `DASHBOARD` | `DMY` · `dmyadm` — 실존하지 않는 가상 교정번호 | 실제 스케줄러 · `/internal/batch/run` · `/internal/batch/reprocess` → 로그 컬렉터 이력 · 대시보드(이미지는 `include-image=true` 일 때 — 개발계 기본). 시험 실행은 집지 않는다 |
 
                     - `count` 는 **유형별** 건수(1~300, 유형 합계 300 이하) · `failures` 도 유형별 · 나머지는 정상 · `targetDate` 기본 어제(미래 불가)
                     - 키 예: `DMY-MEET-20261001-0001` · 장애 건 `DMY-MEET-20261001-SF-0003` · 이미지 교정번호 `DMYIMG2610010003SF` — 날짜·순번으로 유일

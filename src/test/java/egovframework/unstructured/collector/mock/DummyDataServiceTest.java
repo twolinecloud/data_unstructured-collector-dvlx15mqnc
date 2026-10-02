@@ -16,6 +16,7 @@ import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
 import egovframework.unstructured.collector.voice.batch.VoiceCollectService;
 import egovframework.unstructured.collector.voice.controller.VoiceMockController;
 import egovframework.unstructured.collector.voice.stt.SttTempStore;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -107,7 +108,9 @@ class DummyDataServiceTest {
     private static final LocalDate D = LocalDate.now().minusDays(1);
 
     @BeforeEach
+    @AfterEach
     void clean() {
+        // 보라미 H2(jdbc:h2:mem:borami)는 같은 JVM 의 다른 테스트 컨텍스트와 공유된다 — 끝나고도 지워 다른 클래스에 더미가 남지 않게
         dummy.cleanDashboard();
         voiceMock.deleteSimData(DummyTarget.SIMULATOR);
         scenarioFaults.forget(k -> true);
@@ -263,16 +266,21 @@ class DummyDataServiceTest {
     }
 
     @Test
-    @DisplayName("시험 실행(test=true)은 대시보드 더미(DMY)를 집지 않는다 — 실제 배치 몫")
-    void testRunSkipsDashboardDummies() {
+    @DisplayName("분리 — 시험 실행(test=true)은 DMY 를, 실제 실행(test=false · 스케줄 · 바로 실행)은 SIM 을 집지 않는다")
+    void runsDoNotTakeTheOtherTargetsData() {
         dummy.generate(req(DummyTarget.DASHBOARD, List.of(DummyDataType.MEET, DummyDataType.PHONE), D, 2, Map.of()));
         dummy.generate(req(DummyTarget.SIMULATOR, List.of(DummyDataType.MEET), D, 1, Map.of()));
 
-        assertThat(voice.pending(day(), null, true).get("total")).isEqualTo(1);
-        assertThat(voice.pending(day(), null, false).get("total")).isEqualTo(5);
-        VoiceBatchResult r = voice.run(day(), null, "TEST", true);
-        assertThat(r.outcomes()).extracting(x -> x.target().idempotencyKey()).noneMatch(k -> k.startsWith("DMY-"));
-        assertThat(r.successCnt()).isEqualTo(1);
+        assertThat(voice.pending(day(), null, true).get("total")).as("시험 실행 — SIM 1건만").isEqualTo(1);
+        assertThat(voice.pending(day(), null, false).get("total")).as("실제 실행 — DMY 4건만").isEqualTo(4);
+
+        VoiceBatchResult real = voice.run(day(), null, "SCHEDULER", false);
+        assertThat(real.outcomes()).extracting(x -> x.target().idempotencyKey()).noneMatch(k -> k.startsWith("SIM-"));
+        assertThat(real.successCnt()).isEqualTo(4);
+
+        VoiceBatchResult test = voice.run(day(), null, "TEST", true);
+        assertThat(test.outcomes()).extracting(x -> x.target().idempotencyKey()).noneMatch(k -> k.startsWith("DMY-"));
+        assertThat(test.successCnt()).as("실제 실행이 SIM 을 선점하지 않았다 — 시험 실행이 처리한다").isEqualTo(1);
     }
 
     @Test
@@ -330,7 +338,7 @@ class DummyDataServiceTest {
     void resetsDoNotTouchTheOtherTarget() throws Exception {
         dummy.generate(req(DummyTarget.SIMULATOR, null, D, 2, Map.of()));
         dummy.generate(req(DummyTarget.DASHBOARD, null, D, 2, Map.of()));
-        voice.run(day(), null, "TEST", false);   // DMY · SIM 모두 처리 → 멱등 표식
+        voice.run(day(), null, "TEST", false);   // 실제 실행 — DMY 만 처리 → DMY 멱등 표식
         image.run(new ImageCollectService.ImageRunRequest(null, "DMYIMG", null, 2, false, 0L, "TEST", false, null, null));
         assertThat(dashboardMarkers()).isEqualTo(4);
         Path dmyOriginal = dirs.xvarmOriginalDir(VoiceKind.MEET).resolve(DummyKeys.meetFileName(DummyTarget.DASHBOARD, D, 1, null));

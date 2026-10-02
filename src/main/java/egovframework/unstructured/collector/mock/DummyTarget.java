@@ -4,13 +4,15 @@ package egovframework.unstructured.collector.mock;
  * 더미 데이터의 <b>용도</b> — 누가 읽어 가는 데이터인가.
  *
  * <ul>
- *   <li>{@link #SIMULATOR} — 시뮬레이터 2·3번 탭 수동 실행({@code test=true}, 시험 워터마크 {@code TEST_BATCH})이 읽는다.
+ *   <li>{@link #SIMULATOR} — 시뮬레이터 2·3번 탭 수동 실행({@code test=true}, 시험 워터마크 {@code TEST_BATCH})<b>만</b> 읽는다.
+ *       실제 실행(스케줄러 · {@code /internal/batch/run} · {@code test=false})은 집지 않는다(2026-10-02 결정 — 선점 · 충돌 방지).
  *       기존 시뮬레이션 데이터와 같은 {@code SIM} 접두 · 생성자 {@code simadm}. 기존 [시뮬레이션 데이터 초기화]
  *       ({@code SimulationDataService.clean()} · 이미지 {@code ImageSimulationService.clean()})가 그대로 지운다.</li>
  *   <li>{@link #DASHBOARD} — 실제 스케줄러 · {@code /internal/batch/run} · {@code /internal/batch/reprocess} 가 읽어
  *       로그 컬렉터 이력 · 관리 화면 대시보드에 나온다. 실존하지 않는 {@code DMY} 접두의 가상 교정번호만 쓴다 —
  *       실제 수용자에 더미 접견·전화·사진을 붙이면 정형 수집기의 타임라인·요인·피처에 섞인다(작업 지시 1-2).
- *       생성자 {@code dmyadm}. 시뮬레이터 시험 실행({@code test=true})은 이 데이터를 집어 가지 않는다.</li>
+ *       생성자 {@code dmyadm}. 시뮬레이터 시험 실행({@code test=true})은 이 데이터를 집어 가지 않는다.
+ *       개발계는 {@code include-image=true} 라 이미지({@code DMYIMG…})도 실제 배치가 같이 처리한다.</li>
  * </ul>
  *
  * <p>⚠ 어느 용도든 수용자기본({@code TB_IRIM_PRBS_BS}) · 신상({@code TB_IRIM_PEIN_BS})에는 쓰지 않는다 — 그 두 테이블에

@@ -466,9 +466,9 @@
         <div><label class="hint d-block">용도</label>
           <div class="btn-group btn-group-sm" role="group">
             <input type="radio" class="btn-check" name="dm-target" id="dm-t-sim" value="SIMULATOR" checked>
-            <label class="btn btn-outline-secondary" for="dm-t-sim" title="SIM 접두 · simadm — 시뮬레이터 시험 실행(test=true, TEST_BATCH)이 읽는다">시뮬레이터 (SIM)</label>
+            <label class="btn btn-outline-secondary" for="dm-t-sim" title="SIM 접두 · simadm — 시뮬레이터 시험 실행(test=true, TEST_BATCH) 전용. 실제 배치(스케줄 · 바로 실행)는 집지 않는다">시뮬레이터 (SIM)</label>
             <input type="radio" class="btn-check" name="dm-target" id="dm-t-dmy" value="DASHBOARD">
-            <label class="btn btn-outline-primary" for="dm-t-dmy" title="DMY 접두 · dmyadm — 실제 스케줄러 · 바로 실행 · 긴급 재처리가 읽어 로그 컬렉터 이력 · 대시보드에 나온다">대시보드 (DMY)</label>
+            <label class="btn btn-outline-primary" for="dm-t-dmy" title="DMY 접두 · dmyadm — 실제 스케줄러 · 바로 실행 · 긴급 재처리가 읽어 로그 컬렉터 이력 · 대시보드에 나온다(이미지는 include-image — 개발계 기본 켜짐). 시험 실행은 집지 않는다">대시보드 (DMY)</label>
           </div></div>
         <div><label class="hint d-block">유형</label>
           <div class="d-flex gap-2 small">
@@ -491,6 +491,7 @@
       </div>
       <div class="hint mt-1">장애 건수는 유형별입니다(나머지는 정상). 표식(CF·AF·SF)을 단 건은 실제 경로의 그 단계에서 <b>한 번만</b> 실패하고 재처리는 통과합니다 —
         수집 → <code>FULL</code> · 분석 → <code>FROM_ANALYZE</code> · 전송 → <code>FROM_SEND</code> (이미지는 다시 돌리면 실패 건만 재처리).
+        시뮬레이터(SIM)는 시험 실행 전용, 대시보드(DMY)는 실제 배치 전용입니다(서로 집지 않음).
         초기화는 상단 [시뮬레이터 데이터 초기화] · [대시보드 테스트 데이터 초기화] — <b>로그 컬렉터 수행 이력(T1~T5)은 남습니다.</b></div>
       <div id="dm-result" class="mt-2"></div>
     </div></div></div>
@@ -2971,7 +2972,7 @@ $('dm-gen').onclick = async () => {
         <li>CRT_DT ${esc(String(g.crtDtRange?.from || '').replace('T', ' '))} ~ ${esc(String(g.crtDtRange?.to || '').replace('T', ' '))} · 더미 원본 ${g.totals?.files ?? 0}개</li>
         <li>접두 ${esc(g.prefix)} · 생성자 ${esc(g.crtUsrId)}</li>
       </ul>
-      <div class="pop-note">${g.target === 'DASHBOARD' ? '실제 배치가 읽습니다 — 시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않습니다.' : '시뮬레이터 시험 실행(2·3번 탭)이 읽습니다.'}</div>`);
+      <div class="pop-note">${g.target === 'DASHBOARD' ? '실제 배치가 읽습니다 — 시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않습니다.' : '시뮬레이터 시험 실행(2·3번 탭)만 읽습니다 — 실제 배치(스케줄 · 바로 실행)는 SIM 을 집지 않습니다.'}</div>`);
   } finally {
     $('dm-gen').disabled = false;
   }

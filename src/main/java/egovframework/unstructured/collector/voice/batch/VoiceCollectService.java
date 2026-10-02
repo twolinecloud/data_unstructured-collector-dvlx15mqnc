@@ -226,10 +226,7 @@ public class VoiceCollectService {
         log.info("[Batch]   전송 — 제논 {} · {}", zenon.mode(), zenon.endpoint());
         ctx.collectStepId = logCollector.createStep(execId, (short) 1, FileProcOutcome.STEP_COLLECT);
 
-        List<VoiceTarget> found = findTargets(window, targets);
-        if (testRun) {
-            found = withoutDashboardDummies(found);
-        }
+        List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
         List<FileProcOutcome> outcomes = new ArrayList<>(found.size());
 
         // 화면 진행률 — 대상 수가 확정된 지금부터 센다. 배치 REST 는 동기라 이것 없이는
@@ -633,15 +630,13 @@ public class VoiceCollectService {
     }
 
     /**
-     * 위와 같되, 시험 실행({@code testRun})이면 대시보드 더미({@code DMY-…})를 빼고 센다 — 시험 실행이 실제로 집는 것과 같게.
+     * 위와 같되, 실행 종류에 맞춰 센다 — 시험 실행이면 대시보드 더미({@code DMY-…})를, 실제 실행이면 시뮬레이터 데이터
+     * ({@code SIM-…})를 뺀다. 그 실행이 실제로 집는 것과 같게({@link #scopeForRun}).
      */
     public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds, boolean testRun) {
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
                 ? List.of(VoiceKind.MEET, VoiceKind.PHONE) : kinds;
-        List<VoiceTarget> found = findTargets(window, targets, true);
-        if (testRun) {
-            found = withoutDashboardDummies(found);
-        }
+        List<VoiceTarget> found = scopeForRun(findTargets(window, targets, true), testRun);
         long processed = found.stream().filter(idempotency::isProcessed).count();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("window", window.toString());
@@ -658,17 +653,27 @@ public class VoiceCollectService {
     }
 
     /**
-     * 시험 실행(시뮬레이터 {@code test=true})은 <b>대시보드 더미</b>({@code DMY-…})를 집지 않는다.
+     * 실행 종류에 따라 <b>더미 데이터를 가른다</b>(2026-10-02 결정) — 시뮬레이터 데이터와 대시보드 데이터가 서로를 선점하지 않게.
      *
-     * <p>대시보드 더미는 실제 배치(VOICE_ANALYSIS)가 읽어 로그 컬렉터 이력 · 관리 화면에 나와야 하는 데이터다. 시험 실행이 먼저
-     * 처리하면 멱등 표식이 남아 실제 배치가 '건너뜀' 으로 넘겨 대시보드에 아무것도 나오지 않는다.</p>
+     * <ul>
+     *   <li><b>시험 실행</b>(시뮬레이터 {@code test=true}, TEST_BATCH) — 대시보드 더미({@code DMY-…})를 집지 않는다.
+     *       시험이 먼저 처리하면 멱등 표식이 남아 실제 배치가 '건너뜀' 으로 넘겨 대시보드에 아무것도 나오지 않는다.</li>
+     *   <li><b>실제 실행</b>(스케줄러 · {@code /internal/batch/run} · {@code /internal/batch/reprocess} · {@code test=false}) —
+     *       시뮬레이터 데이터({@code SIM-…})를 집지 않는다. SIM 은 시뮬레이터 화면의 수동 시험 전용이다 — 자동 실행이 집으면
+     *       시뮬레이터가 만든 데이터를 먼저 처리해 버려(선점) 시험이 '건너뜀' 으로 끝나고, VOC 이력 · 대시보드에 시험 데이터가 섞인다.
+     *       이미지는 실제 수집이 원래 {@code SIMIMG…} 를 뺀다({@code ImageSourceService}).</li>
+     * </ul>
+     * <p>실제 보라미 행(접두 없음)은 어느 쪽에서도 빼지 않는다.</p>
      */
-    private static List<VoiceTarget> withoutDashboardDummies(List<VoiceTarget> found) {
-        List<VoiceTarget> out = found.stream()
-                .filter(t -> !egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD.ownsKey(t.idempotencyKey()))
-                .toList();
+    private static List<VoiceTarget> scopeForRun(List<VoiceTarget> found, boolean testRun) {
+        egovframework.unstructured.collector.mock.DummyTarget other = testRun
+                ? egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD
+                : egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR;
+        List<VoiceTarget> out = found.stream().filter(t -> !other.ownsKey(t.idempotencyKey())).toList();
         if (out.size() < found.size()) {
-            log.info("[Batch] 시험 실행 — 대시보드 더미(DMY) {}건은 실제 배치 몫이라 건너뛴다", found.size() - out.size());
+            log.info("[Batch] {} — {} {}건은 {} 몫이라 건너뛴다", testRun ? "시험 실행" : "실제 실행",
+                    testRun ? "대시보드 더미(DMY)" : "시뮬레이터 데이터(SIM)", found.size() - out.size(),
+                    testRun ? "실제 배치" : "시뮬레이터 시험 실행");
         }
         return out;
     }

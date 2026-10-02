@@ -420,7 +420,7 @@ public class DummyDataService {
         out.put("corrNoPrefix", t.imagePrefix());
         out.put("note", t == DummyTarget.SIMULATOR
                 ? "SIMIMG… 는 실제 이미지 수집이 대상에서 뺀다 — 6번 탭 또는 corrNoPrefix=SIMIMG 로 돌린다"
-                : "DMYIMG… 는 실제 이미지 수집이 집는다 — include-image=true 면 스케줄·바로 실행에, 아니면 POST /api/v1/image/batches");
+                : "DMYIMG… 는 실제 이미지 수집이 집는다 — include-image=true(개발계 기본)면 스케줄·바로 실행에 포함, 아니면 POST /api/v1/image/batches");
         return out;
     }
 
@@ -574,12 +574,13 @@ public class DummyDataService {
                     + " — 대상일이 어제면 시뮬레이터 2번 탭 [전체 실행 (일배치)] 와 같다");
             h.add("음성 재처리(시험): POST /api/v1/voice/batches/resume?resume=<기대 모드>&from=<windows.X.from>&to=<windows.X.to>&test=true");
             h.add("이미지: POST /api/v1/image/batches {\"corrNoPrefix\":\"SIMIMG\"} — 다시 돌리면 실패했던 건만 다시 처리(성공 건은 '변경 없음')");
+            h.add("실제 실행(스케줄러 · /internal/batch/run · test=false)은 SIM 을 집지 않는다 — 시뮬레이터 수동 시험 전용");
         } else {
             h.add("음성: 실제 배치가 읽는다 — 일배치 스케줄(대상일=어제) · POST /internal/batch/run · 또는 POST /api/v1/voice/batches/manual?from="
                     + d0 + "&to=" + d1 + "&test=false");
             h.add("음성 재처리: POST /internal/batch/reprocess {\"execId\":…, \"stepTypeCd\":\"COLLECT|ANALYZE|SEND\"} · 또는 "
                     + "POST /api/v1/voice/batches/resume?resume=<기대 모드>&from=<windows.X.from>&to=<windows.X.to>&test=false");
-            h.add("이미지: unstructured.batch.include-image=true 면 스케줄·바로 실행에 포함 · 아니면 POST /api/v1/image/batches {\"corrNoPrefix\":\"DMYIMG\"}");
+            h.add("이미지: unstructured.batch.include-image=true(개발계 기본)면 스케줄·바로 실행이 음성 뒤에 같이 돈다 · 따로 돌리려면 POST /api/v1/image/batches {\"corrNoPrefix\":\"DMYIMG\"}");
             h.add("시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않는다 — 실제 배치 몫");
         }
         h.add("장애 표식(CF·AF·SF) 건은 그 단계에서 한 번만 실패하고 재처리는 통과한다(소진 표시는 메모리 — 재기동하면 한 번 더 실패)");

@@ -100,6 +100,8 @@ class ImageLogHistoryTest {
     private InmatePidGenerator pid;
     @Autowired
     private ScenarioFaults scenarioFaults;
+    @Autowired
+    private egovframework.unstructured.collector.voice.batch.VerificationService verification;
 
     private static final LocalDate D = LocalDate.now().minusDays(1);
 
@@ -253,6 +255,21 @@ class ImageLogHistoryTest {
             }
         }
         assertThat(t2(r.execId()).keySet()).containsExactlyInAnyOrder("COLLECT", "ANALYZE", "SEND");
+
+        // 시뮬레이터가 보는 T4 단계별 이력 — 로그 컬렉터 GET …/file-procs 를 실제 HTTP 로 읽는다
+        Map<String, Object> st = verification.t4Steps(r.execId());
+        assertThat(st).containsEntry("available", true).containsEntry("source", "COLUMN");
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Long>> byStep = (Map<String, Map<String, Long>>) st.get("byStep");
+        assertThat(byStep.keySet()).containsExactly("ANALYZE", "SEND");
+        assertThat(byStep.get("ANALYZE")).containsEntry("FAIL", 1L);
+        assertThat(byStep.get("SEND")).containsEntry("FAIL", 1L).containsEntry("SUCCESS", 1L);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) st.get("rows");
+        assertThat(rows).hasSize(3).allSatisfy(x -> assertThat(x.get("stepSource")).isEqualTo("COLUMN"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> db = (Map<String, Object>) verification.db(r.execId()).get("t4Steps");
+        assertThat(db).as("검증 패널(/verify)에도 같은 단계별 이력이 실린다").containsEntry("available", true);
     }
 
     @Test

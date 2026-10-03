@@ -29,7 +29,8 @@ import java.util.stream.Stream;
  *
  * <p>여기서 네 가지를 같이 돌려준다.</p>
  * <ol>
- *   <li><b>DB</b> — 로그 컬렉터 {@code GET /api/v1/logs/batches/{execId}} 를 통해 T1·T2(3단계 COLLECT·ANALYZE·SEND)·T4.
+ *   <li><b>DB</b> — 로그 컬렉터 {@code GET /api/v1/logs/batches/{execId}} 를 통해 T1·T2(3단계 COLLECT·ANALYZE·SEND)·T4,
+ *       {@code …/file-procs} 로 <b>T4 단계별 이력</b>(파일마다 끝난 단계 {@code STEP_TYPE_CD}).
  *       이 서비스는 로그 DB 에 직접 붙지 않는다(적재도 조회도 컬렉터 API 로만). 클라우드 전송·비식별화가 빠져
  *       (2026-10-01) T5(비식별·전송 로그)는 더 남지 않는다.</li>
  *   <li><b>PV 파일</b> — 복호화 보존물·전사 보존물. 성공한 건은 제논 전송 뒤 지워지므로(Purge) 실패한 건만 남는다.</li>
@@ -46,6 +47,12 @@ public class VerificationService {
     private static final String KUBECTL = "kubectl -n data-pipeline exec deploy/unstructured-collector-dvlx15mqnc -- ";
     /** 파일 목록의 처음·끝에서 보일 개수. */
     private static final int EDGE = 2;
+    /** T4 단계별 이력에 싣는 행 상한 — 단계별 건수는 컬렉터 집계라 상한과 무관하게 정확하다. */
+    static final int T4_ROWS = 300;
+    /** {@code [코드] [단계] 사유} — 수집기가 ERR_STACK 에 남기는 모양(로그 컬렉터 정규화 뒤에도 같다). */
+    private static final java.util.regex.Pattern ERR_STEP =
+            java.util.regex.Pattern.compile("^(?:\\[[A-Z_]+\\]\\s*)?\\[(COLLECT|ANALYZE|SEND)\\]");
+    private static final List<String> STEP_ORDER = List.of("COLLECT", "ANALYZE", "SEND");
 
     private final VoiceDirState dirs;
     private final LogCollectorClient logCollector;
@@ -131,7 +138,85 @@ public class VerificationService {
         wm.put("execId", w == null ? null : w.execId());
         wm.put("targetToDtm", text(b, "target_to_dtm"));
         m.put("watermark", wm);
+        m.put("t4Steps", t4Steps(execId));
         return m;
+    }
+
+    /**
+     * T4 단계별 이력 — 로그 컬렉터 T4 행의 {@code STEP_TYPE_CD}(V16)를 그대로 읽는다.
+     *
+     * <p>DB 에 V16 이 아직 없으면(컬렉터가 {@code stepColumn=false}) 실패 행은 ERR_STACK 의 {@code [단계]}, 성공 행은 마지막 단계
+     * {@code SEND} 로 <b>추정</b>해 채우고 {@code source=ERR_STACK} 으로 표시한다. T4 조회 API 가 없는 옛 컬렉터면 {@code available=false}.</p>
+     */
+    public Map<String, Object> t4Steps(String execId) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (!logCollector.isEnabled() || !StringUtils.hasText(execId)) {
+            m.put("available", false);
+            m.put("reason", !logCollector.isEnabled() ? "로그 컬렉터 미연동(log-collector.enabled=false)" : "EXEC_ID 가 없습니다");
+            return m;
+        }
+        JsonNode r = logCollector.fileProcs(execId, T4_ROWS);
+        if (r == null || r.isNull() || !r.path("rows").isArray()) {
+            m.put("available", false);
+            m.put("reason", "로그 컬렉터에서 T4 행을 읽지 못했습니다 — 이 EXEC_ID 가 없거나(로컬 임시 ID · 초기화됨) "
+                    + "로그 컬렉터가 T4 조회 API(GET …/file-procs · 2026-10-03) 이전 버전입니다");
+            return m;
+        }
+        boolean column = r.path("stepColumn").asBoolean(false);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        Map<String, Map<String, Long>> derived = new LinkedHashMap<>();
+        for (JsonNode x : r.path("rows")) {
+            String sts = text(x, "proc_sts_cd");
+            String step = text(x, "step_type_cd");
+            String source = step != null ? "COLUMN" : null;
+            if (step == null && !column) {
+                step = "SUCCESS".equals(sts) ? "SEND" : stepOf(text(x, "err_stack"));
+                source = step == null ? null : "ERR_STACK";
+            }
+            Map<String, Object> one = new LinkedHashMap<>();
+            one.put("fileProcId", text(x, "file_proc_id"));
+            one.put("recFileId", text(x, "rec_file_id"));
+            one.put("fileNm", text(x, "file_nm"));
+            one.put("procStsCd", sts);
+            one.put("stepTypeCd", step);
+            one.put("stepTypeNm", text(x, "step_type_nm"));
+            one.put("stepSource", source);
+            String err = text(x, "err_stack");
+            one.put("errStack", err != null && err.length() > 300 ? err.substring(0, 300) + "…" : err);
+            rows.add(one);
+            derived.computeIfAbsent(step == null ? "(없음)" : step, k -> new LinkedHashMap<>()).merge(String.valueOf(sts), 1L, Long::sum);
+        }
+        Map<String, Map<String, Long>> byStep = new LinkedHashMap<>();
+        if (column && r.path("byStep").isObject()) {
+            r.path("byStep").fields().forEachRemaining(e -> byStep.put(e.getKey(), counts(e.getValue())));
+        } else {
+            byStep.putAll(derived);
+        }
+        m.put("available", true);
+        m.put("stepColumn", column);
+        m.put("source", column ? "COLUMN" : "ERR_STACK");
+        m.put("byStep", ordered(byStep));
+        m.put("byStatus", counts(r.path("byStatus")));
+        m.put("truncated", r.path("truncated").asBoolean(false));
+        m.put("rows", rows);
+        return m;
+    }
+
+    /** ERR_STACK 의 {@code [단계]} — 없으면 null. */
+    static String stepOf(String errStack) {
+        if (errStack == null) {
+            return null;
+        }
+        java.util.regex.Matcher mt = ERR_STEP.matcher(errStack.trim());
+        return mt.find() ? mt.group(1) : null;
+    }
+
+    /** 단계 순서 — COLLECT · ANALYZE · SEND 다음 나머지(이름순). */
+    private static Map<String, Map<String, Long>> ordered(Map<String, Map<String, Long>> in) {
+        Map<String, Map<String, Long>> out = new LinkedHashMap<>();
+        STEP_ORDER.forEach(s -> { if (in.containsKey(s)) out.put(s, in.get(s)); });
+        in.keySet().stream().filter(k -> !STEP_ORDER.contains(k)).sorted().forEach(k -> out.put(k, in.get(k)));
+        return out;
     }
 
     private static Map<String, Long> counts(JsonNode n) {
@@ -236,8 +321,14 @@ public class VerificationService {
                         + "  FROM kcais.tb_file_proc_log\n"
                         + " WHERE exec_id = '" + id + "'\n"
                         + " GROUP BY proc_sts_cd;"));
-        l.add(cmd("T4 파일 처리 이력 — 건별 (실패 사유 포함)",
-                "SELECT file_proc_id, file_nm, proc_sts_cd, LEFT(err_stack, 200) AS err\n"
+        l.add(cmd("T4 파일 처리 이력 — 단계별 (STEP_TYPE_CD · V16)",
+                "SELECT step_type_cd, proc_sts_cd, COUNT(*)\n"
+                        + "  FROM kcais.tb_file_proc_log\n"
+                        + " WHERE exec_id = '" + id + "'\n"
+                        + " GROUP BY step_type_cd, proc_sts_cd\n"
+                        + " ORDER BY step_type_cd, proc_sts_cd;"));
+        l.add(cmd("T4 파일 처리 이력 — 건별 (단계 · 실패 사유 포함)",
+                "SELECT file_proc_id, rec_file_id, proc_sts_cd, step_type_cd, LEFT(err_stack, 200) AS err\n"
                         + "  FROM kcais.tb_file_proc_log\n"
                         + " WHERE exec_id = '" + id + "'\n"
                         + " ORDER BY file_proc_id;"));

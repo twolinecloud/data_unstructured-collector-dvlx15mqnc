@@ -153,11 +153,21 @@ public final class FakeLogCollector implements AutoCloseable {
                         text(body, "execStsCd"), num(body, "targetCnt"), num(body, "successCnt"), num(body, "failCnt"),
                         text(body, "errMsg"), m.group(1));
                 result = Map.of("execId", m.group(1));
+            } else if ("GET".equals(method) && (m = FILES.matcher(path)).matches()) {
+                if (rows("SELECT * FROM tb_batch_exec_log WHERE exec_id = ?", m.group(1)).isEmpty()) {
+                    // 진짜 로그 컬렉터와 같다 — 없는 배치는 404
+                    respond(ex, 404, Map.of("success", false, "code", 404, "error_message", "배치 실행 이력 없음: " + m.group(1)));
+                    return;
+                }
+                result = fileProcs(m.group(1));
             } else if ("GET".equals(method) && (m = BATCH.matcher(path)).matches()) {
                 List<Map<String, Object>> b = rows("SELECT * FROM tb_batch_exec_log WHERE exec_id = ?", m.group(1));
                 Map<String, Object> d = new LinkedHashMap<>();
                 d.put("batch", b.isEmpty() ? null : b.get(0));
                 d.put("steps", rows("SELECT * FROM tb_batch_step_log WHERE exec_id = ? ORDER BY step_seq", m.group(1)));
+                d.put("reconcile", Map.of("file_cnt", rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", m.group(1)).size()));
+                Map<String, Object> fp = fileProcs(m.group(1));
+                d.put("statusSummary", Map.of("fileByStatus", fp.get("byStatus"), "fileByStep", fp.get("byStep"), "fileStepColumn", true));
                 result = d;
             } else {
                 result = Map.of();
@@ -166,6 +176,31 @@ public final class FakeLogCollector implements AutoCloseable {
         } catch (Exception e) {
             respond(ex, 500, Map.of("success", false, "code", 500, "error_message", String.valueOf(e.getMessage())));
         }
+    }
+
+    /** 로그 컬렉터 {@code GET …/batches/{execId}/file-procs} 와 같은 모양(V16 적용 DB). */
+    private Map<String, Object> fileProcs(String execId) {
+        Map<String, String> c05 = Map.of("COLLECT", "수집", "ANALYZE", "분석", "SEND", "전송");
+        List<Map<String, Object>> rs = rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ? ORDER BY file_proc_id", execId);
+        Map<String, Long> byStatus = new LinkedHashMap<>();
+        Map<String, Map<String, Long>> byStep = new LinkedHashMap<>();
+        for (Map<String, Object> r : rs) {
+            String sts = String.valueOf(r.get("proc_sts_cd"));
+            Object step = r.get("step_type_cd");
+            if (step != null) {
+                r.put("step_type_nm", c05.get(String.valueOf(step)));
+            }
+            byStatus.merge(sts, 1L, Long::sum);
+            byStep.computeIfAbsent(step == null ? "(없음)" : String.valueOf(step), k -> new LinkedHashMap<>()).merge(sts, 1L, Long::sum);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("execId", execId);
+        out.put("stepColumn", true);
+        out.put("byStatus", byStatus);
+        out.put("byStep", byStep);
+        out.put("truncated", false);
+        out.put("rows", rs);
+        return out;
     }
 
     private Map<String, Object> createBatch(JsonNode b) {

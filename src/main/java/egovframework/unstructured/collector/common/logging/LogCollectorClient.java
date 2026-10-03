@@ -259,6 +259,18 @@ public class LogCollectorClient {
      * @return 테이블별 삭제 건수. 컬렉터 미연동이거나 실패하면 {@code null}
      */
     /**
+     * T4 행 — 파일마다 상태와 끝난 단계({@code step_type_cd} · C05 한글명). 로그 컬렉터
+     * {@code GET /api/v1/logs/batches/{execId}/file-procs}(2026-10-03 · V16). 시뮬레이터의 단계별 이력 표출이 쓴다.
+     * 컬렉터가 꺼져 있거나 호출이 실패하면(이 API 가 없는 옛 컬렉터 포함) null.
+     */
+    public JsonNode fileProcs(String execId, int limit) {
+        if (!isEnabled() || execId == null || execId.isBlank()) {
+            return null;
+        }
+        return exchange(HttpMethod.GET, url("/api/v1/logs/batches/" + execId.trim() + "/file-procs?limit=" + limit), null);
+    }
+
+    /**
      * 배치 상세 — T1 + T2 + 하위 집계(T4·T5 건수·상태별). 검증 패널이 쓴다.
      * 컬렉터가 꺼져 있거나 호출이 실패하면 null.
      */

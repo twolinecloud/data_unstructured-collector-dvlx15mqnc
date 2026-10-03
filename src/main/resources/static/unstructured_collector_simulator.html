@@ -2440,6 +2440,7 @@ function verifyBody(v, id) {
           <span class="text-secondary">in ${x.inCnt ?? 0} / out ${x.outCnt ?? 0} / err ${x.errCnt ?? 0}</span>`).join('<br>') || '—'}</div>
       <div class="vf-row"><span>T4 파일 <code>tb_file_proc_log</code></span><span>${db.t4?.total ?? 0}행</span></div>
       <div class="vf-sub">${sup ? vfCounts(db.t4?.byStatus) : '<span class="text-secondary">상태별 집계 없음 — 로그 컬렉터가 구버전</span>'}</div>
+      ${t4StepsHtml(db.t4Steps, id)}
       <div class="vf-row"><span>[바로 실행] 워터마크 <span class="text-secondary">(${esc(wm.jobId || '')})</span></span>
         <span>${wm.at ? `<code>${esc(String(wm.at).replace('T', ' '))}</code>` : '<span class="text-secondary">없음 → 최근 30일</span>'}</span></div>
       <div class="vf-sub">SUCCESS 배치의 <code>MAX(target_to_dtm)</code>${wm.execId ? ` · ${esc(wm.execId)}` : ''}
@@ -2465,6 +2466,49 @@ function verifyBody(v, id) {
       <div><div class="hint">SQL</div>${cmds(v.sql, 'sql')}</div>
       <div><div class="hint">CLI · ${v.env === 'K8S' ? 'kubectl exec' : '로컬 Git Bash'}</div>${cmds(v.cli, 'cli')}</div>
     </div>`;
+}
+
+/** T4 단계별 이력 — 로그 컬렉터 T4 의 STEP_TYPE_CD(V16)를 직접 읽은 것(GET /api/v1/voice/verify/file-procs).
+ *  단계 × 상태 건수 표와 건별 행. DB 에 V16 이 아직 없으면 ERR_STACK 의 [단계]로 추정한 값이라고 표시한다. */
+function t4StepsHtml(t, id) {
+  const head = (right) => `<div class="vf-row"><span>T4 단계별 이력 <code>STEP_TYPE_CD</code></span><span>${right}</span></div>`;
+  if (!t) return '';
+  if (!t.available) return head('<span class="text-secondary">—</span>') + `<div class="vf-sub text-secondary">${esc(t.reason || '')}</div>`;
+  const src = t.source === 'COLUMN' ? '<span class="vf-b SUCCESS" title="로그 컬렉터 T4 의 STEP_TYPE_CD 컬럼값">컬럼</span>'
+    : '<span class="vf-b PARTIAL" title="DB 에 V16(step_type_cd)이 아직 없어 ERR_STACK 의 [단계]로 추정 · 성공은 SEND">ERR_STACK 추정</span>';
+  const steps = Object.entries(t.byStep || {});
+  const sum = (m) => Object.values(m || {}).reduce((a, b) => a + b, 0);
+  const tbl = steps.length ? `<table class="table table-sm mb-1 dm-tbl t4-steps"><thead class="table-light"><tr><th>단계</th><th class="text-end">성공</th><th class="text-end">실패</th><th class="text-end">계</th></tr></thead><tbody>
+      ${steps.map(([s, m]) => `<tr><td>${PIPE_STEPS.findIndex(x => x[0] === s) >= 0 ? `<b>${PIPE_STEPS.findIndex(x => x[0] === s) + 1}</b> ` : ''}${esc(s)}
+          <span class="text-secondary">${esc(PIPE_LABEL[s] || '')}</span></td>
+        <td class="text-end">${m.SUCCESS ? `<span class="vf-b SUCCESS">${m.SUCCESS}</span>` : '0'}</td>
+        <td class="text-end">${m.FAIL ? `<span class="vf-b FAIL">${m.FAIL}</span>` : '0'}</td><td class="text-end">${sum(m)}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="vf-sub text-secondary">T4 행 없음</div>';
+  const rows = (t.rows || []).map(r => `<tr><td class="font-monospace">${esc(r.recFileId || r.fileProcId || '')}</td><td>${vfBadge(r.procStsCd)}</td>
+      <td>${r.stepTypeCd ? `<code>${esc(r.stepTypeCd)}</code>${r.stepSource === 'ERR_STACK' ? ' <span class="text-secondary">(추정)</span>' : ''}` : '<span class="text-secondary">—</span>'}</td>
+      <td class="small text-secondary">${esc(r.errStack || '')}</td></tr>`).join('');
+  return head(`${src} · ${(t.rows || []).length}행${t.truncated ? '+' : ''}`)
+    + `<div class="vf-sub">${tbl}${rows ? `<details><summary class="small">건별 — 파일마다 끝난 단계(실패는 실패한 단계 · 성공은 SEND)</summary>
+      <div class="table-responsive" style="max-height:260px"><table class="table table-sm mb-0 dm-tbl"><thead class="table-light sticky-top"><tr>
+      <th>REC_FILE_ID</th><th>상태</th><th>STEP_TYPE_CD</th><th>ERR_STACK</th></tr></thead><tbody>${rows}</tbody></table></div></details>` : ''}</div>`;
+}
+/** T4 단계별 이력만 — ⑤ · 6번 탭이 실행 ID 마다 부른다. 실패하면 null. */
+async function fetchT4Steps(execId) {
+  if (!execId) return null;
+  return await call('GET', `/api/v1/voice/verify/file-procs?execId=${encodeURIComponent(execId)}`, '', true);
+}
+/** 한 줄 요약 — "COLLECT 실패 1 · ANALYZE 실패 1 · SEND 성공 3". */
+function t4StepsSummary(t) {
+  return Object.entries(t?.byStep || {}).map(([s, m]) => `${s} ${Object.entries(m).map(([k, n]) => `${k === 'SUCCESS' ? '성공' : k === 'FAIL' ? '실패' : k} ${n}`).join('/')}`).join(' · ');
+}
+/** 실행 목록 → 실행마다 접힌 'T4 단계별 이력' — ⑤ 와 6번 탭이 같이 쓴다. runs = [[라벨, execId], …] */
+async function t4RunsHtml(prefix, runs) {
+  const parts = await Promise.all(runs.map(async ([label, execId], i) => {
+    const t = await fetchT4Steps(execId);
+    const sub = `EXEC_ID ${esc(execId)}${t?.available ? ' · ' + esc(t4StepsSummary(t)) : ''}`;
+    return verifyAcc(`${prefix}-${i}`, `T4 단계별 이력 — ${label}`, sub, `<div class="vf-card">${t4StepsHtml(t, prefix + '-' + i)}</div>`);
+  }));
+  return parts.join('');
 }
 
 /** 검증 본문을 접힌 서브 아코디언으로 감싼다 — 바로 펼쳐 두면 버튼 아래가 수천 px 로 늘어난다. */
@@ -2762,8 +2806,9 @@ async function simCreate(showDone) {
   if (showDone) showPopup('시뮬레이션 데이터 생성 완료', seedPopupHtml(sim));
   return true;
 }
-// 상단 [시뮬레이션 데이터 생성] — 생성 창(모달). 더미 생성 API 가 없는 서버(운영 프로필 · 옛 버전)면 예전 Clean & Seed
-$('btn-reset').onclick = () => (DM_INFO ? dmOpen() : simCreate(true));
+// 상단 [시뮬레이션 데이터 생성] — 늘 생성 창(모달)을 연다. 생성 API 가 없는 서버(옛 배포 · 운영 프로필)면 창 안에서 그 이유를 보여 주고
+//   [생성 실행] 을 잠근다 — 예전처럼 조용히 Clean & Seed 로 넘어가면 "모달이 안 뜬다" 로 보인다(2026-10-03 개발계에서 그랬다).
+$('btn-reset').onclick = () => dmOpen();
 $('btn-dataset').onclick = async () => {
   const m = Number($('ds-meet').value||0), p = Number($('ds-phone').value||0);
   const d = await call('PUT', `/api/v1/mock/dataset?meet=${m}&phone=${p}`, `Mock 규모 일배치 ${m}·${p} 적용`);
@@ -2928,7 +2973,6 @@ async function dmLoadStatus() {
   const ok = !!d;
   document.querySelectorAll('#ks-box button').forEach(b => b.disabled = !ok);
   $('btn-dmy-clear').disabled = !ok;
-  $('dm-open').disabled = !ok;
   if (!ok) { dmPreview(); $('dm-sum').textContent = ' — 이 서버에는 더미 생성 기능이 없습니다(운영 프로필이거나 옛 버전)'; return; }
   const dash = !!d.dashboardEnabled;
   $('dm-t-dmy').disabled = !dash;
@@ -3002,7 +3046,8 @@ function dmCountsText(g) {
 }
 
 // ── [시뮬레이션 데이터 생성] 모달 ─────────────────────────────────────────
-function dmOpen() {
+async function dmOpen() {
+  if (!DM_INFO) await dmLoadStatus();   // 처음 불러올 때 실패했을 수 있다 — 열 때 한 번 더 묻는다
   const today = ymdLocal(new Date());
   $('dm-date').max = today;
   if (!$('dm-date').value) $('dm-date').value = ymdShift(today, -1);
@@ -3055,7 +3100,10 @@ function dmPreview() {
     ${f.failTotal ? `<span class="text-secondary">(CF ${f.failures.COLLECT_FAIL} · AF ${f.failures.ANALYZE_FAIL} · SF ${f.failures.SEND_FAIL} × ${f.types.length}유형)</span>` : ''}
     <div class="mt-1">${dmy ? '실제 배치가 EXEC_ID <code>UNS</code> 로 처리합니다 — 시뮬레이터 시험 실행은 집지 않습니다.'
       : '시뮬레이터 시험 실행(EXEC_ID <code>TST</code>)만 읽습니다 — 실제 배치는 집지 않습니다.'}</div>`;
-  $('dm-err').textContent = !DM_INFO ? '이 서버에는 더미 생성 API 가 없습니다(운영 프로필이거나 옛 버전)' : f.err;
+  $('dm-err').textContent = !DM_INFO
+    ? '이 수집기에는 생성 API(GET /api/v1/mock/sim-data/generated · POST …/generate)가 없습니다 — 수집기를 최신으로 배포해야 합니다'
+      + '(개발계: dev 머지 → 배포). 운영 프로필이면 꺼져 있습니다. 2번 탭 고정 14건은 아래 [예전 Clean & Seed] 로 만들 수 있습니다.'
+    : f.err;
   $('dm-gen').disabled = !DM_INFO || !!f.err;
   return f;
 }
@@ -3275,7 +3323,22 @@ function ksPaint() {
         <td>${r.sc ? `<span class="vf-b FAIL">${esc(r.sc.short)}</span> ${esc(r.sc.label)}` : '<span class="vf-b SUCCESS">정상</span>'}</td>
         <td>${esc(r.expectStep || '성공')}</td><td>${st(r.first, r.firstStep)}</td><td>${mark(r.first ? r.firstOk : null)}</td>
         <td><code>${esc(r.resume)}</code></td><td>${st(r.again, null)}</td><td>${mark(r.sc ? r.againOk : null)}</td></tr>`).join('')}
-    </tbody></table></div>`;
+    </tbody></table></div>
+    <div id="ks-t4" class="mt-2"></div>`;
+  ksT4Paint();
+}
+
+/** ⑤ — 이번 시나리오가 남긴 실행마다 로그 컬렉터 T4 의 STEP_TYPE_CD(단계별 이력)를 붙인다. */
+async function ksT4Paint() {
+  if (!KS) return;
+  const runs = [];
+  if (KS.first.voice?.execId) runs.push(['1차 실행 · 음성', KS.first.voice.execId]);
+  if (KS.first.image?.execId) runs.push(['1차 실행 · 이미지', KS.first.image.execId]);
+  DM_SCEN.forEach(sc => { const r = KS.resume[sc.key]; if (r?.execId) runs.push([`재처리 ${sc.key} → ${sc.resume}`, r.execId]); });
+  if (KS.resume.image?.execId) runs.push(['이미지 재실행', KS.resume.image.execId]);
+  const html = runs.length ? `<div class="fw-semibold small mb-1">로그 컬렉터 T4 — 실행별 단계별 이력(STEP_TYPE_CD)</div>` + await t4RunsHtml('ks-t4', runs) : '';
+  const box = document.getElementById('ks-t4');
+  if (box) box.innerHTML = html;
 }
 
 function ksVerdict() {
@@ -4819,12 +4882,19 @@ function imRenderReport(r) {
       <th>CORR_NO</th><th class="text-end">IMAGE_SN</th><th>FILEKEY</th><th>저장 경로(photo_path)</th><th class="text-end">크기</th><th>형식</th><th>LAST_BATCH_EXEC_ID</th></tr></thead>
       <tbody>${sample}</tbody></table><div class="hint">매핑 테이블 표본(최대 5행) — 검증 시점</div></div>` : ''}
     ${imTraceHtml(r)}
+    <div id="im-t4"></div>
     <div class="d-flex flex-wrap align-items-center gap-2 mt-2"><span class="hint">${tail} · 실행 ${esc(String(r.at || '').replace('T', ' '))}</span>
       <span class="ms-auto d-flex flex-wrap gap-2" data-cap-hide>
         <button class="btn btn-sm btn-outline-primary" type="button" data-im-capture="1" title="① 설정부터 ② 결과 리포트까지 한 장의 PNG 로 저장합니다">📸 전체 리포트 저장</button>
       </span></div>`;
   const cb = $('im-report').querySelector('[data-im-capture]');
   if (cb) cb.onclick = () => imCapture(cb);
+  if (r.execId) {
+    t4RunsHtml('im-t4', [['이번 실행 · 이미지', r.execId]]).then(html => {
+      const box = document.getElementById('im-t4');
+      if (box) box.innerHTML = html;
+    });
+  }
 }
 
 function imCapture(btn) {

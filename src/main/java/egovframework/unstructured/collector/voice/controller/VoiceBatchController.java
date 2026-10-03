@@ -318,6 +318,21 @@ public class VoiceBatchController {
         return verification.verify(execId);
     }
 
+    @Operation(summary = "T4 단계별 이력 (로그 컬렉터 STEP_TYPE_CD)",
+            description = """
+                    한 배치(EXEC_ID)의 T4 행을 로그 컬렉터에서 읽어 **파일마다 끝난 단계**(`STEP_TYPE_CD` · C05)와 상태를 돌려준다.
+                    시뮬레이터 검증 패널 · ⑤ 키 표식 시나리오 · 6번 탭이 단계별 이력을 그린다. admin-api 를 거치지 않는다.
+
+                    - `byStep` — 단계 × 상태 건수(`{COLLECT:{FAIL:1}, SEND:{SUCCESS:3}}`) · `byStatus` — 상태별 건수
+                    - `rows` — 최대 300행(`truncated`). 실패는 실패한 단계, 성공은 마지막 단계 `SEND`
+                    - `source=COLUMN` — 컬럼값 그대로. `ERR_STACK` — DB 에 V16 이 아직 없어 ERR_STACK 의 `[단계]` 로 추정(`stepColumn=false`)
+                    - `available=false` — 로그 컬렉터 미연동 · EXEC_ID 없음 · T4 조회 API 이전 컬렉터
+                    """)
+    @GetMapping("/verify/file-procs")
+    public Map<String, Object> verifyFileProcs(@RequestParam String execId) {
+        return verification.t4Steps(execId);
+    }
+
     @Operation(summary = "[바로 실행] 워터마크 (DB)",
             description = """
                     [바로 실행]이 어디서부터 볼지 — 로그 컬렉터 T1 의 `exec_sts_cd='SUCCESS'` 배치 `MAX(target_to_dtm)`.

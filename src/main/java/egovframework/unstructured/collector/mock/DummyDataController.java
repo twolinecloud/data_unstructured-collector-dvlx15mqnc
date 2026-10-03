@@ -73,14 +73,16 @@ public class DummyDataController {
     }
 
     @Operation(summary = "키 표식 장애 — 소진 현황",
-            description = "표식(CF·AF·SF)을 단 키 중 이미 한 번 실패한 것. 여기 있는 키는 다음 실행에서 통과합니다(메모리 — 재기동하면 비워짐).")
+            description = "표식(CF·AF·SF)을 단 키 중 이미 한 번 실패한 것. 여기 있는 키는 다음 실행에서 통과합니다. "
+                    + "소진 표시는 PV 파일 `{ROOT}/mock/scenario_faults.json` 에도 남아 파드가 다시 떠도 유지됩니다(`file` 에 경로).")
     @GetMapping("/sim-data/scenario-faults")
     public Map<String, Object> scenarioFaults() {
         return scenarioFaults.snapshot();
     }
 
     @Operation(summary = "키 표식 장애 — 다시 걸기",
-            description = "소진 표시를 지워 표식 건이 **다음 실행에서 한 번 더** 실패하게 합니다. `target` 을 주면 그 용도의 키만, 비우면 전부.")
+            description = "소진 표시를 지워 표식 건이 **다음 실행에서 한 번 더** 실패하게 합니다. `target` 을 주면 그 용도의 키만, 비우면 전부. "
+                    + "PV 파일에서도 지워집니다.")
     @DeleteMapping("/sim-data/scenario-faults")
     public Map<String, Object> rearm(@RequestParam(required = false) DummyTarget target) {
         int n = scenarioFaults.forget(k -> target == null || target.ownsScenarioKey(k));

@@ -9,7 +9,7 @@ package egovframework.unstructured.collector.voice.batch;
  *   <li>{@link #FROM_SEND} — 제논 전송부터(보존된 전사 {@code stt_temp}). 전송에서 깨진 건을 STT 없이 다시 보낸다</li>
  * </ul>
  *
- * <p>2026-10-01 3단계 복원으로 비식별부터 잇던 {@code FROM_DEIDENT} 는 없앴다.</p>
+ * <p>비정형 3단계({@link egovframework.unstructured.collector.common.model.StepType} — COLLECT · ANALYZE · SEND)와 1:1 이다.</p>
  */
 public enum ResumeMode {
     FULL,

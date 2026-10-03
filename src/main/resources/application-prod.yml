@@ -50,3 +50,11 @@ image:
     url: ${ADMIN_DB_URL:}
     username: ${ADMIN_DB_USERNAME:}
     password: ${ADMIN_DB_PASSWORD:}
+
+# ── 더미 데이터 — 운영은 강제로 끈다(환경변수로도 켜지 않는다). 생성 API · 스케줄러 빈도 운영 프로필에서는 생기지 않는다 ──
+unstructured:
+  mock:
+    dashboard:
+      enabled: false
+    daily:
+      enabled: false

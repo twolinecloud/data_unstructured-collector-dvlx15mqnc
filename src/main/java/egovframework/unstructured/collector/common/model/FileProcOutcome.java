@@ -27,13 +27,14 @@ public record FileProcOutcome(
         long elapsedMs
 ) {
 
+    /** 수집 — {@link StepType#COLLECT} 의 코드. 문자열 상수로 두는 것은 단계 비교가 문자열(T2 · 화면 · 응답)이라서다. */
     public static final String STEP_COLLECT = "COLLECT";
+    /** 정제/분석(STT) — {@link StepType#ANALYZE}. */
     public static final String STEP_ANALYZE = "ANALYZE";
     /**
-     * 적재/전송 — STT 결과를 제논(Zenon) 수신 API 로 보내고 그 건의 임시 파일을 지운다.
+     * 적재/전송 — STT 결과를 제논(Zenon) 수신 API 로 보내고 그 건의 임시 파일을 지운다. {@link StepType#SEND}.
      *
-     * <p>비정형 T2 체인(COLLECT 1 · ANALYZE 2 · SEND 3)의 마지막 칸이다(2026-10-01 3단계 복원 — 클라우드 전송·
-     * 비식별화 DEIDENT 제외). 예전에는 PV 의 xenon 폴더에 내보냈지만 이제 남기지 않는다.</p>
+     * <p>비정형 T2 체인(COLLECT 1 · ANALYZE 2 · SEND 3)의 마지막 칸이다. PV 에는 결과를 남기지 않는다.</p>
      */
     public static final String STEP_SEND = "SEND";
 
@@ -60,5 +61,15 @@ public record FileProcOutcome(
 
     public boolean failedAt(String step) {
         return isFail() && step.equals(failedStep);
+    }
+
+    /**
+     * T4 에 남길 단계 — 실패면 실패한 단계, 성공이면 마지막까지 간 단계(SEND), 건너뜀이면 null(T4 에 남기지 않는다).
+     */
+    public StepType stepTypeForLog() {
+        if (isFail()) {
+            return StepType.parse(failedStep).orElse(StepType.COLLECT);
+        }
+        return isSuccess() ? StepType.SEND : null;
     }
 }

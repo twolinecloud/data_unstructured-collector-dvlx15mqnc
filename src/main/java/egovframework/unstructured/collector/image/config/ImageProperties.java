@@ -26,7 +26,8 @@ public record ImageProperties(
          * 순서에 따라 값이 뒤섞인다(그래서 매핑 테이블을 따로 둔다). 필요하면 {@code POST /api/v1/image/photo-ref/sync} 로 일괄 반영한다
          */
         @DefaultValue("false") boolean updatePhotoRef,
-        @DefaultValue AdminDb adminDb
+        @DefaultValue AdminDb adminDb,
+        @DefaultValue("IMAGE_COLLECT") String jobId
 ) {
 
     /**

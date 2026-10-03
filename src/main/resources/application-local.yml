@@ -28,7 +28,7 @@ spring:
 #
 #   ⚠ 컬렉터가 안 떠 있어도 이 서비스는 정상 동작한다. LogCollectorClient 는 호출 실패를
 #     경고만 남기고 넘어간다(이력 적재가 수집을 막지 않는다). 다만 EXEC_ID 를 못 받아
-#     로컬 임시 ID(…VOC-LOCAL)로 돌아간다.
+#     로컬 임시 ID(yyyyMMdd + UNS + 시각)로 돌아간다.
 log-collector:
   enabled: ${LOG_COLLECTOR_ENABLED:true}
   base-url: ${LOG_COLLECTOR_BASE_URL:}     # 비우면 환경 프리셋(로컬 http://localhost:8090/logc)
@@ -159,3 +159,12 @@ logging:
 #   개발계 Admin DB 로 붙어 보려면 포트포워딩 후 환경변수로 준다(DDL 이 적용돼 있어야 한다):
 #     kubectl -n service-core port-forward svc/admin-db-fy9tjq4tsk 15434:5432
 #     ADMIN_DB_URL=jdbc:postgresql://localhost:15434/correction_ai  ADMIN_DB_USERNAME=…  ADMIN_DB_PASSWORD=…
+
+# ── 더미 데이터 — 로컬은 대시보드 더미(DMY) 생성을 허용한다(H2 · 로컬 파일). 매일 자동 생성은 끔 ──
+unstructured:
+  mock:
+    dashboard:
+      enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}
+  # 개발계와 같게 — 스케줄 · 바로 실행이 음성 뒤에 이미지 수집도 돈다
+  batch:
+    include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:true}

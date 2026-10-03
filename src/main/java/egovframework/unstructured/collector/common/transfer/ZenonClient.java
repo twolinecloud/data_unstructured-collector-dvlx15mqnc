@@ -75,18 +75,27 @@ public class ZenonClient {
     private final ZenonProperties props;
     private final ObjectMapper objectMapper;
     private final RestTemplate rest;
+    /** 더미 키 표식(SF) 장애 — MOCK 모드에서 이 건의 전송을 한 번만 거부한다(REST 면 tools/zenon-mock 서버가 같은 표식에 503). */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
     private final Deque<Receipt> receipts = new ConcurrentLinkedDeque<>();
 
     @Autowired
-    public ZenonClient(ZenonProperties props, ObjectMapper objectMapper) {
-        this(props, objectMapper, restTemplate(props));
+    public ZenonClient(ZenonProperties props, ObjectMapper objectMapper,
+                       egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
+        this(props, objectMapper, restTemplate(props), scenarioFaults);
     }
 
-    /** 시험용 — RestTemplate 을 넘겨받는다(MockRestServiceServer). */
+    /** 시험용 — RestTemplate 을 넘겨받는다(MockRestServiceServer). 키 표식 장애는 쓰지 않는다. */
     ZenonClient(ZenonProperties props, ObjectMapper objectMapper, RestTemplate rest) {
+        this(props, objectMapper, rest, egovframework.unstructured.collector.mock.ScenarioFaults.inactive());
+    }
+
+    ZenonClient(ZenonProperties props, ObjectMapper objectMapper, RestTemplate rest,
+                egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
         this.props = props;
         this.objectMapper = objectMapper;
         this.rest = rest;
+        this.scenarioFaults = scenarioFaults;
         log.info("[Zenon] 전송 모드 {} · {}", props.mode(), endpoint());
     }
 
@@ -137,6 +146,12 @@ public class ZenonClient {
     }
 
     private Receipt mock(Document d, Map<String, Object> meta) {
+        // 더미 시나리오 SEND_FAIL — 데이터 성질이 아니라 전송 실패라 수신 쪽이 거부하게 한다. 표식 건만 · 한 번만.
+        Object key = d.extra() == null ? null : d.extra().get("idempotency_key");
+        if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL,
+                key == null ? null : key.toString())) {
+            throw new ZenonSendException("제논 HTTP 503 — (MOCK) 수신 거부 [더미 시나리오 SEND_FAIL · 1회]");
+        }
         return new Receipt("SUCCESS", d.execId(), d.type(), d.inmateNo(), d.fileName(), d.content().length,
                 LocalDateTime.now().withNano(0).toString(), "MOCK", endpoint(), meta, d.preview());
     }

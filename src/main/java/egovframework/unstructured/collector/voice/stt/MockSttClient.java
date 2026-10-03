@@ -35,6 +35,8 @@ public class MockSttClient implements SttClient {
     private final egovframework.unstructured.collector.voice.batch.BatchProgress progress;
     /** 고속 모드에서 기다리지 않은 처리 시간을 적어 두는 곳 — 성능 시험 리포트가 합산한다. */
     private final egovframework.unstructured.collector.voice.perf.PerfStageMeter meter;
+    /** 더미 키 표식(AF) 장애 — 이 건의 STT 를 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
 
     /** 가상 지연을 이 간격으로 잘라 자면서 중단 요청을 본다. */
     private static final long PAUSE_SLICE_MS = 200L;
@@ -65,6 +67,12 @@ public class MockSttClient implements SttClient {
         // 장애 시뮬레이션이 켜져 있으면 여기서 지연·예외가 난다.
         // 한 건이 터져도 배치가 끝까지 도는지(processOne 의 건별 격리) 확인하기 위한 지점이다.
         faultInjector.maybeInject(FaultInjector.Stage.STT);
+        // 더미 시나리오 ANALYZE_FAIL — 손상 파일로는 재현되지 않는다(Mock 은 내용을 보지 않고, 복호화 실패는 COLLECT 로 집계된다).
+        //   표식 건만 한 번 실패시킨다 — 복호화 오디오가 보존되어 FROM_ANALYZE 재처리가 STT 부터 잇는다.
+        if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.ANALYZE_FAIL,
+                file.target().idempotencyKey())) {
+            throw new IllegalStateException("STT 호출 실패 — HTTP 500 (MOCK) [더미 시나리오 ANALYZE_FAIL · 1회]");
+        }
         // NPU 응답 시간 흉내 — 기본 0ms. 성능 테스트가 도는 동안만 지연·타임아웃이 걸린다.
         simulateLatency(file);
 

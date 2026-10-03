@@ -44,6 +44,11 @@ public final class ImageMetrics {
         errors.get(s).increment();
     }
 
+    /** 이 세부 단계에 쓴 시간의 합(ms) — 워커가 여럿이면 실제 경과보다 클 수 있다. */
+    public long totalMs(ImageStage s) {
+        return Math.round(nanos.get(s).sum() / 1_000_000d);
+    }
+
     public double avgMs(ImageStage s) {
         long n = counts.get(s).sum();
         return n == 0 ? 0d : round1(nanos.get(s).sum() / 1_000_000d / n);

@@ -190,7 +190,7 @@ voice:
     periodic-lag-min: 20
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:500}
-    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum — VOICE_ANALYSIS → 작업코드 VOC
+    job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum(작업명 매핑) — 채번 작업코드는 data-type-cd 가 정한다(UNSTRUCTURED → UNS)
     data-type-cd: UNSTRUCTURED               # 컬렉터 C01 4종 중 비정형(음성). VOICE 는 C01 에 없는 코드였다
     retain-source-file: ${VOICE_RETAIN_SOURCE:false}
     # 워커 — 확보(I/O)와 STT(연산)를 나눈다. 둘 다 1 이면 순차(운영 기본), 아니면 생산자-소비자.
@@ -225,6 +225,21 @@ unstructured:
   batch:
     include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:false}
     exec-id-wait-ms: ${UNSTRUCTURED_EXEC_ID_WAIT_MS:1500}
+  # ── 더미 데이터(시뮬레이터 SIM / 대시보드 DMY) — 생성 API · 스케줄러는 dev/local 프로필에서만 빈이 생긴다 ──
+  #   dashboard.enabled: 대시보드 더미(DMY — 실존하지 않는 가상 교정번호) 생성 허용. dev/local 프로필이 켠다 · prod 는 강제 false
+  #   daily: 매일 cron 에 어제 날짜로 DMY 를 추가(append)하고 retain-days 지난 DMY 를 지운다(catch-up 없음). 기본 끔
+  mock:
+    dashboard:
+      enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:false}
+    daily:
+      enabled: ${UNSTRUCTURED_MOCK_DAILY_ENABLED:false}
+      cron: ${UNSTRUCTURED_MOCK_DAILY_CRON:0 30 1 * * *}
+      types: ${UNSTRUCTURED_MOCK_DAILY_TYPES:PHONE,MEET,IMAGE}
+      count: ${UNSTRUCTURED_MOCK_DAILY_COUNT:5}
+      collect-fail: ${UNSTRUCTURED_MOCK_DAILY_COLLECT_FAIL:0}
+      analyze-fail: ${UNSTRUCTURED_MOCK_DAILY_ANALYZE_FAIL:0}
+      send-fail: ${UNSTRUCTURED_MOCK_DAILY_SEND_FAIL:0}
+      retain-days: ${UNSTRUCTURED_MOCK_DAILY_RETAIN_DAYS:7}
 
 # ── 제논(Zenon) 전송 — 파이프라인 3단계 SEND ────────────────────────────────
 #   [수집] COLLECT → [정제/분석] ANALYZE(STT) → [적재/전송] SEND(제논). 클라우드 전송·비식별화(에이전트 커넥터)는

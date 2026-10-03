@@ -1,8 +1,11 @@
 package egovframework.unstructured.collector.batch;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import egovframework.unstructured.collector.batch.schedule.BatchScheduleReq;
 import egovframework.unstructured.collector.batch.schedule.UnstructuredBatchScheduler;
+import egovframework.unstructured.collector.common.util.FlexibleLocalDateTimeDeserializer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -12,6 +15,7 @@ import lombok.extern.log4j.Log4j2;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +25,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -48,16 +51,24 @@ public class AdminLinkController {
     private final UnstructuredJobRunner runner;
     private final UnstructuredBatchProperties props;
 
-    /** 바로 실행 본문 — admin-api {@code BatchRunRequest(dataTypeCd, targetToDtm)}. 시각은 ISO 또는 공백 구분. */
+    /**
+     * 바로 실행 본문 — admin-api {@code BatchRunRequest(dataTypeCd, targetToDtm)}.
+     *
+     * <p>{@code targetToDtm} 은 <b>배열 {@code [yyyy, MM, dd, HH, mm(, ss)]}</b> 과 <b>ISO 문자열</b>(공백 구분 포함)을 다 받는다
+     * ({@link FlexibleLocalDateTimeDeserializer}). admin-api 가 {@code RestClient.builder()} 를 직접 써서
+     * 시각이 {@code [2026,10,2,10,0]} 으로 나가 400 이 나던 문제(인수인계 1002155708 9.3)를 수집기 쪽에서 받아 준다.</p>
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BatchRunReq(
             @Schema(example = "UNSTRUCTURED") String dataTypeCd,
-            @Schema(description = "수집 구간 끝(미포함). 비우면 지금-lag", example = "2026-10-02T10:00:00") String targetToDtm) {}
+            @Schema(description = "수집 구간 끝(미포함). 비우면 지금-lag. ISO 문자열(`2026-10-02T10:00:00` · `2026-10-02 10:00:00`) 또는 "
+                    + "배열 `[2026,10,2,10,0]`(`[yyyy, MM, dd, HH, mm(, ss)]`)", type = "string", example = "2026-10-02T10:00:00")
+            @JsonDeserialize(using = FlexibleLocalDateTimeDeserializer.class) LocalDateTime targetToDtm) {}
 
     /** 긴급 재처리 본문 — admin-api {@code ReprocessRequest(execId, dataTypeCd, stepTypeCd, stepSeq)}. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReprocessReq(
-            @Schema(description = "재처리할 원배치 실행 ID", example = "20261001VOC001") String execId,
+            @Schema(description = "재처리할 원배치 실행 ID", example = "20261002UNS001") String execId,
             @Schema(example = "UNSTRUCTURED") String dataTypeCd,
             @Schema(description = "단계(C05) COLLECT · ANALYZE · SEND. 비우면 처음부터(전체 재처리)", example = "SEND") String stepTypeCd,
             @Schema(description = "단계 순번 — 비정형은 단계가 한 번씩이라 쓰지 않는다(기록만)", example = "3") Integer stepSeq) {}
@@ -101,13 +112,15 @@ public class AdminLinkController {
                     - **202** `{execId, status:"RUNNING", execIdSource, ...}` — 접수하고 곧바로 돌려준다. execId 는 로그 컬렉터가 채번한 실제 값
                       (`execIdSource=COLLECTOR`). 잠깐 기다려도 안 오면 접수 handle(`HANDLE`) — 진행은 `GET /internal/batch/status?execId=`
                     - **409** — 이미 실행 중(스케줄 · 재처리 · 시뮬레이터 수동 배치 포함). 본문에 실행 중 execId
-                    - **400** — `dataTypeCd` 가 `UNSTRUCTURED` 가 아님(주소 설정 오류) · `targetToDtm` 이 미래 · 이미 그 시각까지 수집함
-                    - 음성만 돈다. `unstructured.batch.include-image=true` 면 음성 → 이미지 순차
+                    - **400** — `dataTypeCd` 가 `UNSTRUCTURED` 가 아님(주소 설정 오류) · `targetToDtm` 형식 오류 · 미래 · 이미 그 시각까지 수집함
+                    - `targetToDtm` 은 ISO 문자열(`2026-10-02T10:00:00` · 공백 구분)과 배열 `[2026,10,2,10,0]`(`[yyyy, MM, dd, HH, mm(, ss)]`)을 다 받는다
+                    - 음성 → (`unstructured.batch.include-image=true` 면 — 개발계 기본) 이미지 순차
+                    - 시뮬레이터 데이터(`SIM…`)는 집지 않는다 — 시뮬레이터 수동 시험 전용. 대시보드 더미(`DMY…`)와 실제 행만
                     """)
     @PostMapping("/batch/run")
     public ResponseEntity<Map<String, Object>> run(@RequestBody(required = false) BatchRunReq body) {
         UnstructuredBatchService.requireUnstructured(body == null ? null : body.dataTypeCd());
-        UnstructuredBatchService.Plan plan = service.planRun(parseDtm(body.targetToDtm()), LocalDateTime.now());
+        UnstructuredBatchService.Plan plan = service.planRun(body.targetToDtm(), LocalDateTime.now());
         return accepted(UnstructuredJobRunner.Kind.RUN, plan, null);
     }
 
@@ -174,16 +187,24 @@ public class AdminLinkController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(body);
     }
 
-    /** {@code 2026-10-02T10:00:00} · {@code 2026-10-02T10:00} · {@code 2026-10-02 10:00:00}. 비면 null. */
+    /** {@code 2026-10-02T10:00:00} · {@code 2026-10-02T10:00} · {@code 2026-10-02 10:00:00} · 오프셋 ISO. 비면 null. */
     static LocalDateTime parseDtm(String v) {
-        if (v == null || v.isBlank()) {
-            return null;
-        }
         try {
-            return LocalDateTime.parse(v.trim().replace(' ', 'T'));
-        } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException("targetToDtm 형식 오류(yyyy-MM-dd'T'HH:mm[:ss]): " + v);
+            return FlexibleLocalDateTimeDeserializer.parse(v);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("targetToDtm " + e.getMessage());
         }
+    }
+
+    /** 본문을 읽지 못함(JSON 문법 · 시각 형식) — 400 과 이유. 시각 형식 오류는 역직렬화기가 필드명과 받는 형식을 적어 준다. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadable(HttpMessageNotReadableException e) {
+        Throwable c = e.getMostSpecificCause();
+        String why = c instanceof JsonMappingException jm ? jm.getOriginalMessage() : c.getMessage();
+        log.warn("[Admin] 본문 거절(400) — {}", why);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("message", why);
+        return ResponseEntity.badRequest().body(m);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

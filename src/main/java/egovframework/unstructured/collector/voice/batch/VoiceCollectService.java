@@ -9,6 +9,7 @@ import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.BatchWindow;
 import egovframework.unstructured.collector.common.model.FileProcOutcome;
 import egovframework.unstructured.collector.common.model.ProcStatus;
+import egovframework.unstructured.collector.common.model.StepType;
 import egovframework.unstructured.collector.common.model.SttResult;
 import egovframework.unstructured.collector.common.model.VoiceFile;
 import egovframework.unstructured.collector.common.model.VoiceKind;
@@ -53,7 +54,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 원천(보라미) DB 는 대상 조회에서만 쓴다.</p>
  *
  * <p><b>T2 단계 — 3단계 체인</b>(2026-10-01 복원): {@code COLLECT 1}(파일 확보·복호화) → {@code ANALYZE 2}(STT) →
- * {@code SEND 3}(제논 전송). 클라우드 전송과 비식별화(커넥터 · DEIDENT 단계)가 빠지고 온프레미스 제논(Zenon)으로
+ * {@code SEND 3}(제논 전송) — {@link StepType}. 결과는 온프레미스 제논(Zenon)으로
  * 넘긴다. {@code COLLECT} 는 배치 시작에 열고, {@code ANALYZE} 는 첫 STT 가 시작될 때, {@code SEND} 는 첫 전송
  * 직전에 연다. 모두 배치 끝에서 한 번에 마감한다.</p>
  *
@@ -95,6 +96,8 @@ public class VoiceCollectService {
     private final StageFaultState stageFault;
     private final egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
     private final PerfStageMeter meter;
+    /** 더미 키 표식(CF) 장애 — 접견 수집에서 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
 
     /**
      * 건을 동시에 처리할 워커 수 — <b>운영 기본은 1(순차)</b>.
@@ -222,9 +225,9 @@ public class VoiceCollectService {
         RunContext ctx = new RunContext(execId);
         ctx.fromExecId = fromExecId;
         log.info("[Batch]   전송 — 제논 {} · {}", zenon.mode(), zenon.endpoint());
-        ctx.collectStepId = logCollector.createStep(execId, (short) 1, FileProcOutcome.STEP_COLLECT);
+        ctx.collectStepId = logCollector.createStep(execId, StepType.COLLECT.seq(), StepType.COLLECT.name());
 
-        List<VoiceTarget> found = findTargets(window, targets);
+        List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
         List<FileProcOutcome> outcomes = new ArrayList<>(found.size());
 
         // 화면 진행률 — 대상 수가 확정된 지금부터 센다. 배치 REST 는 동기라 이것 없이는
@@ -565,11 +568,11 @@ public class VoiceCollectService {
      * 컬렉터가 없을 때의 임시 EXEC_ID — 같은 자리에 작업코드가 오게 만든다.
      *
      * <p>컬렉터 채번 규칙: yyyyMMdd(8) + 작업코드(3) + 회차(3) → 9~11번째 자리가 작업코드다.
-     * 테스트 데이터 삭제가 그 자리(TST)를 보므로 로컬 ID 도 자리를 맞춘다.</p>
+     * 테스트 데이터 삭제가 그 자리(TST)를 보므로 로컬 ID 도 자리를 맞춘다. 비정형 작업코드는 {@code UNS}(2026-10-02 — 그 전 VOC).</p>
      */
     private static String localExecId(boolean testRun) {
         LocalDateTime now = LocalDateTime.now();
-        String local = LOCAL_DATE.format(now) + (testRun ? "TST" : "VOC") + LOCAL_TIME.format(now);
+        String local = LOCAL_DATE.format(now) + (testRun ? "TST" : "UNS") + LOCAL_TIME.format(now);
         log.info("[Batch] 로그 컬렉터 미연동 — 로컬 임시 execId 사용: {}", local);
         return local;
     }
@@ -582,7 +585,7 @@ public class VoiceCollectService {
                 return;
             }
             ctx.analyzeStarted = true;
-            ctx.analyzeStepId = logCollector.createStep(ctx.execId, (short) 2, FileProcOutcome.STEP_ANALYZE);
+            ctx.analyzeStepId = logCollector.createStep(ctx.execId, StepType.ANALYZE.seq(), StepType.ANALYZE.name());
         }
         log.info("[Batch] T2 ANALYZE 시작 — stepLogId={}", ctx.analyzeStepId == null ? "(미연동)" : ctx.analyzeStepId);
     }
@@ -595,7 +598,7 @@ public class VoiceCollectService {
             }
             ctx.sendStarted = true;
             // 비정형 체인의 3번 칸(COLLECT 1 · ANALYZE 2 · SEND 3). 순번은 컬렉터가 체인 위치로 다시 정한다.
-            ctx.sendStepId = logCollector.createStep(ctx.execId, (short) 3, FileProcOutcome.STEP_SEND);
+            ctx.sendStepId = logCollector.createStep(ctx.execId, StepType.SEND.seq(), StepType.SEND.name());
         }
         log.info("[Batch] T2 SEND 시작 — stepLogId={}", ctx.sendStepId == null ? "(미연동)" : ctx.sendStepId);
     }
@@ -624,9 +627,17 @@ public class VoiceCollectService {
      * <p>로그 컬렉터·브로커·파일은 건드리지 않는다. 보라미 조회와 멱등 표식 확인뿐이다.</p>
      */
     public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds) {
+        return pending(window, kinds, false);
+    }
+
+    /**
+     * 위와 같되, 실행 종류에 맞춰 센다 — 시험 실행이면 대시보드 더미({@code DMY-…})를, 실제 실행이면 시뮬레이터 데이터
+     * ({@code SIM-…})를 뺀다. 그 실행이 실제로 집는 것과 같게({@link #scopeForRun}).
+     */
+    public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds, boolean testRun) {
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
                 ? List.of(VoiceKind.MEET, VoiceKind.PHONE) : kinds;
-        List<VoiceTarget> found = findTargets(window, targets, true);
+        List<VoiceTarget> found = scopeForRun(findTargets(window, targets, true), testRun);
         long processed = found.stream().filter(idempotency::isProcessed).count();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("window", window.toString());
@@ -640,6 +651,32 @@ public class VoiceCollectService {
 
     private List<VoiceTarget> findTargets(BatchWindow window, List<VoiceKind> kinds) {
         return findTargets(window, kinds, false);
+    }
+
+    /**
+     * 실행 종류에 따라 <b>더미 데이터를 가른다</b>(2026-10-02 결정) — 시뮬레이터 데이터와 대시보드 데이터가 서로를 선점하지 않게.
+     *
+     * <ul>
+     *   <li><b>시험 실행</b>(시뮬레이터 {@code test=true}, TEST_BATCH) — 대시보드 더미({@code DMY-…})를 집지 않는다.
+     *       시험이 먼저 처리하면 멱등 표식이 남아 실제 배치가 '건너뜀' 으로 넘겨 대시보드에 아무것도 나오지 않는다.</li>
+     *   <li><b>실제 실행</b>(스케줄러 · {@code /internal/batch/run} · {@code /internal/batch/reprocess} · {@code test=false}) —
+     *       시뮬레이터 데이터({@code SIM-…})를 집지 않는다. SIM 은 시뮬레이터 화면의 수동 시험 전용이다 — 자동 실행이 집으면
+     *       시뮬레이터가 만든 데이터를 먼저 처리해 버려(선점) 시험이 '건너뜀' 으로 끝나고, 운영(UNS) 이력 · 대시보드에 시험 데이터가 섞인다.
+     *       이미지는 실제 수집이 원래 {@code SIMIMG…} 를 뺀다({@code ImageSourceService}).</li>
+     * </ul>
+     * <p>실제 보라미 행(접두 없음)은 어느 쪽에서도 빼지 않는다.</p>
+     */
+    private static List<VoiceTarget> scopeForRun(List<VoiceTarget> found, boolean testRun) {
+        egovframework.unstructured.collector.mock.DummyTarget other = testRun
+                ? egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD
+                : egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR;
+        List<VoiceTarget> out = found.stream().filter(t -> !other.ownsKey(t.idempotencyKey())).toList();
+        if (out.size() < found.size()) {
+            log.info("[Batch] {} — {} {}건은 {} 몫이라 건너뛴다", testRun ? "시험 실행" : "실제 실행",
+                    testRun ? "대시보드 더미(DMY)" : "시뮬레이터 데이터(SIM)", found.size() - out.size(),
+                    testRun ? "실제 배치" : "시뮬레이터 시험 실행");
+        }
+        return out;
     }
 
     private List<VoiceTarget> findTargets(BatchWindow window, List<VoiceKind> kinds, boolean quiet) {
@@ -1084,6 +1121,12 @@ public class VoiceCollectService {
         // 요청 전에 그 이름에 남아 있는 것은 이번 요청의 산출물일 수 없다 — 먼저 치운다.
         watcher.clearStale(target);
         if (target.kind() == VoiceKind.MEET) {
+            // 더미 시나리오 COLLECT_FAIL — 브로커에 요청하기 전에 끊는다. 개발계 브로커(DUMMY 어댑터)는 FILEKEY 가 없거나
+            //   읽히지 않아도 무음 WAV 를 만들어 주므로 메타 누락만으로는 실패하지 않는다. 표식 건만 · 한 번만 · 운영 제외.
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL,
+                    target.idempotencyKey())) {
+                throw new IllegalStateException("XVARM 추출 요청 거부 — FILEKEY 를 확인할 수 없습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
+            }
             log.info("[Track:MEET] ② XVARM 추출 요청 — {} via 브로커 {} (execId={})", target.shortId(), broker.mode(), execId);
             XvarmBrokerClient.ExtractResult extracted = broker.extract(target, execId);
             log.info("[Track:MEET] ③ ESB 수신 대기 — {} (브로커 산출 {})",
@@ -1193,6 +1236,8 @@ public class VoiceCollectService {
                 continue;   // 이번 배치가 처리한 건이 아니다 — 집계에 넣으면 대사가 어긋난다
             }
             // 컬렉터 T4 스펙 순서대로: REC_FILE_ID · FILE_PATH · FILE_NM · INMATE_PID · FILE_SIZE · PROC_STS_CD · ERR_STACK
+            //   + STEP_TYPE_CD(끝난 단계 — 컬렉터에 컬럼이 생기면 적재된다. 그 전까지 실패 단계는 ERR_STACK 의 [단계])
+            StepType step = o.stepTypeForLog();
             rows.add(new LogCollectorClient.FileProcReq(
                     o.target().idempotencyKey(),          // 접견 TARE_FILE_NO / 전화 VRFC_ESTL_ID — NOT NULL
                     o.target().srcFilePath(),             // 보라미 쪽 원본 경로(우리 임시 경로가 아니다)
@@ -1200,7 +1245,8 @@ public class VoiceCollectService {
                     pidGenerator.of(o.target().corrNo()),
                     o.fileSize(),
                     o.status().name(),
-                    o.isSuccess() ? null : LogCollectorClient.FileProcReq.errStackOf(o.errMsg())));
+                    o.isSuccess() ? null : LogCollectorClient.FileProcReq.errStackOf(step, o.errMsg()),
+                    step == null ? null : step.name()));
         }
         return rows;
     }

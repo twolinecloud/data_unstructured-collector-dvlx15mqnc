@@ -110,21 +110,21 @@ class AdminLinkControllerTest {
         CountDownLatch hold = new CountDownLatch(1);
         when(service.execute(any(), any())).thenAnswer(inv -> {
             BiConsumer<String, Boolean> sink = inv.getArgument(1);
-            sink.accept("20261002VOC005", true);
+            sink.accept("20261002UNS005", true);
             hold.await(5, TimeUnit.SECONDS);
             return "ok";
         });
         String body = "{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":\"2026-10-02T10:00:00\"}";
         mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.execId").value("20261002VOC005"))
+                .andExpect(jsonPath("$.execId").value("20261002UNS005"))
                 .andExpect(jsonPath("$.status").value("RUNNING"))
                 .andExpect(jsonPath("$.execIdSource").value("COLLECTOR"))
                 .andExpect(jsonPath("$.dataTypeCd").value("UNSTRUCTURED"));
 
         mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.execId").value("20261002VOC005"))
+                .andExpect(jsonPath("$.execId").value("20261002UNS005"))
                 .andExpect(jsonPath("$.kind").value("RUN"));
         hold.countDown();
     }
@@ -145,22 +145,61 @@ class AdminLinkControllerTest {
         verify(service, never()).execute(any(), any());
     }
 
+    @Test
+    @DisplayName("바로 실행 targetToDtm — 배열 [y,M,d,H,m] · [y,M,d,H,m,s] · ISO · 공백 구분 · 오프셋(Z → 서울) 모두 같은 값으로")
+    void runAcceptsArrayAndIsoTargetToDtm() throws Exception {
+        when(service.planRun(any(), any())).thenReturn(plan(ResumeMode.FULL, null));
+        when(service.execute(any(), any())).thenAnswer(inv -> {
+            BiConsumer<String, Boolean> sink = inv.getArgument(1);
+            sink.accept("20261002UNS007", true);
+            return "ok";
+        });
+        String[] forms = {"[2026,10,2,10,0]", "[2026,10,2,10,0,0]", "\"2026-10-02T10:00:00\"", "\"2026-10-02 10:00\"",
+                "\"2026-10-02T01:00:00Z\"", "\"2026-10-02T10:00:00.000+09:00\""};
+        for (String f : forms) {
+            mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":" + f + "}"))
+                    .andExpect(status().isAccepted());
+            // 앞 작업이 끝나야 다음 요청이 409 가 아니다
+            for (int i = 0; i < 50 && runner.status(null).get("status").equals("RUNNING"); i++) {
+                Thread.sleep(20);
+            }
+        }
+        verify(service, org.mockito.Mockito.times(forms.length)).planRun(eq(LocalDateTime.of(2026, 10, 2, 10, 0)), any());
+        mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":null}"))
+                .andExpect(status().isAccepted());
+        verify(service).planRun(isNull(), any());
+    }
+
+    @Test
+    @DisplayName("바로 실행 targetToDtm 배열 오류 — 13월 · 길이 · 문자 섞임은 400 + 형식 안내")
+    void runRejectsBadArray() throws Exception {
+        for (String f : new String[] {"[2026,13,2,10,0]", "[2026,10]", "[2026,\"10\",2,10,0]", "{\"y\":2026}"}) {
+            mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":" + f + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("targetToDtm 형식 오류")));
+        }
+        verify(service, never()).planRun(any(), any());
+    }
+
     // ── reprocess ──
 
     @Test
     @DisplayName("긴급 재처리 — admin ReprocessRequest 본문 · 202 + 새 execId · 원 execId · 단계")
     void reprocessAccepted() throws Exception {
-        when(service.planReprocess("20260915VOC003", "UNSTRUCTURED", "SEND")).thenReturn(plan(ResumeMode.FROM_SEND, "20260915VOC003"));
+        when(service.planReprocess("20260915UNS003", "UNSTRUCTURED", "SEND")).thenReturn(plan(ResumeMode.FROM_SEND, "20260915UNS003"));
         when(service.execute(any(), any())).thenAnswer(inv -> {
             BiConsumer<String, Boolean> sink = inv.getArgument(1);
-            sink.accept("20261002VOC006", true);
+            sink.accept("20261002UNS006", true);
             return "ok";
         });
         mvc.perform(post("/internal/batch/reprocess").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"execId\":\"20260915VOC003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"SEND\",\"stepSeq\":3}"))
+                        .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"SEND\",\"stepSeq\":3}"))
                 .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.execId").value("20261002VOC006"))
-                .andExpect(jsonPath("$.originExecId").value("20260915VOC003"))
+                .andExpect(jsonPath("$.execId").value("20261002UNS006"))
+                .andExpect(jsonPath("$.originExecId").value("20260915UNS003"))
                 .andExpect(jsonPath("$.resume").value("FROM_SEND"))
                 .andExpect(jsonPath("$.stepTypeCd").value("SEND"))
                 .andExpect(jsonPath("$.stepSeq").value(3));
@@ -172,7 +211,7 @@ class AdminLinkControllerTest {
         mvc.perform(post("/internal/batch/reprocess")).andExpect(status().isBadRequest());
         when(service.planReprocess(anyString(), anyString(), any())).thenThrow(new IllegalArgumentException("비정형에 없는 단계(C05): DEIDENT"));
         mvc.perform(post("/internal/batch/reprocess").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"execId\":\"20260915VOC003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"DEIDENT\"}"))
+                        .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"DEIDENT\"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("DEIDENT")));
     }
 

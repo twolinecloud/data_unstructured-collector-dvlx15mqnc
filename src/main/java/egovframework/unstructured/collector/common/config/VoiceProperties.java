@@ -267,10 +267,10 @@ public record VoiceProperties(
             @DefaultValue({"0", "1", "2", "3", "5"}) List<String> speclMngSeCd,
             /** 한 번에 처리할 파일 상한(안전장치). */
             @DefaultValue("500") int maxFilesPerRun,
-            /** 로그 컬렉터에 배치를 열 때 쓸 JOB_ID. 작업코드 VOC 로 채번되도록 협의 필요(Q4). */
+            /** 로그 컬렉터에 배치를 열 때 쓸 JOB_ID. 채번 작업코드는 JOB_ID 가 아니라 데이터 구분이 정한다(UNSTRUCTURED → UNS). */
             /**
              * 로그 컬렉터에 보낼 JOB_ID. 컬렉터가 이 값으로 EXEC_ID 접두 3자를 정한다
-             * ({@code JobId} enum). {@code VOICE_ANALYSIS} → {@code VOC} — 계획서가 음성에 예약한 코드다.
+             * ({@code JobId} enum). 작업명 자동 매핑용 — 채번(UNS)은 데이터 구분이 정한다(2026-10-02 전 VOC).
              *
              * <p>⚠ 예전 값 {@code VOICE_BATCH} 는 컬렉터 enum 에 없어서 폴백 규칙("영문만 남겨 앞 3자")이
              * 돌았고, EXEC_ID 가 {@code ...VOI...} 로 채번됐다. 눈에 잘 안 띄는데, 작업코드로 배치를
@@ -281,7 +281,7 @@ public record VoiceProperties(
              * 시뮬레이터에서 돌리는 배치의 JOB_ID. {@code TEST_BATCH} → EXEC_ID 접두 {@code TST}.
              *
              * <p>컬렉터의 테스트 데이터 삭제({@code DELETE /api/v1/logs/test-data})가 이 JOB_ID 를
-             * 기준으로 T1~T8 을 연쇄 삭제한다. 운영 배치(STR/VOC/EXT)는 그 조건에 걸리지 않으므로
+             * 기준으로 T1~T8 을 연쇄 삭제한다. 운영 배치(STR/UNS/PUB/LAW)는 그 조건에 걸리지 않으므로
              * 시연·시험 기록만 안전하게 지울 수 있다.</p>
              */
             @DefaultValue("TEST_BATCH") String testJobId,

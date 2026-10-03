@@ -56,13 +56,13 @@ class LogCollectorWatermarkTest {
                 .andExpect(jsonPath("$.targetFromDtm").value("2026-09-26T00:00:00"))
                 .andExpect(jsonPath("$.targetToDtm").value("2026-09-27T00:00:00"))
                 .andExpect(jsonPath("$.execTypeCd").value("SCHEDULED"))
-                .andRespond(withSuccess("{\"success\":true,\"code\":0,\"result\":{\"execId\":\"20260927VOC001\"}}",
+                .andRespond(withSuccess("{\"success\":true,\"code\":0,\"result\":{\"execId\":\"20260927UNS001\"}}",
                         MediaType.APPLICATION_JSON));
 
         String id = client.createBatch("VOICE_ANALYSIS", "UNSTRUCTURED", "SCHEDULED", "SCHEDULER",
                 LocalDateTime.of(2026, 9, 26, 0, 0), LocalDateTime.of(2026, 9, 27, 0, 0));
 
-        assertThat(id).isEqualTo("20260927VOC001");
+        assertThat(id).isEqualTo("20260927UNS001");
         server.verify();
     }
 

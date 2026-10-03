@@ -3,6 +3,10 @@ package egovframework.unstructured.collector.image.batch;
 import egovframework.unstructured.collector.common.broker.BrokerOutputCheck;
 import egovframework.unstructured.collector.common.broker.MockXvarmBrokerClient;
 import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
+import egovframework.unstructured.collector.common.config.VoiceProperties;
+import egovframework.unstructured.collector.common.logging.LogCollectorClient;
+import egovframework.unstructured.collector.common.model.StepType;
+import egovframework.unstructured.collector.common.util.InmatePidGenerator;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.model.VoiceKind;
 import egovframework.unstructured.collector.common.sync.FileArrivalWatcher;
@@ -34,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
@@ -54,8 +59,14 @@ import java.util.regex.Pattern;
  * <p><b>커넥션을 잡고 기다리지 않는다</b>: 조회는 문장마다 원천 커넥션을 빌렸다 곧 돌려주고, 파일 수신·복호화·저장은
  * 트랜잭션 밖이다. 매핑만 Admin DB 에서 짧은 트랜잭션 하나다({@link InmatePhotoRepository#upsert}).</p>
  *
- * <p>한 번에 하나만 돈다. 처리 이력은 아직 로그 컬렉터(T1·T2·T4)에 남기지 않는다 — 이미지용 작업 코드(C-코드)가
- * 로그 컬렉터에 먼저 정해져야 한다. 결과는 응답과 매핑 테이블({@code last_batch_exec_id})로 확인한다.</p>
+ * <p>한 번에 하나만 돈다.</p>
+ *
+ * <p><b>처리 이력 — 로그 컬렉터 T1 · T2 · T4</b>(2026-10-02, 음성과 같은 표). 실행마다 T1 을 하나 연다 — 작업
+ * {@code image.job-id}(기본 {@code IMAGE_COLLECT}, 작업명 '수용자 이미지 수집') · 데이터 구분 UNSTRUCTURED(채번 UNS) ·
+ * 시험 실행이면 {@code TEST_BATCH}(채번 TST). 수집 구간이 없는 배치라 T1 구간은 비운다 — 음성 [바로 실행] 워터마크에 끼지 않는다.
+ * T2 는 비정형 3단계({@link StepType}) — COLLECT(조회 · FILEKEY · 브로커 수신)는 시작에, ANALYZE(복호화 · 이미지 확인)와
+ * SEND(저장 · Admin DB 매핑)는 처음 닿을 때 연다. T4 는 처리한 사진 1장 = 1행(건너뛴 건은 남기지 않는다 — 음성과 같다).
+ * 로그 컬렉터가 꺼져 있으면 실행 ID 는 음성과 같은 자리의 로컬 {@code yyyyMMdd + UNS|TST + HHmmssSSS} 이고 아무것도 보내지 않는다.</p>
  */
 @Log4j2
 @Service
@@ -65,9 +76,11 @@ public class ImageCollectService {
     /**
      * 실행 ID 시각 — 밀리초까지. 초 단위면 연달아 돈 두 배치(신규 실행 → 곧바로 재실행)가 같은 ID 가 되어
      * 매핑의 {@code last_batch_exec_id} 로 "이번 실행이 쓴 행"을 가릴 수 없고, 브로커 요청 키도 겹친다.
-     * {@code IMG-yyyyMMdd-HHmmssSSS-TST} = 26자(컬럼 30자).
+     * 로컬 ID 는 음성과 같은 모양 {@code yyyyMMdd + UNS|TST + HHmmssSSS} = 20자(컬럼 30자) — 9~11번째 자리가 작업코드라
+     * 시험 이력 정리(TST)가 같은 규칙으로 걸러진다. (2026-10-02 전에는 {@code IMG-yyyyMMdd-HHmmssSSS[-TST]})
      */
-    private static final DateTimeFormatter EXEC_ID = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmssSSS");
+    private static final DateTimeFormatter EXEC_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final DateTimeFormatter EXEC_TIME = DateTimeFormatter.ofPattern("HHmmssSSS");
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
     /** 결과에 싣는 건별 목록 상한 — 수천 건 배치의 응답이 커지지 않게. */
     private static final int OUTCOME_LIMIT = 300;
@@ -92,6 +105,20 @@ public class ImageCollectService {
     private final ImageTrace trace;
     /** 브로커 주소 — 기록의 cURL 에 쓴다. */
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
+    /**
+     * 더미 키 표식 장애 — 교정번호에 표식(CF·AF·SF)을 단 건을 그 단계에서 한 번만 실패시킨다(수신 · 복호화 · 매핑).
+     * 의도적 실패(주입)와 달리 실제 수집 API 로도 동작한다 — 대시보드 더미가 실제 배치에서 실패해야 하기 때문이다. 운영 제외.
+     */
+    private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
+    /** 처리 이력 T1 · T2 · T4 — 음성과 같은 로그 컬렉터 API. */
+    private final LogCollectorClient logCollector;
+    /** T4 INMATE_PID — 교정번호를 그대로 남기지 않는다(음성과 같은 가명화). */
+    private final InmatePidGenerator pidGenerator;
+    /** 데이터 구분(C01) · 시험 작업 ID — 음성 설정을 그대로 쓴다(비정형 단일 진입점). */
+    private final VoiceProperties voiceProps;
+
+    /** T1 작업명 — 컬렉터 {@code JobId} 열거형에 없는 작업이라 이름을 함께 보낸다. 긴급 재처리가 이 이름으로 이미지 배치를 알아본다. */
+    public static final String JOB_NM = "수용자 이미지 수집";
 
     private final AtomicBoolean running = new AtomicBoolean();
     /** 이번 실행에서 표본(첫 건)을 이미 잡았는가 — 워커가 여럿이어도 한 건만 적는다. */
@@ -179,11 +206,21 @@ public class ImageCollectService {
      * @throws IllegalStateException 이미 돌고 있다
      */
     public ImageRunResult run(ImageRunRequest req) {
+        return run(req, null);
+    }
+
+    /**
+     * 위와 같되 실행 ID 를 받자마자 알린다 — admin 연동(긴급 재처리)이 접수 응답에 실제 execId 를 싣는 데 쓴다.
+     *
+     * @param onExecId {@code (execId, 로그 컬렉터 채번인가)}. null 이면 부르지 않는다
+     */
+    public ImageRunResult run(ImageRunRequest req, BiConsumer<String, Boolean> onExecId) {
         if (!running.compareAndSet(false, true)) {
             throw new IllegalStateException("수용자 이미지 수집이 이미 돌고 있습니다 — " + execId);
         }
         try {
-            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null, null) : req);
+            return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null, null) : req,
+                    onExecId);
         } finally {
             running.set(false);
             current = null;
@@ -191,9 +228,10 @@ public class ImageCollectService {
         }
     }
 
-    private ImageRunResult runInternal(ImageRunRequest req) {
+    private ImageRunResult runInternal(ImageRunRequest req, BiConsumer<String, Boolean> onExecId) {
         long t0 = System.currentTimeMillis();
-        boolean test = Boolean.TRUE.equals(req.testRun());
+        // SIM(SIMIMG…)은 시뮬레이터 시험 전용이다(2026-10-02 결정) — 그 접두로 돌리면 늘 시험 실행(TST 이력)으로 남긴다
+        boolean test = Boolean.TRUE.equals(req.testRun()) || isSimPrefix(req.corrNoPrefix());
         String trigger = req.triggerBy() == null ? "MANUAL" : req.triggerBy();
         int workers = Math.max(1, Math.min(64, req.workers() != null ? req.workers() : props.workers()));
         long virtualMs = req.virtualLatencyMs() == null ? 0L : Math.max(0L, Math.min(600_000L, req.virtualLatencyMs()));
@@ -202,10 +240,24 @@ public class ImageCollectService {
         XvarmBrokerClient via = Boolean.TRUE.equals(req.simBroker()) ? mockBroker : broker;
         String brokerLabel = via == mockBroker && !"MOCK".equals(broker.mode())
                 ? "MOCK(SIM 검증 — 수집기 내장 · 설정 " + broker.mode() + " 는 쓰지 않음)" : via.mode();
-        // 의도적 실패(주입) — 시험 실행에서만. 실제 수집 API 로는 켤 수 없다
-        Map<String, ImageStage> inject = test && req.injectFailures() != null ? Map.copyOf(req.injectFailures()) : Map.of();
+        // 의도적 실패(주입) — 명시적 시험 실행(6번 탭)에서만. 실제 수집 API 로는 켤 수 없다
+        //   (SIM 접두는 이력만 시험(TST)으로 남길 뿐 주입을 허용하지 않는다)
+        Map<String, ImageStage> inject = Boolean.TRUE.equals(req.testRun()) && req.injectFailures() != null
+                ? Map.copyOf(req.injectFailures()) : Map.of();
 
-        execId = "IMG-" + LocalDateTime.now().format(EXEC_ID) + (test ? "-TST" : "");
+        // ── T1 — 로그 컬렉터가 채번한다(UNSTRUCTURED → UNS · 시험 → TST). 미연동이면 로컬 ID(같은 자리에 UNS/TST) ──
+        String collectorExecId = logCollector.createBatch(test ? voiceProps.batch().testJobId() : props.jobId(),
+                test ? JOB_NM + "(시험)" : JOB_NM, voiceProps.batch().dataTypeCd(), execTypeOf(trigger), trigger, null, null);
+        LocalDateTime now = LocalDateTime.now();
+        execId = collectorExecId != null ? collectorExecId : now.format(EXEC_DATE) + (test ? "TST" : "UNS") + now.format(EXEC_TIME);
+        if (onExecId != null) {
+            try {
+                onExecId.accept(execId, collectorExecId != null);
+            } catch (RuntimeException e) {
+                log.warn("[Image] execId 알림 실패(배치는 계속) — {}", e.getMessage());
+            }
+        }
+        StepLog steps = new StepLog(execId);
         trace.begin(execId);
         sampleTaken.set(false);
         startedAt = t0;
@@ -223,14 +275,24 @@ public class ImageCollectService {
                 inject.isEmpty() ? "" : " · 의도적 실패 주입 " + inject.size() + "건");
 
         // ── 1 · 최신 이미지 조회 ──────────────────────────────────────────
-        long s = ImageMetrics.start();
-        List<ImageTarget> latest = source.findLatest(
-                new ImageSourceService.Selection(req.corrNos(), req.corrNoPrefix(), req.limit()));
-        m.add(ImageStage.QUERY, s);
-        // ── 2·3 · 문서ID · FILEKEY 추출 ─────────────────────────────────────
-        s = ImageMetrics.start();
-        List<ImageTarget> targets = source.attachFileKeys(latest);
-        m.add(ImageStage.FILEKEY, s);
+        List<ImageTarget> targets;
+        try {
+            long s = ImageMetrics.start();
+            List<ImageTarget> latest = source.findLatest(
+                    new ImageSourceService.Selection(req.corrNos(), req.corrNoPrefix(), req.limit()));
+            m.add(ImageStage.QUERY, s);
+            // ── 2·3 · 문서ID · FILEKEY 추출 ─────────────────────────────────────
+            s = ImageMetrics.start();
+            targets = source.attachFileKeys(latest);
+            m.add(ImageStage.FILEKEY, s);
+        } catch (RuntimeException e) {
+            // 원천 조회에서 죽었다 — 열어 둔 T2 COLLECT · T1 을 실패로 닫고 던진다(RUNNING 으로 남기지 않는다)
+            String err = LogCollectorClient.FileProcReq.errStackOf(StepType.COLLECT,
+                    e.getClass().getSimpleName() + ": " + shorten(rootMessage(e)));
+            steps.failCollect(err);
+            logCollector.finishBatch(execId, "FAIL", (int) ((System.currentTimeMillis() - t0) / 1000), 0L, 0L, 0L, err);
+            throw e;
+        }
         total = targets.size();
         log.info("[Image] 대상 {}명 — FILEKEY 확보 {}명 · {}", targets.size(),
                 targets.stream().filter(t -> t.fileKey() != null).count(), source.tables());
@@ -265,7 +327,8 @@ public class ImageCollectService {
                         active.incrementAndGet();
                         current = t.shortId();
                         try {
-                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo())));
+                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo()),
+                                    steps));
                         } catch (Throwable e) {
                             // processOne 은 예외를 밖으로 던지지 않는다 — 그래도 새면 이 건만 실패로 두고 다음 건을 계속한다
                             log.error("[Image] 처리 중 예기치 못한 오류 — {} ({})", t.shortId(), e.toString(), e);
@@ -300,6 +363,9 @@ public class ImageCollectService {
                 byStage.put(st.name(), n);
             }
         }
+        // ── 처리 이력 — T2 마감(3단계 건수) · T4(처리한 사진 1장 = 1행) · T1 마감 ─────────────────────
+        writeLogs(steps, targets, outcomes, canceled, t0, m);
+
         long elapsed = System.currentTimeMillis() - t0;
         log.info("[Image] 종료{} — execId={} · 대상 {} · 성공 {}(신규 {} · 갱신 {} · 옛 사진 {}) · 실패 {}{} · 건너뜀 {} · {}ms",
                 canceled ? "(중단됨)" : "", execId, outcomes.size(), ok, ins, upd, stl, ng,
@@ -310,6 +376,159 @@ public class ImageCollectService {
                 truncated ? List.copyOf(outcomes.subList(0, OUTCOME_LIMIT)) : outcomes, truncated,
                 store.outputRoot().toString().replace('\\', '/'), adminDb.table(AdminDb.PHOTO_TABLE), source.tables(),
                 brokerLabel, (int) inj, byStage, (int) dup, repo.upsertMode());
+    }
+
+    /** SIM 사진 접두({@code SIMIMG…})로만 도는 실행인가. */
+    private static boolean isSimPrefix(String prefix) {
+        return prefix != null && prefix.trim().startsWith(egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX);
+    }
+
+    /** T1 EXEC_TYPE_CD — 스케줄러가 부른 것만 SCHEDULED, 나머지(바로 실행 · API · 시뮬레이터 · 재처리)는 MANUAL. */
+    static String execTypeOf(String triggerBy) {
+        return triggerBy != null && triggerBy.toUpperCase(java.util.Locale.ROOT).startsWith("SCHEDULE") ? "SCHEDULED" : "MANUAL";
+    }
+
+    /**
+     * 처리 이력을 남긴다 — T2 3단계 마감 · T4 · T1 마감. 로그 컬렉터가 꺼져 있으면 아무것도 보내지 않는다.
+     *
+     * <p>건수 규칙은 음성과 같다: 건너뛴 건(변경 없음 · 더 최신 사진 · 중단)은 T2 · T4 에 넣지 않는다. 각 단계의 in 은 앞 단계의 out,
+     * err 는 그 단계에서 실패한 건, SEND 의 out 이 성공 건수다. T1 대상 = 조회한 사진 수(건너뜀 포함), 성공 · 실패 = T4 와 같다
+     * (정합성 T1.SUCCESS_CNT == Σ T4 SUCCESS).</p>
+     */
+    private void writeLogs(StepLog steps, List<ImageTarget> targets, List<ImageOutcome> outcomes, boolean canceled, long t0,
+                           ImageMetrics m) {
+        long processed = outcomes.stream().filter(o -> !"SKIPPED".equals(o.status())).count();
+        Map<StepType, Long> failAt = new java.util.EnumMap<>(StepType.class);
+        for (ImageOutcome o : outcomes) {
+            if (o.isFail()) {
+                failAt.merge(stepOf(o), 1L, Long::sum);
+            }
+        }
+        long ok = outcomes.stream().filter(ImageOutcome::isSuccess).count();
+        long ng = outcomes.stream().filter(ImageOutcome::isFail).count();
+        long collectErr = failAt.getOrDefault(StepType.COLLECT, 0L);
+        long analyzeErr = failAt.getOrDefault(StepType.ANALYZE, 0L);
+        long sendErr = failAt.getOrDefault(StepType.SEND, 0L);
+        String topErr = topErrStack(outcomes);
+        steps.finishAll(processed, collectErr, processed - collectErr, analyzeErr, processed - collectErr - analyzeErr, sendErr,
+                ok, topErr, System.currentTimeMillis() - t0, m);
+
+        List<LogCollectorClient.FileProcReq> rows = new ArrayList<>((int) processed);
+        for (int i = 0; i < outcomes.size(); i++) {
+            ImageOutcome o = outcomes.get(i);
+            if ("SKIPPED".equals(o.status())) {
+                continue;   // 이번 배치가 처리한 건이 아니다 — 넣으면 정합성이 어긋난다
+            }
+            rows.add(fileProcOf(i < targets.size() ? targets.get(i) : null, o));
+        }
+        logCollector.createFileProcs(execId, rows);
+
+        String sts = canceled ? "CANCELED" : ng == 0 ? "SUCCESS" : ok > 0 ? "PARTIAL" : "FAIL";
+        logCollector.finishBatch(execId, sts, (int) ((System.currentTimeMillis() - t0) / 1000),
+                (long) outcomes.size(), ok, ng, topErr);
+    }
+
+    /** 실패한 세부 단계의 3단계 — 단계가 비어 있으면(워커 밖 예외) 수집으로 본다. */
+    private static StepType stepOf(ImageOutcome o) {
+        return o.failedAt() == null ? StepType.COLLECT : o.failedAt().stepType();
+    }
+
+    /**
+     * T4 한 행 — 사진 1장.
+     *
+     * <ul>
+     *   <li>REC_FILE_ID — 이미지 공통파일ID({@code IMAGE_CMMN_FILE_ID}, 사진 원본 키). 없으면 문서ID, 그것도 없으면 가명ID#순번</li>
+     *   <li>FILE_PATH · FILE_NM — 성공이면 <b>저장한</b> 사진의 폴더 · 이름, 실패면 원본 파일명(저장하지 못했다)</li>
+     *   <li>STEP_TYPE_CD — 성공 SEND · 실패면 실패한 단계(로그 컬렉터에 컬럼이 생기면 적재 — 그 전까지 ERR_STACK 의 {@code [단계]})</li>
+     * </ul>
+     */
+    private LogCollectorClient.FileProcReq fileProcOf(ImageTarget t, ImageOutcome o) {
+        String pid = pidGenerator.of(o.corrNo());
+        String rec = t != null && t.imageCmmnFileId() != null && !t.imageCmmnFileId().isBlank() ? t.imageCmmnFileId()
+                : t != null && t.docId() != null ? t.docId() : pid + "#" + o.imageSn();
+        StepType step = o.isSuccess() ? StepType.SEND : stepOf(o);
+        String path = null;
+        String name = t == null ? null : t.fileName();
+        if (o.isSuccess() && o.photoPath() != null) {
+            int cut = o.photoPath().lastIndexOf('/');
+            path = cut > 0 ? o.photoPath().substring(0, cut) : null;
+            name = cut >= 0 ? o.photoPath().substring(cut + 1) : o.photoPath();
+        }
+        return new LogCollectorClient.FileProcReq(rec, path, name, pid, o.isSuccess() ? o.fileSize() : 0L,
+                o.isSuccess() ? "SUCCESS" : "FAIL",
+                o.isSuccess() ? null : LogCollectorClient.FileProcReq.errStackOf(step, o.errMsg()), step.name());
+    }
+
+    /** 대표 오류 — 실패 사유 중 가장 많은 것(T1 ERR_MSG). 실패가 없으면 null. */
+    private static String topErrStack(List<ImageOutcome> outcomes) {
+        Map<String, Integer> freq = new LinkedHashMap<>();
+        Map<String, StepType> stepOfReason = new LinkedHashMap<>();
+        for (ImageOutcome o : outcomes) {
+            if (o.isFail() && o.errMsg() != null) {
+                freq.merge(o.errMsg(), 1, Integer::sum);
+                stepOfReason.putIfAbsent(o.errMsg(), stepOf(o));
+            }
+        }
+        return freq.entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(e -> LogCollectorClient.FileProcReq.errStackOf(stepOfReason.get(e.getKey()), e.getKey())
+                        + (freq.size() > 1 ? " (외 다른 사유 " + (freq.size() - 1) + "종)" : ""))
+                .orElse(null);
+    }
+
+    /**
+     * 이번 실행의 T2 — COLLECT 는 시작에, ANALYZE · SEND 는 처음 닿을 때 연다(워커 여럿이 동시에 닿아도 한 번).
+     * 컬렉터가 꺼져 있으면 단계 ID 가 null 이고 마감도 보내지 않는다.
+     */
+    private final class StepLog {
+        private final String execId;
+        private final Map<StepType, String> ids = new java.util.EnumMap<>(StepType.class);
+
+        StepLog(String execId) {
+            this.execId = execId;
+            open(StepType.COLLECT);
+        }
+
+        synchronized void open(StepType s) {
+            if (!ids.containsKey(s)) {
+                ids.put(s, logCollector.createStep(execId, s.seq(), s.name()));
+            }
+        }
+
+        /** 원천 조회에서 죽었다 — 건을 하나도 만들지 못했으니 COLLECT 를 실패로 닫는다. */
+        synchronized void failCollect(String err) {
+            String id = ids.get(StepType.COLLECT);
+            if (id != null) {
+                logCollector.finishStep(id, "FAIL", 0, 0L, 0L, 0L, err);
+            }
+        }
+
+        /** 열린 단계만 마감한다 — 건수 · 소요 시간(세부 단계 시간의 합, 실제 경과를 넘지 않게). */
+        synchronized void finishAll(long collectIn, long collectErr, long analyzeIn, long analyzeErr, long sendIn, long sendErr,
+                                    long sendOut, String err, long wallMs, ImageMetrics m) {
+            finish(StepType.COLLECT, collectIn, collectIn - collectErr, collectErr, err, wallMs, m);
+            finish(StepType.ANALYZE, analyzeIn, analyzeIn - analyzeErr, analyzeErr, err, wallMs, m);
+            finish(StepType.SEND, sendIn, sendOut, sendErr, err, wallMs, m);
+        }
+
+        private void finish(StepType s, long in, long out, long errCnt, String err, long wallMs, ImageMetrics m) {
+            if (!ids.containsKey(s)) {
+                return;
+            }
+            String id = ids.get(s);
+            String sts = errCnt == 0 ? "SUCCESS" : (out <= 0 ? "FAIL" : "PARTIAL");
+            long ms = 0;
+            for (ImageStage st : ImageStage.values()) {
+                if (st.stepType() == s) {
+                    ms += m.totalMs(st);
+                }
+            }
+            int sec = (int) (Math.min(ms, wallMs) / 1000);
+            if (id != null) {
+                logCollector.finishStep(id, sts, sec, in, Math.max(0, out), errCnt, errCnt == 0 ? null : err);
+            }
+            log.info("[Image] T2 {} 마감 — {} in={} out={} err={} ({}초){}", s, sts, in, Math.max(0, out), errCnt, sec,
+                    id == null ? "  [컬렉터 미연동 — 적재 안 됨]" : "");
+        }
     }
 
     private ImageOutcome count(ImageOutcome o) {
@@ -328,7 +547,7 @@ public class ImageCollectService {
      * @param injectAt 의도적 실패(주입) 단계 — 그 단계의 일을 한 뒤 실패시킨다(매핑은 커밋 전 롤백). 보통 null
      */
     private ImageOutcome processOne(ImageTarget t, InmatePhotoRepository.Mapped cur, boolean force, long virtualMs,
-                                    ImageMetrics m, XvarmBrokerClient via, ImageStage injectAt) {
+                                    ImageMetrics m, XvarmBrokerClient via, ImageStage injectAt, StepLog steps) {
         long t0 = System.currentTimeMillis();
         if (t.docId() == null) {
             m.error(ImageStage.FILEKEY);
@@ -356,6 +575,9 @@ public class ImageCollectService {
             // ── 브로커 수신 ──
             long s = ImageMetrics.start();
             watcher.clearStale(dir, t.receiveName());
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL, t.corrNo())) {
+                throw new IllegalStateException("XVARM 추출 실패 — 브로커가 이 건을 거부했습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
+            }
             XvarmBrokerClient.FileRequest fr = new XvarmBrokerClient.FileRequest(
                     t.docId(), t.fileKey(), t.requestId(execId), t.receiveName());
             XvarmBrokerClient.ExtractResult r = via.extractFile(fr);
@@ -373,6 +595,7 @@ public class ImageCollectService {
             m.add(ImageStage.ACQUIRE, s);
             injectIf(injectAt, ImageStage.ACQUIRE);
 
+            steps.open(StepType.ANALYZE);   // T2 정제/분석 — 처음 닿을 때 연다
             // ── 가상 처리 지연(성능 시험) ──
             if (virtualMs > 0) {
                 step = ImageStage.VIRTUAL;
@@ -386,6 +609,9 @@ public class ImageCollectService {
             s = ImageMetrics.start();
             byte[] cipher = Files.readAllBytes(received);
             byte[] plain = store.decrypt(t, cipher);
+            if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.ANALYZE_FAIL, t.corrNo())) {
+                throw new IllegalStateException("복호화 결과가 이미지가 아닙니다 — 매직 넘버 불일치 [더미 시나리오 ANALYZE_FAIL · 1회]");
+            }
             m.add(ImageStage.DECRYPT, s);
             if (sample) {
                 trace.add(ImageTrace.Step.RECEIVE, "복호화 — 접견과 같은 RVS 키(AES/CBC) · 결과가 이미지인지 매직 넘버로 확인", "CODE",
@@ -396,6 +622,7 @@ public class ImageCollectService {
             injectIf(injectAt, ImageStage.DECRYPT);
 
             // ── 저장 ──
+            steps.open(StepType.SEND);   // T2 적재/전송 — 처음 닿을 때 연다
             step = ImageStage.SAVE;
             s = ImageMetrics.start();
             ImageFileStore.Saved saved = store.save(t, plain);
@@ -415,8 +642,15 @@ public class ImageCollectService {
                     t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
                     saved.ext(), execId);
             InmatePhotoRepository.MapResult mr;
+            // 커밋 전에 부른다 — 여기서 던지면 매핑이 롤백된다(의도적 실패 주입 · 더미 시나리오 SEND_FAIL)
+            Runnable beforeCommit = () -> {
+                injectIf(injectAt, ImageStage.MAP);
+                if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL, t.corrNo())) {
+                    throw new IllegalStateException("Admin DB 매핑 실패 — 커밋 전 롤백 [더미 시나리오 SEND_FAIL · 1회]");
+                }
+            };
             try {
-                mr = repo.upsert(row, injectAt == ImageStage.MAP ? () -> injectIf(injectAt, ImageStage.MAP) : null);
+                mr = repo.upsert(row, beforeCommit);
             } catch (RuntimeException e) {
                 if (sample) {
                     trace.add(ImageTrace.Step.MAP, "DB 매핑 UPSERT — 실패(트랜잭션 롤백 · 커넥션 반납)", "SQL",

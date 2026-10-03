@@ -100,7 +100,7 @@ class UnstructuredBatchServiceTest {
     void runWindow() {
         UnstructuredBatchService s = service(false);
         when(logc.watermark("UNSTRUCTURED", "VOICE_ANALYSIS"))
-                .thenReturn(new LogCollectorClient.Watermark(LocalDateTime.of(2026, 10, 2, 0, 0), "20261002VOC001"));
+                .thenReturn(new LogCollectorClient.Watermark(LocalDateTime.of(2026, 10, 2, 0, 0), "20261002UNS001"));
         var p = s.planRun(LocalDateTime.of(2026, 10, 2, 10, 0), NOW);
         assertThat(p.window().from()).isEqualTo(LocalDateTime.of(2026, 10, 2, 0, 0));
         assertThat(p.window().to()).isEqualTo(LocalDateTime.of(2026, 10, 2, 10, 0));
@@ -118,15 +118,15 @@ class UnstructuredBatchServiceTest {
     @DisplayName("재처리 — 원배치(T1)의 수집 구간 그대로 · 원 execId 의 보존물 · 시험 배치면 시험으로")
     void reprocessUsesOriginWindow() throws Exception {
         UnstructuredBatchService s = service(true);
-        when(logc.batchDetail("20260915VOC003")).thenReturn(detail("20260915VOC003", "VOICE_ANALYSIS", "UNSTRUCTURED",
+        when(logc.batchDetail("20260915UNS003")).thenReturn(detail("20260915UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
                 "2026-09-14T00:00:00", "2026-09-15T00:00:00"));
-        var p = s.planReprocess("20260915VOC003", "UNSTRUCTURED", "SEND");
+        var p = s.planReprocess("20260915UNS003", "UNSTRUCTURED", "SEND");
         assertThat(p.window().from()).isEqualTo(LocalDateTime.of(2026, 9, 14, 0, 0));
         assertThat(p.window().to()).isEqualTo(LocalDateTime.of(2026, 9, 15, 0, 0));
         assertThat(p.resume()).isEqualTo(ResumeMode.FROM_SEND);
-        assertThat(p.originExecId()).isEqualTo("20260915VOC003");
+        assertThat(p.originExecId()).isEqualTo("20260915UNS003");
         assertThat(p.testRun()).isFalse();
-        assertThat(p.triggerBy()).isEqualTo("ADMIN/reprocess:20260915VOC003");
+        assertThat(p.triggerBy()).isEqualTo("ADMIN/reprocess:20260915UNS003");
         assertThat(p.includeImage()).as("재처리는 음성만").isFalse();
 
         when(logc.batchDetail("20261001TST002")).thenReturn(detail("20261001TST002", "TEST_BATCH", "UNSTRUCTURED",
@@ -144,14 +144,14 @@ class UnstructuredBatchServiceTest {
         when(logc.batchDetail("20261002STR001")).thenReturn(detail("20261002STR001", "STRUCTURED_BATCH", "STRUCTURED",
                 "2026-10-01T00:00:00", "2026-10-02T00:00:00"));
         assertThatThrownBy(() -> s.planReprocess("20261002STR001", "UNSTRUCTURED", null)).hasMessageContaining("비정형 배치가 아니다");
-        when(logc.batchDetail("20261002VOC009")).thenReturn(detail("20261002VOC009", "VOICE_ANALYSIS", "UNSTRUCTURED", null, null));
-        assertThatThrownBy(() -> s.planReprocess("20261002VOC009", "UNSTRUCTURED", null)).hasMessageContaining("구간이 없다");
+        when(logc.batchDetail("20261002UNS009")).thenReturn(detail("20261002UNS009", "VOICE_ANALYSIS", "UNSTRUCTURED", null, null));
+        assertThatThrownBy(() -> s.planReprocess("20261002UNS009", "UNSTRUCTURED", null)).hasMessageContaining("구간이 없다");
     }
 
     @Test
     @DisplayName("실행 — 음성만(기본) · include-image 면 음성 → 이미지 순차 · 이미지 실패가 음성 결과를 덮지 않음")
     void executeOrder() {
-        VoiceBatchResult vr = new VoiceBatchResult("20261002VOC001", true, "DAILY", 3, 3, 0, 0, 100L, Map.of(), List.of(),
+        VoiceBatchResult vr = new VoiceBatchResult("20261002UNS001", true, "DAILY", 3, 3, 0, 0, 100L, Map.of(), List.of(),
                 List.of(), false);
         when(voice.defaultWorkers()).thenReturn(Workers.sequential());
         when(voice.run(any(), isNull(), anyString(), anyBoolean(), any(), any(), any(Workers.class), any())).thenReturn(vr);
@@ -160,13 +160,13 @@ class UnstructuredBatchServiceTest {
                 "SCHEDULER", false);
 
         String only = service(false).execute(plan, (id, c) -> { });
-        assertThat(only).startsWith("음성 execId=20261002VOC001");
+        assertThat(only).startsWith("음성 execId=20261002UNS001");
         verify(image, never()).run(any());
 
         var withImage = new UnstructuredBatchService.Plan(plan.window(), ResumeMode.FULL, null, false, "SCHEDULER", true);
         when(image.run(any())).thenThrow(new IllegalStateException("이미지 수집이 이미 돌고 있습니다"));
         String both = service(true).execute(withImage, (id, c) -> { });
-        assertThat(both).contains("음성 execId=20261002VOC001").contains("이미지 실패");
+        assertThat(both).contains("음성 execId=20261002UNS001").contains("이미지 실패");
         InOrder order = inOrder(voice, image);
         order.verify(voice).run(any(), isNull(), eq("SCHEDULER"), eq(false), eq(ResumeMode.FULL), isNull(), any(Workers.class), any());
         order.verify(image).run(any());

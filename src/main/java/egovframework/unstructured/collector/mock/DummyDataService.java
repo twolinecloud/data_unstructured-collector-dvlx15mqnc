@@ -623,7 +623,7 @@ public class DummyDataService {
             h.add("이미지: unstructured.batch.include-image=true(개발계 기본)면 스케줄·바로 실행이 음성 뒤에 같이 돈다 · 따로 돌리려면 POST /api/v1/image/batches {\"corrNoPrefix\":\"DMYIMG\"}");
             h.add("시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않는다 — 실제 배치 몫");
         }
-        h.add("장애 표식(CF·AF·SF) 건은 그 단계에서 한 번만 실패하고 재처리는 통과한다(소진 표시는 메모리 — 재기동하면 한 번 더 실패)");
+        h.add("장애 표식(CF·AF·SF) 건은 그 단계에서 한 번만 실패하고 재처리는 통과한다(소진 표시는 PV 파일 " + ScenarioFaults.FILE + " 에도 남아 재기동해도 다시 실패하지 않는다 · 다시 실패시키려면 DELETE /api/v1/mock/sim-data/scenario-faults)");
         return h;
     }
 

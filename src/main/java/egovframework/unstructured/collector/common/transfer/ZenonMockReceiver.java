@@ -128,14 +128,17 @@ public class ZenonMockReceiver {
             return reject(503, "UNAVAILABLE", "(MOCK) 제논 수신 장애 — " + faultLabel() + " · seq " + seq);
         }
 
-        Run r = run(runId);
-        synchronized (r) {
-            if (r.seqs.containsKey(seq)) {
-                long bytes = drainQuietly(body);
-                r.duplicates++;
-                r.lastSeenAt = LocalDateTime.now().withNano(0);
-                log.info("[ZenonMock] 중복 청크(멱등) runId={} seq={} bytes={}", runId, seq, bytes);
-                return new Ack(200, ackBody(r, seq, last, true, bytes, 0L, 0));
+        // 중복 확인은 있는 장부로만 — 거절(400 · 413)로 끝날 요청이 빈 장부를 만들지 않게 장부는 받아들일 때 연다
+        Run seen = runs.get(runId);
+        if (seen != null) {
+            synchronized (seen) {
+                if (seen.seqs.containsKey(seq)) {
+                    long bytes = drainQuietly(body);
+                    seen.duplicates++;
+                    seen.lastSeenAt = LocalDateTime.now().withNano(0);
+                    log.info("[ZenonMock] 중복 청크(멱등) runId={} seq={} bytes={}", runId, seq, bytes);
+                    return new Ack(200, ackBody(seen, seq, last, true, bytes, 0L, 0));
+                }
             }
         }
 
@@ -168,6 +171,7 @@ public class ZenonMockReceiver {
         }
 
         totalChunks.incrementAndGet();
+        Run r = run(runId);
         synchronized (r) {
             boolean duplicate = r.seqs.putIfAbsent(seq, p.records) != null;
             if (!duplicate) {

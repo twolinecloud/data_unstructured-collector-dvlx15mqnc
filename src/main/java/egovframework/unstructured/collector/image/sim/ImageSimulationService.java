@@ -247,7 +247,8 @@ public class ImageSimulationService {
     /** 원문 해시 — 시딩 때 기억한 값, 없으면(수집기가 다시 떴다) 교정번호로 더미 원문을 다시 만들어 잰다. */
     private String expectedSha(String corr) {
         String want = plainSha.get(corr);
-        if (want != null || !corr.startsWith(PREFIX)) {
+        // DMYIMG(대시보드 더미)도 같은 더미 원문(SampleImage.jpeg(교정번호))을 쓴다 — 대시보드용 검증이 원문을 대조한다
+        if (want != null || !(corr.startsWith(PREFIX) || corr.startsWith("DMYIMG"))) {
             return want;
         }
         try {

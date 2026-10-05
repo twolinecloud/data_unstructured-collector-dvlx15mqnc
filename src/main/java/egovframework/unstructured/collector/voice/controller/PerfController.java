@@ -64,8 +64,12 @@ public class PerfController {
                     - 409 — 이미 성능 테스트나 배치가 돌고 있음
                     """)
     @PostMapping("/runs")
-    public ResponseEntity<Map<String, Object>> start(@RequestBody(required = false) PerfRequest req) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req));
+    public ResponseEntity<Map<String, Object>> start(
+            @RequestBody(required = false) PerfRequest req,
+            @io.swagger.v3.oas.annotations.Parameter(description = "용도 — SIMULATOR(기본 · SIM · 시험 실행 TST) · DASHBOARD(대시보드용 REAL · DMY · 실제 배치 UNS)")
+            @org.springframework.web.bind.annotation.RequestParam(required = false)
+            egovframework.unstructured.collector.mock.DummyTarget target) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req, target));
     }
 
     @Operation(summary = "진행 중(또는 마지막) 회차",
@@ -110,8 +114,12 @@ public class PerfController {
                     - 409 — 이미 성능 시험이나 배치가 돌고 있음
                     """)
     @PostMapping("/ramp/runs")
-    public ResponseEntity<Map<String, Object>> startRamp(@RequestBody(required = false) RampRequest req) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.startRamp(req));
+    public ResponseEntity<Map<String, Object>> startRamp(
+            @RequestBody(required = false) RampRequest req,
+            @io.swagger.v3.oas.annotations.Parameter(description = "용도 — SIMULATOR(기본) · DASHBOARD(대시보드용 REAL · DMY · UNS)")
+            @org.springframework.web.bind.annotation.RequestParam(required = false)
+            egovframework.unstructured.collector.mock.DummyTarget target) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.startRamp(req, target));
     }
 
     @Operation(summary = "임계 성능 시험 이력", description = "`{ROOT}/perf/ramp-history.jsonl` — 마지막 실행 한 건만 남긴다(덮어쓰기). 단계 표와 최적 워커가 실린다.")

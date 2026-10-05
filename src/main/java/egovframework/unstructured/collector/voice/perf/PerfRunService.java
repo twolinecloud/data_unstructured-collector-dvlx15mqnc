@@ -133,6 +133,8 @@ public class PerfRunService {
     private final ObjectMapper objectMapper;
     /** 로컬 산출물 정리를 [시뮬레이션 데이터 생성]과 같은 코드로 한다. */
     private final VoiceMockController mock;
+    /** 대시보드용(REAL) 시험의 데이터 — DMY 더미 생성기(dev · local 에만 있다). */
+    private final org.springframework.beans.factory.ObjectProvider<egovframework.unstructured.collector.mock.DummyDataService> dummy;
 
     private final ExecutorService runner = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "perf-runner");
@@ -182,6 +184,8 @@ public class PerfRunService {
         final String id;
         final Kind kind;
         final Object req;
+        /** 용도 — SIMULATOR(SIM · 시험 실행 TST) · DASHBOARD(DMY · 실제 배치 UNS — 대시보드에 나온다). */
+        final egovframework.unstructured.collector.mock.DummyTarget target;
         final long startedAt = System.currentTimeMillis();
         volatile Phase phase = Phase.PREPARING;
         volatile String message = "준비 중…";
@@ -197,10 +201,20 @@ public class PerfRunService {
         volatile int bestStep;
         volatile String stopReason;
 
-        Run(String id, Kind kind, Object req) {
+        Run(String id, Kind kind, Object req, egovframework.unstructured.collector.mock.DummyTarget target) {
             this.id = id;
             this.kind = kind;
             this.req = req;
+            this.target = target == null ? egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR : target;
+        }
+
+        /** 대시보드용(REAL) — DMY 더미 · 실제 배치(UNS). */
+        boolean real() {
+            return target == egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD;
+        }
+
+        String data() {
+            return real() ? "DMY" : "SIM";
         }
 
         void to(Phase p, String msg) {
@@ -219,11 +233,21 @@ public class PerfRunService {
      * @throws IllegalStateException    이미 성능 시험이나 배치가 돌고 있다(409)
      */
     public synchronized Map<String, Object> start(PerfRequest raw) {
+        return start(raw, null);
+    }
+
+    /**
+     * 위와 같되 용도를 고른다 — {@code DASHBOARD}(대시보드용 REAL)면 DMY 더미를 만들어 <b>실제 배치</b>(test=false · EXEC_ID UNS)로
+     * 돈다(2026-10-05 — 시뮬레이터의 exec_id 를 만드는 모든 시나리오에 SIM/REAL 선택). DMY 원천 행은 준비 때 새로 만들고 끝나면 지운다
+     * (로그 컬렉터 이력은 남아 대시보드에 나온다). 기 STT 비율은 SIM 에서만 쓴다.
+     */
+    public synchronized Map<String, Object> start(PerfRequest raw, egovframework.unstructured.collector.mock.DummyTarget target) {
+        requireTarget(target);
         PerfRequest req = (raw == null ? new PerfRequest(null, null, null, null, null, null, null, null, null, null, null, null) : raw)
                 .withDefaults();
         req.validate(props.batch().maxFilesPerRun());
         ensureIdle();
-        Run run = new Run(LocalDateTime.now().format(RUN_ID), Kind.BASIC, req);
+        Run run = new Run(LocalDateTime.now().format(RUN_ID), Kind.BASIC, req, target);
         current = run;
         runner.submit(() -> executeBasic(run));
         return snapshot(run);
@@ -231,15 +255,28 @@ public class PerfRunService {
 
     /** 임계 성능 시험(워커 램프업)을 시작한다 — 비동기. */
     public synchronized Map<String, Object> startRamp(RampRequest raw) {
+        return startRamp(raw, null);
+    }
+
+    /** 임계 성능 시험 — 용도를 고른다(위 {@link #start(PerfRequest, egovframework.unstructured.collector.mock.DummyTarget)} 와 같은 규칙). */
+    public synchronized Map<String, Object> startRamp(RampRequest raw, egovframework.unstructured.collector.mock.DummyTarget target) {
+        requireTarget(target);
         RampRequest req = (raw == null ? new RampRequest(null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null) : raw).withDefaults();
         req.validate(props.batch().maxFilesPerRun());
         ensureIdle();
-        Run run = new Run(LocalDateTime.now().format(RUN_ID), Kind.RAMP, req);
+        Run run = new Run(LocalDateTime.now().format(RUN_ID), Kind.RAMP, req, target);
         run.plan = List.copyOf(req.plan());
         current = run;
         runner.submit(() -> executeRamp(run));
         return snapshot(run);
+    }
+
+    /** 대시보드용은 DMY 생성기가 있어야 한다(dev · local). */
+    private void requireTarget(egovframework.unstructured.collector.mock.DummyTarget target) {
+        if (target == egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD && dummy.getIfAvailable() == null) {
+            throw new IllegalArgumentException("대시보드용(REAL) 성능 시험은 더미 생성기가 있는 dev · local 에서만 됩니다");
+        }
     }
 
     private void ensureIdle() {
@@ -292,6 +329,7 @@ public class PerfRunService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("runId", run.id);
         m.put("kind", run.kind.name());
+        m.put("target", run.target.name());
         m.put("phase", run.phase.name());
         m.put("phaseLabel", run.phase.label());
         m.put("active", run.phase.active());
@@ -354,6 +392,7 @@ public class PerfRunService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("runId", run.id);
         m.put("at", LocalDateTime.now().withNano(0).toString());
+        m.put("target", run.target.name());
         m.put("scenario", req.scenario());
         m.put("count", req.count());
         m.put("meetCount", req.meetCount());
@@ -571,10 +610,53 @@ public class PerfRunService {
         Map<String, Object> cleared = mock.clearLocalFiles();
         // 결과는 PV 에 남기지 않는다(제논 전송) — 지난 시험의 제논 수신증(메모리)만 비운다
         int oldOutputs = deleteOutputs ? zenon.clearTestReceipts() : 0;
+        if (run.real()) {
+            run.to(Phase.PREPARING, "%s대시보드용(REAL) — DMY 더미를 지우고 %d건 새로 생성 (접견 %d · 전화 %d · 어제) — %s"
+                    .formatted(tag, meet + phone, meet, phone, dbKind.label()));
+            return new Prepared(seedDashboard(meet, phone), cleared, oldOutputs, System.currentTimeMillis() - p0);
+        }
         run.to(Phase.PREPARING, "%sSIM 데이터 %d건 생성 (접견 %d · 전화 %d · 기 STT %d%%) — %s"
                 .formatted(tag, meet + phone, meet, phone, sttPercent, dbKind.label()));
         Map<String, Object> seed = sim.seedPerf(meet, phone, sttPercent);
         return new Prepared(seed, cleared, oldOutputs, System.currentTimeMillis() - p0);
+    }
+
+    /**
+     * 대시보드용 데이터 — DMY 더미(접견 · 전화)를 <b>어제</b> 하루에 만든다(먼저 그 용도의 데이터를 지운다 — SIM 시험이 SIM 을 지우고
+     * 만드는 것과 같다). 측정 창이 {@code [어제 00:00, 오늘 00:00)} 이라 그대로 집힌다.
+     */
+    private Map<String, Object> seedDashboard(int meet, int phone) {
+        egovframework.unstructured.collector.mock.DummyDataService gen = dummy.getObject();
+        List<egovframework.unstructured.collector.mock.DummyDataType> types = new java.util.ArrayList<>();
+        Map<egovframework.unstructured.collector.mock.DummyDataType, Integer> counts = new java.util.EnumMap<>(
+                egovframework.unstructured.collector.mock.DummyDataType.class);
+        if (meet > 0) {
+            types.add(egovframework.unstructured.collector.mock.DummyDataType.MEET);
+            counts.put(egovframework.unstructured.collector.mock.DummyDataType.MEET, meet);
+        }
+        if (phone > 0) {
+            types.add(egovframework.unstructured.collector.mock.DummyDataType.PHONE);
+            counts.put(egovframework.unstructured.collector.mock.DummyDataType.PHONE, phone);
+        }
+        Map<String, Object> g = gen.generate(new egovframework.unstructured.collector.mock.DummyDataService.GenerateRequest(
+                egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD, types, LocalDate.now().minusDays(1),
+                null, Map.of(), false, counts));
+        Map<String, Object> seed = new LinkedHashMap<>();
+        seed.put("db", g.get("db"));
+        seed.put("target", "DASHBOARD");
+        List<Object> files = new java.util.ArrayList<>();
+        Object types0 = g.get("types");
+        if (types0 instanceof Map<?, ?> tm) {
+            tm.values().forEach(v -> {
+                if (v instanceof Map<?, ?> one && one.get("files") instanceof List<?> l) {
+                    files.addAll(l);
+                }
+            });
+        }
+        seed.put("files", files);
+        seed.put("sourceSttPhones", 0);
+        seed.put("dummy", Map.of("totals", g.get("totals"), "counts", g.get("counts"), "prefix", g.get("prefix")));
+        return seed;
     }
 
     /**
@@ -596,7 +678,8 @@ public class PerfRunService {
         VoiceBatchResult r;
         String early = null;
         try (Monitor mon = guard == null ? null : new Monitor(guard, run)) {
-            r = collect.run(window, null, "PERF", true, ResumeMode.FULL, null, workers);
+            // 대시보드용(REAL)은 실제 배치 — 실행 ID 가 UNS 로 채번되고 대시보드에 나온다(DMY 만 집는다)
+            r = collect.run(window, null, "PERF", !run.real(), ResumeMode.FULL, null, workers);
             if (mon != null) {
                 early = mon.reason();
             }
@@ -769,8 +852,8 @@ public class PerfRunService {
 
     /** 끝 — 공용 DB 의 SIM 행을 지우고(실패·중단이어도) 이력을 남긴다. */
     private void finish(Run run, Map<String, Object> result, String error, String historyFile) {
-        run.to(Phase.CLEANING, "공용 DB 의 SIM 행 · 원본 더미 파일 삭제");
-        Map<String, Object> cleanup = cleanup();
+        run.to(Phase.CLEANING, "공용 DB 의 " + run.data() + " 행 · 원본 더미 파일 삭제");
+        Map<String, Object> cleanup = cleanup(run);
         if (result != null) {
             result.put("cleanup", cleanup);
             appendHistory(historyFile, result);
@@ -794,8 +877,20 @@ public class PerfRunService {
         }
     }
 
-    private Map<String, Object> cleanup() {
+    private Map<String, Object> cleanup(Run run) {
         Map<String, Object> out = new LinkedHashMap<>();
+        if (run.real()) {
+            // 대시보드용 — DMY 원천 행 · 더미 파일 · DMY 멱등 표식을 지운다. 로그 컬렉터 이력(UNS)은 남는다
+            try {
+                out.put("ok", true);
+                out.put("dashboard", dummy.getObject().cleanDashboard());
+            } catch (Exception e) {
+                log.warn("[Perf] DMY 데이터 정리 실패 — {} · [대시보드 테스트 데이터 초기화]로 지우십시오", e.getMessage());
+                out.put("ok", false);
+                out.put("error", e.getMessage());
+            }
+            return out;
+        }
         try {
             Map<String, Object> c = sim.clean();
             dataset.reset();

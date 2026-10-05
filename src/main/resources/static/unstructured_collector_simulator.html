@@ -430,6 +430,52 @@
   .dm-err { color:#dc3545; font-size:.8rem; min-height:1.1rem; }
   .pop-body .dm-sum-tbl td { padding:.15rem .4rem; font-size:.8rem; }
   .ks-ok { color:#198754; font-weight:600; } .ks-ng { color:#dc3545; font-weight:600; }
+  /* 실행 용도 — 시뮬레이터용(SIM · TST) / 대시보드용 REAL(DMY · UNS) */
+  .rm-bar { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; padding:.45rem .7rem; margin:-.6rem 0 .8rem;
+            border:1px solid #dee2e6; border-top:0; border-radius:0 0 .4rem .4rem; background:#f8f9fa; }
+  .rm-bar .ttl { font-weight:600; font-size:.85rem; }
+  .rm-bar .btn { text-align:left; line-height:1.15; }
+  .rm-bar .btn .sub { display:block; font-size:.68rem; opacity:.85; font-weight:400; }
+  .rm-bar .hint { flex:1 1 20rem; }
+  body.mode-real .rm-bar { background:#fff5f5; border-color:#f1aeb5; }
+  body.mode-real #sim-tabs { border-bottom-color:#f1aeb5; }
+  /* 7번 탭 — 제논 전송 시뮬레이션 */
+  .zt-pre { background:#0f172a; color:#a7f3d0; border-radius:.4rem; padding:.7rem .8rem; font-size:.74rem; line-height:1.5;
+            max-height:360px; overflow:auto; white-space:pre; margin:0; }
+  .zt-curl { color:#fde68a; background:#1e293b; max-height:220px; white-space:pre-wrap; word-break:break-all; }
+  .zt-rule { background:#eef2ff; border:1px solid #c7d2fe; border-radius:.4rem; padding:.55rem .7rem; font-size:.78rem; }
+  .zt-rule .ttl, .zt-warn .ttl { font-weight:700; margin-bottom:.25rem; }
+  .zt-rule li { margin-bottom:.15rem; }
+  .zt-warn { background:#fffbeb; border:1px solid #fcd34d; border-radius:.4rem; padding:.55rem .7rem; font-size:.78rem; }
+  .zt-note { background:#fffbeb; border:1px solid #fde68a; border-radius:.35rem; padding:.4rem .6rem; font-size:.78rem; color:#78350f; }
+  .zt-log { background:#0f172a; color:#e2e8f0; border-radius:.4rem; padding:.6rem .7rem; font-size:.74rem; line-height:1.55;
+            height:300px; overflow:auto; white-space:pre-wrap; margin:0; font-family:Consolas,'Courier New',monospace; }
+  .zt-log .zl-hd { color:#93c5fd; font-weight:600; } .zt-log .zl-ok { color:#34d399; }
+  .zt-log .zl-er { color:#f87171; } .zt-log .zl-wr { color:#fbbf24; }
+  .zt-card { border:1px solid #dee2e6; border-left:4px solid #adb5bd; border-radius:.4rem; padding:.5rem .6rem; font-size:.8rem; background:#fff; height:100%; }
+  .zt-card.ok { border-left-color:#198754; } .zt-card.ng { border-left-color:#dc3545; }
+  .zt-card table td { padding:.1rem .3rem; }
+  .zt-heap { border:1px solid #dee2e6; border-radius:.4rem; padding:.5rem; height:300px; overflow:auto; background:#fff; font-size:.72rem; }
+  .zt-hb { display:flex; align-items:center; gap:.35rem; margin-bottom:.15rem; }
+  .zt-hb .n { width:1.6rem; text-align:right; color:#6c757d; }
+  .zt-hb .bar { position:relative; flex:1 1 auto; height:.7rem; background:#f1f3f5; border-radius:.2rem; }
+  .zt-hb .bar .pk { position:absolute; left:0; top:0; bottom:0; background:#cfe2ff; border-radius:.2rem; }
+  .zt-hb .bar .af { position:absolute; left:0; top:0; bottom:0; background:#0d6efd; border-radius:.2rem; }
+  .zt-hb .v { width:5rem; font-family:Consolas,monospace; }
+  .zt-hdr { display:flex; align-items:flex-start; gap:.5rem; border:1px solid #dee2e6; border-radius:.35rem; padding:.45rem .55rem; background:#fff; height:100%; }
+  .zt-hdr > b { flex:0 0 auto; }
+  .zr-flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:.25rem; }
+  .zr-flow .ar { align-self:center; color:#adb5bd; }
+  .zr-node { display:flex; flex-direction:column; min-width:7.5rem; padding:.35rem .5rem; border:1px solid #dee2e6; border-radius:.35rem; background:#f8f9fa; font-size:.78rem; }
+  .zr-node .sts { font-size:.72rem; margin-top:.1rem; }
+  .zr-node.ok { background:#d1e7dd; border-color:#a3cfbb; } .zr-node.ng { background:#f8d7da; border-color:#f1aeb5; }
+  .zr-node.part { background:#fff3cd; border-color:#ffe69c; } .zr-node.skip { background:#e2e3e5; border-color:#c4c8cb; color:#495057; }
+  .zr-chunk { display:inline-block; min-width:6.5rem; padding:.3rem .45rem; border-radius:.35rem; font-size:.74rem; border:1px solid #dee2e6; }
+  .zr-chunk.ok { background:#d1e7dd; border-color:#a3cfbb; } .zr-chunk.ng { background:#f8d7da; border-color:#f1aeb5; }
+  .zr-chunk.ns { background:#f1f3f5; color:#6c757d; border-style:dashed; } .zr-chunk.prior { background:#e7f1ff; border-color:#b6d4fe; color:#084298; }
+  .zr-log { border:1px solid #dee2e6; border-radius:.4rem; padding:.45rem .55rem; max-height:330px; overflow:auto; background:#fff; }
+  .zr-line { padding:.2rem 0; border-bottom:1px dashed #eceef0; font-size:.8rem; } .zr-line:last-child { border-bottom:0; }
+  .zr-led { border:1px solid #dee2e6; border-radius:.4rem; padding:.45rem .55rem; background:#fff; font-size:.8rem; }
 </style>
 </head>
 <body>
@@ -490,7 +536,19 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-perf">4. 기본 부하 검증</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-ramp">5. 임계 성능 테스트</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-image">6. 수용자 이미지 수집 검증</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-zenon">7. 제논 전송 시뮬레이션</button></li>
   </ul>
+  <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
+  <div class="rm-bar" id="rm-bar">
+    <span class="ttl">실행 용도</span>
+    <div class="btn-group" role="group" aria-label="실행 용도">
+      <input type="radio" class="btn-check" name="run-mode" id="rm-sim" value="SIM" checked>
+      <label class="btn btn-sm btn-outline-secondary" for="rm-sim">1. 시뮬레이터용<span class="sub">SIM 데이터 · 시험 실행(test=true) · EXEC_ID TST</span></label>
+      <input type="radio" class="btn-check" name="run-mode" id="rm-real" value="REAL">
+      <label class="btn btn-sm btn-outline-danger" for="rm-real">2. 대시보드용 (REAL)<span class="sub">DMY 데이터 · 실제 배치(test=false) · EXEC_ID UNS</span></label>
+    </div>
+    <span class="hint" id="rm-hint"></span>
+  </div>
 
   <div id="tab-panes">
 
@@ -1044,6 +1102,130 @@
   </div>
   </div>
 
+  <div class="tabp" id="tab-zenon">
+  <!-- 7번 탭 — 제논 전송 시뮬레이션. 에이전트 커넥터 시뮬레이터의 '대용량 gzip 연동 시험'(표준 양식 · A/B/C · 수신 헤더 시나리오)과
+       '긴급 재처리(PPP 전송)'(전 청크 실패 · 부분 전송 실패 → 정상화 → 재처리 이어달리기)를 같은 순서로 옮겼다(2026-10-05).
+       전송 양식은 data-collector 와 같다 — 에이전트 커넥터 없이 제논으로 직접. -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>① 송신 페이로드 표준 양식 <span class="hint fw-normal">— data-collector 와 같은 양식 · 에이전트 커넥터 없이 제논으로 직접(2026-10-05) · 이 구조 그대로 보냅니다</span></strong>
+      <span class="d-flex gap-2">
+        <button class="btn btn-sm btn-primary" id="zt-copy" type="button">양식 복사</button>
+        <button class="btn btn-sm btn-outline-secondary" id="zt-reload" type="button">다시 읽기</button>
+      </span>
+    </div>
+    <div class="card-body py-2">
+      <div class="hint mb-1" id="zt-endpoint">불러오는 중…</div>
+      <div class="row g-3">
+        <div class="col-12 col-xl-7">
+          <pre class="zt-pre" id="zt-template">불러오는 중…</pre>
+        </div>
+        <div class="col-12 col-xl-5">
+          <div class="zt-rule"><div class="ttl">규칙 요약</div><ul class="mb-0 ps-3" id="zt-rules"></ul></div>
+          <div class="zt-warn mt-2"><div class="ttl">반드시 지켜야 할 것 — 응답을 <u>동시에</u> 읽으세요</div>
+            수신단은 본문을 읽는 도중에도 응답(413 · 503)을 먼저 보낼 수 있습니다. 본문을 다 쓴 뒤에 응답을 읽는 클라이언트
+            (<code>HttpURLConnection</code> · <code>java.net.http.HttpClient</code> · Python <code>requests</code>)는 본문이 커지는 순간 <b>교착</b>에 빠집니다.
+            수집기는 data-collector 의 <code>StreamingHttpClient</code>(읽기 스레드를 먼저 띄우는 전이중)를 <b>그대로</b> 씁니다.</div>
+          <div class="hint mt-2 mb-1">전송 예시 — curl (내장 수신기로)</div>
+          <pre class="zt-pre zt-curl" id="zt-curl"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>② 점진적 용량 시험 <span class="hint fw-normal">— 수집기가 자기 자신(내장 제논 수신기)에게 실제 소켓으로 쏩니다 · 같은 JVM 이라 힙까지 함께 봅니다</span></strong>
+      <span class="d-flex align-items-end gap-2 flex-wrap">
+        <label class="hint">회차 크기(MB)<input id="zt-size" type="number" class="form-control form-control-sm dm-num" value="50" min="1" max="512"></label>
+        <label class="hint">C 반복<input id="zt-rounds" type="number" class="form-control form-control-sm dm-num" value="20" min="1" max="100"></label>
+        <label class="hint">폭탄 크기(MB)<input id="zt-bomb" type="number" class="form-control form-control-sm dm-num" value="600" min="1" max="4096"></label>
+        <button class="btn btn-sm btn-outline-primary" type="button" data-zt-load="A">A 정상 청크</button>
+        <button class="btn btn-sm btn-outline-danger" type="button" data-zt-load="B">B 압축 폭탄</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-zt-load="C">C 연속 부하</button>
+        <button class="btn btn-sm btn-danger" type="button" data-zt-load="ALL">전체 실행 (A→B→C)</button>
+      </span>
+    </div>
+    <div class="card-body py-2">
+      <div class="row g-2 mb-2" id="zt-cards"></div>
+      <div class="row g-2">
+        <div class="col-12 col-lg-8"><div class="hint mb-1">실행 로그</div><pre class="zt-log" id="zt-log">대기 중…</pre></div>
+        <div class="col-12 col-lg-4"><div class="hint mb-1">JVM 힙 — C 회차별(MB)</div>
+          <div class="zt-heap" id="zt-heap"><div class="hint">C 를 돌리면 회차별 힙이 그려집니다 — 회차가 쌓여도 우상향하지 않아야 스트리밍이 유지된 것입니다</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white py-2">
+      <strong>③ 수신 헤더 6종 · 네트워크 예외 시나리오 <span class="hint fw-normal">— 수집기 ↔ 제논 구간. X-Run-Id · X-Seq · X-Is-Last · X-Target-Cnt · X-Chunk-Cnt · X-Data-Type 동작 확인</span></strong>
+    </div>
+    <div class="card-body py-2">
+      <div class="row g-2 small">
+        <div class="col-12 col-md-6"><div class="zt-hdr"><b class="text-warning-emphasis">① 강제 중단·재전송</b>
+          <span class="flex-grow-1">1·2번 전송 → 중단(3번 미전송) → 장부 확인 → <b>같은 X-Run-Id</b> 로 3번(last) 재전송<br><span class="hint">기대: 재전송이 정상 수신되어 마감 · 중복 아님</span></span>
+          <button class="btn btn-sm btn-warning" type="button" data-zt-hdr="1">실행</button></div></div>
+        <div class="col-12 col-md-6"><div class="zt-hdr"><b class="text-danger">② 청크 유실 타임아웃</b>
+          <span class="flex-grow-1">2번을 빼고 1·3(last) 전송 → 유실 판정(스윕)<br><span class="hint">기대: <b>INGEST-GAP</b> 기록 · 빈 순번 [2]</span></span>
+          <button class="btn btn-sm btn-danger" type="button" data-zt-hdr="2">실행</button></div></div>
+        <div class="col-12 col-md-6"><div class="zt-hdr"><b class="text-primary">③ 중복 청크 멱등</b>
+          <span class="flex-grow-1">같은 (X-Run-Id + X-Seq) 를 두 번 전송<br><span class="hint">기대: 200 + duplicate=true · 건수에 더하지 않음</span></span>
+          <button class="btn btn-sm btn-primary" type="button" data-zt-hdr="3">실행</button></div></div>
+        <div class="col-12 col-md-6"><div class="zt-hdr"><b class="text-secondary">④ 헤더 누락 · 건수 불일치</b>
+          <span class="flex-grow-1">X-Run-Id 없이 · X-Chunk-Cnt ≠ payload 건수<br><span class="hint">기대: 둘 다 400</span></span>
+          <button class="btn btn-sm btn-secondary" type="button" data-zt-hdr="4">실행</button></div></div>
+      </div>
+      <pre class="zt-log mt-2" id="zt-hdr-log" style="height:auto;max-height:260px">버튼을 누르면 실제 소켓으로 내장 수신기에 보내고 장부를 읽어 결과를 보여 줍니다.</pre>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>④ 전송 재처리 시나리오 <span class="hint fw-normal">— 제논 전송 장애 → 정상화 → 긴급 재처리(전사 보존물로 수집 · STT 를 건너뛰고 원배치 런을 이어서 전송)</span></strong>
+      <span class="d-flex gap-2 flex-wrap" id="zr-scn"></span>
+    </div>
+    <div class="card-body py-2">
+      <div class="mb-2"><h6 class="mb-1" id="zr-title"></h6><div class="small text-secondary" id="zr-desc"></div></div>
+      <div class="d-flex flex-wrap gap-2 align-items-end mb-2 p-2 border rounded bg-light">
+        <div><label class="hint d-block">EXEC_ID <span class="hint">(로그 컬렉터 채번)</span></label>
+          <input class="form-control form-control-sm font-monospace" id="zr-exec" readonly placeholder="[자동 채번 대기]" style="width:15rem"></div>
+        <div><label class="hint d-block">용도 <span class="hint">(상단 실행 용도)</span></label><span class="badge text-bg-secondary" id="zr-mode">-</span></div>
+        <div><label class="hint d-block" for="zr-date">대상일</label><input type="date" class="form-control form-control-sm" id="zr-date"></div>
+        <div><label class="hint d-block" for="zr-per">유형별 건수</label><input type="number" class="form-control form-control-sm dm-num" id="zr-per" value="3" min="1" max="50"></div>
+        <div><label class="hint d-block" for="zr-chunk">청크 레코드 수</label><input type="number" class="form-control form-control-sm dm-num" id="zr-chunk" value="2" min="1" max="100"></div>
+        <span id="zr-badges" class="d-flex flex-wrap gap-1"></span>
+        <button class="btn btn-link btn-sm ms-auto" type="button" id="zr-reset">상태 초기화</button>
+      </div>
+      <div class="zt-note mb-2">💡 화면의 '청크' 는 <b>제논 전송 청크</b>(요청 1건 = X-Seq 하나)입니다. 운영은 50건 단위(<code>zenon.chunk-records</code>) · 50MB 상한으로 나누고,
+        여기서는 접견 · 전화 6건을 <b>2건씩 3청크</b>로 나눠 구조만 그대로 재현합니다. 실패한 청크와 그 뒤 청크의 건은 전사 보존물(<code>stt_temp</code>)이 남아
+        재처리가 수집 · STT 없이 <b>원배치 런(X-Run-Id = 원 EXEC_ID)을 다음 순번부터</b> 이어 보냅니다.</div>
+      <div class="d-grid gap-2 mb-2" style="grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))">
+        <button class="btn btn-danger" type="button" id="zr-arm"><span id="zr-arm-txt">① 오류 상황 재현</span></button>
+        <button class="btn btn-warning" type="button" id="zr-fix">② 제논 정상화 시뮬레이션 (200 OK 전환)</button>
+        <button class="btn btn-primary" type="button" id="zr-go">③ 긴급 재처리 (단계 SEND · admin 과 같은 경로)</button>
+      </div>
+      <div class="zr-flow mb-1" id="zr-flow"></div>
+      <div class="small mb-2" id="zr-resume"></div>
+      <div class="mb-2" id="zr-chunks"></div>
+      <div class="row g-2">
+        <div class="col-12 col-lg-6"><div class="hint mb-1">실행 로그</div><div class="zr-log" id="zr-log"><div class="hint">① 오류 상황 재현을 누르면 더미를 만들고 제논 장애를 건 뒤 실제 배치(용도에 따라 TST/UNS)를 돌립니다.</div></div></div>
+        <div class="col-12 col-lg-6"><div class="hint mb-1">제논 수신 장부 · 건별 결과</div><div id="zr-ledger"></div><div id="zr-items" class="mt-2"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>⑤ 제논 수신 장부 · 송신 런 <span class="hint fw-normal">— 내장 수신기가 받은 런(순번 · 건수 · 상태)과 수집기가 기억하는 이어달리기 지점</span></strong>
+      <span class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-danger" type="button" id="zt-sweep" title="POST /api/v1/mock/zenon/sweep?idleSec=0 — 빈 순번이 있거나 마지막 청크가 안 온 런을 지금 유실(INGEST-GAP) 판정">유실 판정 스윕(즉시)</button>
+        <button class="btn btn-sm btn-outline-primary" type="button" id="zt-led-refresh">새로고침</button>
+      </span>
+    </div>
+    <div class="card-body py-2" id="zt-ledgers"><div class="hint">불러오는 중…</div></div>
+  </div>
+  </div>
+
   <div class="tabp" id="tab-image">
   <!-- ①·② 를 한 장으로 캡처하는 영역 — [📸 전체 리포트 저장] -->
   <div id="im-capture">
@@ -1464,6 +1646,7 @@ function showTab(id) {
   $('log-card').classList.toggle('d-none', id === 'tab-env');
   if (id === 'tab-perf' || id === 'tab-ramp') pfOnShow();
   if (id === 'tab-image') imOnShow();
+  if (id === 'tab-zenon') ztOnShow();
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('#sim-tabs [data-tab]');
@@ -1825,7 +2008,7 @@ function renderArchFlow(d) {
     ['④', '[정제/분석 ANALYZE] 수집기 내부 STT 엔진 호출', '(내부 처리 — 디스크에 남지 않습니다)',
      '복호화된 오디오를 텍스트로 변환 · 보라미에 기존 STT 가 있으면 이 단계를 건너뜁니다', 'internal'],
     ['⑤', '[적재/전송 SEND] 제논(Zenon) AI 전송', z.mode === 'REST' ? `<span class="k">REST</span> ${esc(z.endpoint)}` : esc(z.endpoint || 'MOCK(수집기 내장)'),
-     'multipart(file + metadata JSON) 로 온프레미스 제논에 넘깁니다 — PV 에 결과를 남기지 않습니다(전송 실패 시에만 전사를 보존해 재전송)', ''],
+     'data-collector 와 같은 양식(gzip · chunked · X-Run-Id/X-Seq 청크)으로 온프레미스 제논에 직접 넘깁니다 — PV 에 결과를 남기지 않습니다(전송 실패 시에만 전사를 보존해 원배치 런을 이어 재전송 · 7번 탭)', ''],
   ];
   box.innerHTML = steps.map(([no, ttl, pth, out, cls], i) => `
     <div class="flow-node ${cls}">
@@ -2041,7 +2224,7 @@ async function cancelBatch() {
  * '예' 면 생성하고 true 를 돌려줘 호출한 동작이 그대로 이어진다.
  */
 async function ensureData(type, kinds, label) {
-  const q = `type=${type}&test=true` + (kinds ? `&kinds=${kinds}` : '');
+  const q = `type=${type}&test=${testParam()}` + (kinds ? `&kinds=${kinds}` : '');
   const p = await call('GET', `/api/v1/voice/batches/pending?${q}`, '', true);
   if (!p || p.pending > 0) return true;          // 확인이 실패하면 막지 않는다
   const why = p.total > 0
@@ -2049,7 +2232,8 @@ async function ensureData(type, kinds, label) {
       : `실행 구간에 대상이 없습니다.`;
   // [바로 실행]은 DB 워터마크(시험 이력의 마지막 SUCCESS 구간 끝)부터 본다. 시뮬레이션 데이터는 늘 '지금보다
   //   과거' 에 만들어지므로, 워터마크가 남아 있으면 새로 만들어도 창 밖에 놓인다 → 시험 이력까지 비운다.
-  const resetHistory = type === 'on-demand';
+  //   대시보드용(REAL)은 실제 워터마크라 지우지 않는다 — 시험 이력(TST)만 비울 수 있다.
+  const resetHistory = type === 'on-demand' && !isReal();
   const ok = await confirmPopup('처리 대상 0건',
       `<div class="pop-lead">시뮬레이션 데이터가 없습니다. 시뮬레이션 데이터를 생성하시겠습니까?</div>
        <div class="hint mt-2">${why}<br>구간 <code>${esc(p.window || '')}</code></div>
@@ -2232,8 +2416,8 @@ async function runBatchInner(path, label, kind, extraQuery) {
     }
   }
 
-  // 시뮬레이터에서 돌리는 배치는 전부 시험이다 → EXEC_ID 가 ...TST... 로 채번된다.
-  const url = `${path}?test=true` + (kind ? `&kinds=${kind}` : '') + (extraQuery ? '&' + extraQuery : '');
+  // 실행 용도 — 시뮬레이터용은 시험(test=true → EXEC_ID ...TST...), 대시보드용(REAL)은 실제 배치(test=false → ...UNS...).
+  const url = `${path}?test=${testParam()}` + (kind ? `&kinds=${kind}` : '') + (extraQuery ? '&' + extraQuery : '');
   progStart();
   healthPause();          // 시험 중에는 자동 헬스체크를 멈춘다 — DB 커넥션·포트 간섭 방지
   let info;
@@ -2582,8 +2766,13 @@ async function restoreBroker(label) {
 async function scenReset(quiet) {
   await call('DELETE', '/api/v1/voice/faults', quiet ? '' : '단계별 장애 전체 해제', quiet);
   await restoreBroker(null);
-  await call('DELETE', '/api/v1/mock/test-data', '', true);
-  await call('POST', '/api/v1/mock/sim-data', '', true);
+  if (isReal()) {
+    // 대시보드용(REAL) — DMY 를 새로 더한다(지우지 않는다). 시험 이력(TST)도 건드리지 않는다
+    await realSeed(false);
+  } else {
+    await call('DELETE', '/api/v1/mock/test-data', '', true);
+    await call('POST', '/api/v1/mock/sim-data', '', true);
+  }
   await scenPreserved();
 }
 
@@ -2730,8 +2919,8 @@ $('btn-health').onclick = async () => {
 async function loadOnDemandHint() {
   const el = $('ondemand-hint'); if (!el) return;
   const [w, p] = await Promise.all([
-    call('GET', '/api/v1/voice/batches/watermark?test=true', '', true),
-    call('GET', '/api/v1/voice/batches/pending?type=on-demand&test=true', '', true)]);
+    call('GET', `/api/v1/voice/batches/watermark?test=${testParam()}`, '', true),
+    call('GET', `/api/v1/voice/batches/pending?type=on-demand&test=${testParam()}`, '', true)]);
   if (!p) { el.textContent = '(워터마크 ~ 현재)'; return; }
   const from = String(p.from || '').replace('T', ' ').slice(0, 19);
   const head = w && w.watermark ? `워터마크 ${from}` : `최근 30일 ${from}`;
@@ -2787,6 +2976,10 @@ function renderSimResult(title, d, isSeed) {
  * @return 성공하면 true
  */
 async function simCreate(showDone) {
+  if (isReal()) {
+    // 대시보드용(REAL) — 실제 배치는 SIM 을 집지 않는다. 2번 탭 고정 14건과 같은 모양을 DMY 로 만든다
+    return await realSeed(showDone);
+  }
   // 탭을 옮기지 않는다 — 결과는 팝업이 알려 주므로 보던 자리를 뺏을 이유가 없다.
   //   (② 제어의 결과 카드는 파이프라인 탭으로 옮겨 가면 그대로 남아 있다.)
   const info = await callFull('POST', '/api/v1/mock/sim-data', '시뮬레이션 데이터 생성 (Clean & Seed)');
@@ -3051,6 +3244,8 @@ async function dmOpen() {
   const today = ymdLocal(new Date());
   $('dm-date').max = today;
   if (!$('dm-date').value) $('dm-date').value = ymdShift(today, -1);
+  const want = $(isReal() ? 'dm-t-dmy' : 'dm-t-sim');
+  if (want && !want.disabled) want.checked = true;
   $('dm-err').textContent = '';
   dmPreview();
   $('dm-modal').hidden = false;
@@ -3633,9 +3828,11 @@ async function pfStart() {
       <li><span class="lbl">예상:</span> ${esc($('pf-est').textContent.replace('예상 — ', ''))}</li>
       <li><span class="lbl">끝나면:</span> SIM 행·원본 더미 파일 자동 삭제 · 로그(TST)와 제논 수신증(수집기 메모리)은 남습니다</li>
     </ul>
+    ${realNote('perf')}
     ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '시작', '취소');
   if (!ok) return;
-  const info = await callFull('POST', '/api/v1/mock/perf/runs', `기본 부하 검증 시작 — ${req.scenario}`, { json: req });
+  const info = await callFull('POST', `/api/v1/mock/perf/runs?target=${runTarget()}`,
+      `기본 부하 검증 시작 — ${req.scenario}${isReal() ? ' · 대시보드용(REAL · UNS)' : ''}`, { json: req });
   if (!info.ok) {
     showPopup('기본 부하 검증을 시작하지 못했습니다',
       `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
@@ -4044,9 +4241,11 @@ async function rpStart() {
         ${req.acquireLimitSec ? req.acquireLimitSec + '초 초과' : '(보지 않음)'} · STT 에러·타임아웃 ${req.stopOnSttError ? '즉시 중단' : '무시'}</li>
       <li><span class="lbl">단계마다:</span> 로컬 산출물 정리 → SIM ${req.meetCount + req.phoneCount}건 생성 → 측정 → 검증. 끝나면 SIM 자동 삭제</li>
     </ul>
+    ${realNote('perf')}
     ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '시작', '취소');
   if (!ok) return;
-  const info = await callFull('POST', '/api/v1/mock/perf/ramp/runs', `임계 성능 테스트 시작 — ${rpAxis(req)} ${plan.join('→')}`, { json: req });
+  const info = await callFull('POST', `/api/v1/mock/perf/ramp/runs?target=${runTarget()}`,
+      `임계 성능 테스트 시작 — ${rpAxis(req)} ${plan.join('→')}${isReal() ? ' · 대시보드용(REAL · UNS)' : ''}`, { json: req });
   if (!info.ok) {
     showPopup('임계 성능 테스트를 시작하지 못했습니다',
       `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
@@ -4560,6 +4759,7 @@ async function imStart() {
       <li><span class="lbl">검증:</span> 기대값(신규 · 실패 · 최종 매핑) 대조 · 롤백 · 최신 순번(2) · 원문 해시 · PK 중복 0 · 커넥션 풀 반납</li>
       <li><span class="lbl">끝나면:</span> SIM 데이터를 남겨 둡니다 — 이어서 [기존 데이터로 재실행] 으로 복구(멱등성)를 검증할 수 있습니다</li>
     </ul>
+    ${realNote('image')}
     ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '실행', '취소');
   if (!ok) return;
   await imPost(Object.assign({ mode: 'NEW' }, q), `초기화 후 신규 실행 — ${q.count}건 · 워커 ${q.workers}${k ? ` · 의도적 실패 ${k}건` : ''}`);
@@ -4571,7 +4771,7 @@ async function imRerun() {
   await imLoadStatus();
   const m = imSim();
   const n = Number(m.inmates) || 0;
-  if (!n) {
+  if (!n && !isReal()) {   // 대시보드용(REAL)은 지난 REAL 신규 실행의 DMYIMG 로 — 서버가 없으면 이유를 돌려준다
     showPopup('재실행할 SIM 데이터가 없습니다', '<div class="pop-lead">[초기화 후 신규 실행] 을 먼저 하십시오.</div>');
     return;
   }
@@ -4597,7 +4797,8 @@ async function imRerun() {
 }
 
 async function imPost(body, label) {
-  const info = await callFull('POST', '/api/v1/mock/image/perf/runs', label, { json: body });
+  const info = await callFull('POST', `/api/v1/mock/image/perf/runs?target=${runTarget()}`,
+      label + (isReal() ? ' · 대시보드용(REAL · DMYIMG · UNS)' : ''), { json: body });
   if (!info.ok) {
     showPopup('수용자 이미지 수집 검증을 시작하지 못했습니다',
       `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
@@ -5051,6 +5252,407 @@ async function loadConfig() {
   log(`환경 자동 프리셋 — ${e.kindLabel} · ROOT_DIR ${e.rootDir} · 브로커 ${e.brokerBaseUrl} · 로그 컬렉터 ${e.logCollectorBaseUrl} · DB ${c.db?.label||''}`, 'hd');
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+//  실행 용도 — 시뮬레이터용(SIM · 시험 실행 · EXEC_ID TST) / 대시보드용 REAL(DMY · 실제 배치 · EXEC_ID UNS)
+// ═══════════════════════════════════════════════════════════════════════
+//  2026-10-05 — exec_id 를 만드는 모든 시나리오(2 · 3 · 4 · 5 · 6 · 7번 탭)에 같은 선택을 건다.
+//  REAL 은 실제 운영처럼: 시험 플래그 없이(test=false) 돌아 로그 컬렉터가 UNS 로 채번하고, 데이터는 대시보드 더미(DMY)만 집는다
+//  (실제 실행은 SIM 을 집지 않는다 — VoiceCollectService.scopeForRun). 로그 컬렉터 이력은 초기화로 지워지지 않는다.
+let RUN_MODE = (() => { try { return localStorage.getItem('vcsim.runMode') === 'REAL' ? 'REAL' : 'SIM'; } catch (e) { return 'SIM'; } })();
+const isReal = () => RUN_MODE === 'REAL';
+/** 배치 API 의 test 값 — SIM=true(TST) · REAL=false(UNS). */
+const testParam = () => isReal() ? 'false' : 'true';
+/** 더미 생성 · 성능 시험 · 전송 재처리의 용도 — SIMULATOR / DASHBOARD. */
+const runTarget = () => isReal() ? 'DASHBOARD' : 'SIMULATOR';
+function rmApply(announce) {
+  document.querySelectorAll('input[name="run-mode"]').forEach(r => { r.checked = r.value === RUN_MODE; });
+  document.body.classList.toggle('mode-real', isReal());
+  const hint = $('rm-hint');
+  if (hint) hint.innerHTML = isReal()
+    ? '<b class="text-danger">대시보드용(REAL)</b> — DMY 더미 · <code>test=false</code> · EXEC_ID <b>UNS</b> · 로그 컬렉터 이력 · 관리 화면 대시보드에 남습니다(초기화로 지워지지 않음)'
+    : '<b>시뮬레이터용</b> — SIM 데이터 · <code>test=true</code> · EXEC_ID <b>TST</b> · [시뮬레이터 데이터 초기화]로 시험 이력까지 지울 수 있습니다';
+  ['btn-daily', 'btn-periodic', 'btn-meet', 'btn-phone'].forEach(id => {
+    const b = $(id); if (b && b.title) b.title = b.title.replace(/test=(true|false)/, 'test=' + testParam());
+  });
+  // ⑤ 키 표식 장애의 용도도 따라간다(대시보드 생성이 막힌 서버면 그대로 둔다)
+  const ks = $('ks-target');
+  if (ks) {
+    const opt = ks.querySelector(`option[value="${runTarget()}"]`);
+    if (opt && !opt.disabled && ks.value !== runTarget()) { ks.value = runTarget(); ks.dispatchEvent(new Event('change')); }
+  }
+  const zm = $('zr-mode');
+  if (zm) { zm.textContent = isReal() ? '대시보드용 REAL · DMY · UNS' : '시뮬레이터용 · SIM · TST'; zm.className = 'badge ' + (isReal() ? 'text-bg-danger' : 'text-bg-secondary'); }
+  if (announce) log(`실행 용도 → ${isReal() ? '대시보드용(REAL) — DMY 더미 · 실제 배치(test=false) · EXEC_ID UNS' : '시뮬레이터용 — SIM 데이터 · 시험 실행(test=true) · EXEC_ID TST'}`, 'hd');
+  if (typeof loadOnDemandHint === 'function' && announce) loadOnDemandHint();
+}
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'run-mode') return;
+  RUN_MODE = e.target.value === 'REAL' ? 'REAL' : 'SIM';
+  try { localStorage.setItem('vcsim.runMode', RUN_MODE); } catch (err) {}
+  rmApply(true);
+});
+/** 성능 · 이미지 확인 창에 붙이는 REAL 안내. */
+function realNote(what) {
+  if (!isReal()) return '';
+  const extra = what === 'image' ? ' 최대 300명 · 의도적 실패 주입은 쓰지 않습니다(실제 배치 — 장애는 키 표식 더미로).'
+              : what === 'perf' ? ' 기 STT 비율은 쓰지 않습니다. 끝나면 DMY 원천 행을 지웁니다.' : '';
+  return `<div class="pop-note" style="border-color:#f1aeb5;background:#fff5f5">🔴 <b>대시보드용(REAL)</b> — 대시보드 더미(DMY)를 지우고 새로 만들어
+    <b>실제 배치</b>(test=false · EXEC_ID <b>UNS</b>)로 돕니다. 로그 컬렉터 이력 · 관리 화면 대시보드에 남습니다(초기화로 지워지지 않음).${extra}</div>`;
+}
+/**
+ * 대시보드용(REAL) 데이터 — 2번 탭 고정 14건과 같은 모양을 DMY 로 만든다(추가 — 지우지 않는다):
+ * 어제(일배치 창) 접견 5 · 전화 5 + 오늘(10분 주기 창) 접견 2 · 전화 2.
+ */
+async function realSeed(showDone) {
+  const today = ymdLocal(new Date());
+  const reqs = [
+    { label: '어제(일배치) 접견 5 · 전화 5', body: { target: 'DASHBOARD', dataTypes: ['MEET', 'PHONE'], targetDate: ymdShift(today, -1),
+        counts: { MEET: 5, PHONE: 5 }, failures: {}, append: true } },
+    { label: '오늘(10분 주기) 접견 2 · 전화 2', body: { target: 'DASHBOARD', dataTypes: ['MEET', 'PHONE'], targetDate: today,
+        counts: { MEET: 2, PHONE: 2 }, failures: {}, append: true } }];
+  const done = [];
+  for (const r of reqs) {
+    const info = await callFull('POST', '/api/v1/mock/sim-data/generate', `대시보드용(REAL) 데이터 생성 — DMY ${r.label}`, { json: r.body });
+    if (!info.ok) {
+      showPopup('대시보드용(REAL) 데이터를 만들지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+      return false;
+    }
+    const g = info.body;
+    done.push(g);
+    log(`  └ ${esc(g.prefix)} · 대상일 ${esc(g.targetDate)} · ${esc(dmCountsText(g))} · 행 ${g.totals?.rows ?? '-'} · 파일 ${g.totals?.files ?? '-'}`, 'ok');
+  }
+  await loadStatus(true);
+  if (typeof dmLoadStatus === 'function') dmLoadStatus();
+  if (showDone) {
+    showPopup('대시보드용(REAL) 데이터 생성 완료', `<div class="pop-lead">DMY 접견 7 · 전화 7 = 14건 (어제 5·5 + 오늘 2·2)</div>
+      <ul class="pop-list"><li>실제 배치(test=false)가 집습니다 — EXEC_ID 는 <b>UNS</b></li>
+      <li>시뮬레이터 시험 실행(test=true)은 DMY 를 집지 않습니다 — 상단 실행 용도를 대시보드용으로 둔 채 실행하십시오</li></ul>`);
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  7번 탭 — 제논 전송 시뮬레이션
+// ═══════════════════════════════════════════════════════════════════════
+//  서버: GET /api/v1/mock/zenon/sim/template · POST /sim/load(A·B·C) + GET /sim/load/status · POST /sim/headers/{1..4}
+//        POST /sim/reprocess/arm|fix|run|reset · GET /status · GET /ledger · POST /sweep
+let ZT_TPL = null, ZT_TIMER = null, ZT_NEXT = 0, ZT_HEAP = [];
+async function ztOnShow() {
+  if (!ZT_TPL) await ztLoadTemplate();
+  zrPaintScn();
+  ztLedgers();
+}
+async function ztLoadTemplate() {
+  const t = await call('GET', '/api/v1/mock/zenon/sim/template', '', true);
+  if (!t) {
+    $('zt-template').textContent = '양식을 불러오지 못했습니다 — 이 수집기에 전송 시뮬레이션 API(/api/v1/mock/zenon/sim/template)가 없습니다. 수집기를 최신으로 배포하십시오.';
+    $('zt-endpoint').textContent = '';
+    return;
+  }
+  ZT_TPL = t;
+  const head = Object.entries(t.headers || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
+  $('zt-template').textContent = `${t.method} ${t.path}\n${head}\n\n${JSON.stringify(t.body, null, 2)}`;
+  $('zt-rules').innerHTML = (t.rules || []).map(r => `<li>${esc(r)}</li>`).join('');
+  $('zt-curl').textContent = t.curl || '';
+  $('zt-endpoint').innerHTML = `지금 전송 — <b>${esc(t.mode)}</b> · <code>${esc(t.endpoint)}</code> · 청크 ${t.chunkRecords}건 · 해제 상한 ${t.maxDecompressedMb}MB`
+    + ` · 내장 수신기 <code>${esc(t.selfEndpoint)}</code>`;
+}
+function ztLog(line, cls) {
+  const el = $('zt-log');
+  if (el.dataset.fresh !== '1') { el.textContent = ''; el.dataset.fresh = '1'; }
+  const d = document.createElement('div');
+  if (cls) d.className = 'zl-' + cls;
+  d.textContent = line;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+async function ztLoad(s) {
+  if (ZT_TIMER) { showPopup('시험이 진행 중입니다', '<div class="pop-lead">끝난 뒤에 다시 실행하십시오.</div>'); return; }
+  const size = Math.max(1, Number($('zt-size').value) || 50);
+  const rounds = Math.max(1, Number($('zt-rounds').value) || 20);
+  const bomb = Math.max(1, Number($('zt-bomb').value) || 600);
+  if (s === 'C' || s === 'ALL') {
+    const ok = await confirmPopup('점진적 용량 시험', `<div class="pop-lead">${s === 'ALL' ? 'A → B → C' : 'C 연속 부하'} — 총 ${s === 'ALL' ? size + size * rounds : size * rounds}MB 를 흘립니다</div>
+      <ul class="pop-list"><li>수집기가 자기 자신(내장 수신기)에게 보냅니다 — 외부로 나가지 않습니다</li>
+      <li>같은 파드의 CPU · 힙을 씁니다. 배치가 도는 중이면 끝난 뒤에 실행하십시오</li>
+      ${s === 'ALL' ? `<li>B 압축 폭탄 ${bomb}MB — 상한을 넘는 즉시 413 으로 끊습니다(끝까지 풀지 않음)</li>` : ''}</ul>`, '시작', '취소');
+    if (!ok) return;
+  }
+  $('zt-log').dataset.fresh = '0';
+  $('zt-cards').innerHTML = '';
+  ZT_HEAP = [];
+  ztHeap();
+  const info = await callFull('POST', `/api/v1/mock/zenon/sim/load?scenario=${s}&sizeMb=${size}&rounds=${rounds}&bombMb=${bomb}`, `제논 전송 시험 ${s}`);
+  if (!info.ok) { ztLog('시작하지 못했습니다 — ' + (info.body?.message || info.error || ('HTTP ' + info.status)), 'er'); return; }
+  ZT_NEXT = 0;
+  ztPoll();
+}
+async function ztPoll() {
+  const d = await quietGet(`/api/v1/mock/zenon/sim/load/status?after=${ZT_NEXT}`);
+  if (d) {
+    ZT_NEXT = d.next ?? ZT_NEXT;
+    (d.events || []).forEach(ztEvent);
+  }
+  if (d && d.running) { ZT_TIMER = setTimeout(ztPoll, 1000); }
+  else { ZT_TIMER = null; ztLedgers(); }
+}
+function ztEvent(e) {
+  switch (e.type) {
+    case 'banner':
+      ztLog(`■ ${e.msg} — 시나리오 ${e.scenario} · 회차 ${e.sizeMb}MB · C ${e.rounds}회 · 폭탄 ${e.bombMb}MB · 해제 상한 ${e.limitMb}MB · 힙 상한 ${e.maxHeapMb}MB`, 'hd');
+      ztLog(`  수신 ${e.endpoint}`);
+      break;
+    case 'log': ztLog(e.msg, e.level === 'warn' || e.level === 'error' ? 'wr' : ''); break;
+    case 'progress': ztLog('  ' + e.msg); ZT_HEAP.push(e); ztHeap(); break;
+    case 'result': ztCard(e); ztLog(`  ${e.ok ? '✔' : '✘'} ${e.title} — ${e.verdict}`, e.ok ? 'ok' : 'er'); break;
+    case 'note': ztLog('  ※ ' + String(e.msg).replace(/<[^>]+>/g, ''), 'wr'); break;
+    case 'done': ztLog(`■ ${e.msg}`, 'hd'); break;
+    default: ztLog(e.msg || JSON.stringify(e));
+  }
+}
+function ztCard(e) {
+  const rows = e.scenario === 'C'
+    ? [['회차', `${e.rounds}회 · 실패 ${e.failedRound}`], ['총 흘린 양', `압축 ${e.totalSentMb}MB → 해제 ${e.totalRawMb}MB`], ['레코드', `${e.records}건`],
+       ['가장 느린 회차', fmtMs(e.worstMs)], ['힙', `${e.heapStartMb} → ${e.heapEndMb}MB (최대 ${e.heapPeakMb} / 상한 ${e.maxHeapMb})`],
+       ['장부', e.ledger ? `${e.ledger.state} · seq ${(e.ledger.receivedSeqs || []).length}개` : '-']]
+    : [['HTTP', e.status], ['압축 → 해제', `${e.sentMb}MB → ${e.rawMb}MB (${e.ratio}배)`], ['레코드', `${e.records}건`],
+       ['소요', fmtMs(e.elapsedMs)], ['힙', `최대 ${e.heapPeakMb}MB / 상한 ${e.maxHeapMb}MB`]];
+  $('zt-cards').insertAdjacentHTML('beforeend', `<div class="col-12 col-md-4"><div class="zt-card ${e.ok ? 'ok' : 'ng'}">
+    <div class="d-flex justify-content-between"><b>${esc(e.scenario)} · ${esc(e.title)}</b><span class="badge ${e.ok ? 'text-bg-success' : 'text-bg-danger'}">${e.ok ? '통과' : '확인 필요'}</span></div>
+    <div class="hint">기대: ${esc(e.expected || '')}</div>
+    <table class="table table-sm mb-1 mt-1">${rows.map(([k, v]) => `<tr><td class="text-secondary">${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join('')}</table>
+    <div class="small">${esc(e.verdict || '')}</div></div></div>`);
+}
+function ztHeap() {
+  const el = $('zt-heap');
+  if (!ZT_HEAP.length) { el.innerHTML = '<div class="hint">C 를 돌리면 회차별 힙이 그려집니다 — 회차가 쌓여도 우상향하지 않아야 스트리밍이 유지된 것입니다</div>'; return; }
+  const max = Math.max(...ZT_HEAP.map(p => p.heapPeakMb || 0), 1);
+  el.innerHTML = ZT_HEAP.map(p => `<div class="zt-hb" title="${p.round}/${p.of}회 · 최대 ${p.heapPeakMb}MB · 끝 ${p.heapAfterMb}MB · ${p.elapsedMs}ms · HTTP ${p.status}">
+      <span class="n">${p.round}</span><span class="bar"><span class="pk" style="width:${Math.round(100 * (p.heapPeakMb || 0) / max)}%"></span>
+      <span class="af" style="width:${Math.round(100 * (p.heapAfterMb || 0) / max)}%"></span></span><span class="v">${p.heapAfterMb}/${p.heapPeakMb}</span></div>`).join('')
+    + '<div class="hint mt-1">진한 막대 = 회차 끝 힙 · 옅은 막대 = 회차 중 최대(MB)</div>';
+}
+async function ztHdr(n) {
+  const el = $('zt-hdr-log');
+  el.textContent = '실행 중…';
+  const info = await callFull('POST', `/api/v1/mock/zenon/sim/headers/${n}`, `수신 헤더 시나리오 ${n}`);
+  el.textContent = '';
+  if (!info.ok) { el.textContent = '실패 — ' + (info.body?.message || info.error || ('HTTP ' + info.status)); return; }
+  (info.body.lines || []).forEach(l => {
+    const d = document.createElement('div');
+    d.textContent = l;
+    d.className = /✔/.test(l) ? 'zl-ok' : /✘/.test(l) ? 'zl-er' : /⏸|⏱|중복|duplicate=true/.test(l) ? 'zl-wr' : /^──|^런 /.test(l) ? 'zl-hd' : '';
+    el.appendChild(d);
+  });
+  ztLedgers();
+}
+function ztStateBadge(s) {
+  const c = s === 'COMPLETE' ? 'success' : s === 'INGEST-GAP' ? 'danger' : s === 'GAP_SUSPECT' || s === 'COUNT_MISMATCH' ? 'warning' : 'secondary';
+  return `<span class="badge text-bg-${c}">${esc(s || '-')}</span>`;
+}
+async function ztLedgers() {
+  const box = $('zt-ledgers'); if (!box) return;
+  const [st, led] = await Promise.all([quietGet('/api/v1/mock/zenon/status'), quietGet('/api/v1/mock/zenon/ledger?limit=15')]);
+  if (!st) { box.innerHTML = '<div class="hint">전송 상태 API 가 없습니다 — 수집기를 최신으로 배포하십시오.</div>'; return; }
+  const f = st.receiver?.fault || {};
+  const runs = st.recentRuns || [];
+  box.innerHTML = `<div class="small mb-2">전송 <b>${esc(st.mode)}</b> · <code>${esc(st.endpoint)}</code> · gzip ${st.gzip ? '켬' : '끔'} · 청크 ${st.chunkRecords}건${st.chunkRecordsOverridden ? ' <span class="badge text-bg-warning">시연 덮어쓰기</span>' : ''}
+      · 수신기 장애 <span class="badge ${f.mode === 'UP' ? 'text-bg-success' : 'text-bg-danger'}">${esc(f.label || '-')}</span> · 거절 ${f.rejected ?? 0}회
+      · 이어달리기 장부 <code>${esc(st.runsFile || '(메모리)')}</code></div>
+    <div class="table-responsive"><table class="table table-sm table-hover mb-2 small"><thead class="table-light"><tr>
+      <th>수신 런(X-Run-Id)</th><th>상태</th><th>받은 순번</th><th>빈 순번</th><th>레코드/대상</th><th>압축→해제</th><th>중복</th><th>마지막 수신</th></tr></thead><tbody>
+      ${(Array.isArray(led) ? led : []).map(r => `<tr><td class="font-monospace">${esc(r.runId)}</td><td>${ztStateBadge(r.state)}</td>
+        <td>${esc((r.receivedSeqs || []).join(','))}</td><td class="${(r.missingSeqs || []).length ? 'text-danger' : ''}">${esc((r.missingSeqs || []).join(',') || '-')}</td>
+        <td>${r.records}/${r.targetCnt < 0 ? '?' : r.targetCnt}</td><td>${fmtBytes(r.bytes)}→${fmtBytes(r.rawBytes)}</td><td>${r.duplicates}</td><td>${esc(String(r.lastSeenAt || '').replace('T', ' '))}</td></tr>`).join('')
+        || '<tr><td colspan="8" class="hint">아직 받은 런이 없습니다</td></tr>'}
+    </tbody></table></div>
+    <div class="hint mb-1">송신 런 — 수집기가 기억하는 '어디까지 받아들여졌나'(재처리 이어달리기 지점)</div>
+    <div class="table-responsive"><table class="table table-sm mb-0 small"><thead class="table-light"><tr><th>런</th><th>받아들여진 순번</th><th>레코드</th><th>마감</th><th>멈춘 순번</th><th>붙은 실행</th><th>갱신</th></tr></thead><tbody>
+      ${runs.map(r => `<tr><td class="font-monospace">${esc(r.runId)}</td><td>${r.deliveredSeq}</td><td>${r.deliveredRecords}</td>
+        <td>${r.closed ? '<span class="badge text-bg-success">마감</span>' : '<span class="badge text-bg-warning">열림</span>'}</td>
+        <td class="${r.failedSeq ? 'text-danger' : ''}">${r.failedSeq ? esc(r.failedSeq + ' — ' + (r.failReason || '')) : '-'}</td>
+        <td class="font-monospace">${esc((r.execIds || []).join(' → '))}</td><td>${esc(String(r.updatedAt || '').replace('T', ' '))}</td></tr>`).join('')
+        || '<tr><td colspan="7" class="hint">아직 보낸 런이 없습니다</td></tr>'}
+    </tbody></table></div>`;
+}
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? (n / 1024).toFixed(1) + 'KB' : n + 'B';
+}
+
+// ── ④ 전송 재처리 — 에이전트 커넥터 '긴급 재처리(PPP 전송)' 탭과 같은 구성 ───────────────
+const ZR_CFG = [
+  { api: 'ALL_FAIL', tag: '시나리오 1 · 전 청크 실패',
+    title: '시나리오 1 — 제논 전 청크 전송 실패 (배치 FAIL)',
+    desc: '수집 · STT 까지는 성공했으나 제논이 <b>1번 청크부터 503</b>(수신 서버 장애)을 돌려줘 <b>한 청크도 받아들여지지 않은</b> 상황입니다. '
+        + '받아들여진 청크가 없으므로 배치는 <b>FAIL</b> 입니다. 전사 보존물(<code>stt_temp</code>)이 남아 있어 재처리는 수집 · STT 를 건너뛰고 '
+        + '<b>같은 런을 처음(1번 청크)부터 다시</b> 보냅니다.',
+    arm: '① 오류 상황 재현 (제논 다운 + 1번 청크부터 실패)' },
+  { api: 'PARTIAL', tag: '시나리오 2 · 부분 전송 실패',
+    title: '시나리오 2 — 제논 전송 이어달리기(Resume) 복구 (배치 PARTIAL)',
+    desc: '청크 전송 도중 <b>3번째 청크에서 503</b>이 나 전송이 멈춘 상황입니다. 앞 2청크는 받아들여졌으므로 배치는 <b>PARTIAL</b> 입니다. '
+        + '재처리는 무거운 수집 · STT 를 건너뛰고 <b>원배치 런(X-Run-Id = 원 EXEC_ID)을 3번 청크부터 이어서</b> 보낸 뒤 마지막 청크로 마감합니다 — '
+        + '수신 장부에서 그 런이 빈 순번 없이 닫힙니다.',
+    arm: '① 오류 상황 재현 (제논 3번 청크에서 중단)' }];
+let ZR_SEL = 0, ZR_EXEC = null;
+function zrPaintScn() {
+  $('zr-scn').innerHTML = ZR_CFG.map((s, i) => `<button type="button" class="btn btn-sm ${ZR_SEL === i ? 'btn-dark' : 'btn-outline-secondary'}" data-zr-scn="${i}">${esc(s.tag)}</button>`).join('');
+  $('zr-title').textContent = ZR_CFG[ZR_SEL].title;
+  $('zr-desc').innerHTML = ZR_CFG[ZR_SEL].desc;
+  $('zr-arm-txt').textContent = ZR_CFG[ZR_SEL].arm;
+  if (!$('zr-date').value) $('zr-date').value = ymdShift(ymdLocal(new Date()), -1);
+  rmApply(false);
+  if (!ZR_EXEC) zrFlow(null, null);
+}
+function zrLog(sts, title, detail) {
+  const el = $('zr-log');
+  if (el.querySelector('.hint')) el.innerHTML = '';
+  const cls = sts === 'FAIL' ? 'danger' : sts === 'OK' ? 'success' : sts === 'RUN' ? 'primary' : 'secondary';
+  el.insertAdjacentHTML('beforeend', `<div class="zr-line"><span class="badge text-bg-${cls}">${esc(sts)}</span> <b>${esc(title)}</b>
+    ${detail ? `<div class="small text-secondary">${detail}</div>` : ''}</div>`);
+  el.scrollTop = el.scrollHeight;
+}
+function zrBusy(on) { ['zr-arm', 'zr-fix', 'zr-go'].forEach(id => { $(id).disabled = on; }); }
+/** 파이프라인 노드 — 수집 → 정제/분석(STT) → 전사 보존 → 제논 전송(청크) → 정리. */
+function zrFlow(d, phase) {
+  const st = (k) => {
+    if (!d) return ['', '대기'];
+    const t = d.transfer || {};
+    if (phase === 'go') {
+      if (k === 'COLLECT' || k === 'ANALYZE') return ['skip', '건너뜀(전사 재사용)'];
+      if (k === 'KEEP') return ['ok', 'stt_temp 사용'];
+      if (k === 'SEND') return t.failed ? ['ng', `실패 ${t.failed}건`] : ['ok', `seq ${t.fromSeq}~${t.fromSeq + (t.chunkCount || 1) - 1}${t.continued ? ' 이어서' : ''}`];
+      return t.failed ? ['part', '일부 남김'] : ['ok', '보존물 정리'];
+    }
+    if (k === 'COLLECT' || k === 'ANALYZE') return ['ok', '성공'];
+    if (k === 'KEEP') return t.failed ? ['ok', `${t.failed}건 보존`] : ['ok', '-'];
+    if (k === 'SEND') return !t.failed ? ['ok', '전송 완료'] : (t.delivered ? ['part', `${t.delivered}건 전송 · ${t.failed}건 실패`] : ['ng', '전 청크 실패']);
+    return t.delivered ? ['part', `${t.delivered}건 정리`] : ['', '없음'];
+  };
+  const nodes = [['COLLECT', '수집', 'COLLECT'], ['ANALYZE', '정제/분석', 'ANALYZE · STT'], ['KEEP', '전사 보존', 'stt_temp'],
+                 ['SEND', '제논 전송', 'SEND · 청크'], ['PURGE', '정리', 'Purge']];
+  $('zr-flow').innerHTML = nodes.map(([k, t, s], i) => {
+    const [c, txt] = st(k);
+    return `${i ? '<span class="ar">→</span>' : ''}<span class="zr-node ${c}"><b>${esc(t)}</b><span class="hint">${esc(s)}</span><span class="sts">${esc(txt)}</span></span>`;
+  }).join('');
+}
+function zrChunks(d, phase) {
+  const t = d.transfer;
+  if (!t || !t.chunks) { $('zr-chunks').innerHTML = '<div class="hint">이번 실행이 보낸 청크가 없습니다(쌓인 레코드 없음).</div>'; return; }
+  const prior = [];
+  if (t.continued && t.fromSeq > 1) for (let s = 1; s < t.fromSeq; s++) prior.push(s);
+  const box = (c) => `<span class="zr-chunk ${c.result === 'SENT' || c.result === 'DUPLICATE' ? 'ok' : c.result === 'FAILED' ? 'ng' : 'ns'}"
+      title="${esc(c.message || '')}"><b>seq ${c.seq}</b>${c.last ? ' <span class="badge text-bg-dark">last</span>' : ''}<br>${c.records}건 · ${esc(c.result)}${c.status ? ' · ' + c.status : ''}</span>`;
+  $('zr-chunks').innerHTML = `<div class="small mb-1">전송 런 <code>${esc(t.runId)}</code>${t.continued ? ` <span class="badge text-bg-info">원배치 런 이어달리기</span>` : ''}
+      · X-Target-Cnt ${t.targetCnt} · ${esc(t.mode)} ${esc(t.endpoint)}</div>
+    <div class="d-flex flex-wrap gap-1 align-items-stretch">
+      ${prior.map(s => `<span class="zr-chunk prior"><b>seq ${s}</b><br>앞서 받아들여짐</span>`).join('')}
+      ${t.chunks.map(box).join('')}</div>`;
+}
+function zrLedger(led, title) {
+  if (!led) { $('zr-ledger').innerHTML = '<div class="hint">수신 장부 없음</div>'; return; }
+  $('zr-ledger').innerHTML = `<div class="zr-led"><div class="d-flex justify-content-between"><b>${esc(title || '수신 장부')} — <span class="font-monospace">${esc(led.runId)}</span></b>${ztStateBadge(led.state)}</div>
+    <div class="small">받은 순번 [${esc((led.receivedSeqs || []).join(', '))}] · 빈 순번 [${esc((led.missingSeqs || []).join(', '))}]
+      · 거절 [${esc((led.rejectedSeqs || []).join(', '))}] · 레코드 ${led.records}/${led.targetCnt < 0 ? '?' : led.targetCnt} · 중복 ${led.duplicates}</div>
+    <div class="small text-secondary">${esc(led.message || '')}</div></div>`;
+}
+function zrItems(items) {
+  if (!items || !items.length) { $('zr-items').innerHTML = ''; return; }
+  $('zr-items').innerHTML = `<div class="table-responsive" style="max-height:220px"><table class="table table-sm small mb-0"><thead class="table-light sticky-top">
+    <tr><th>키</th><th>종류</th><th>결과</th><th>단계</th><th>위치 · 사유</th></tr></thead><tbody>
+    ${items.map(it => `<tr><td class="font-monospace">${esc(it.key)}</td><td>${esc(it.kind)}</td>
+      <td class="${it.status === 'SUCCESS' ? 'ks-ok' : it.status === 'FAIL' ? 'ks-ng' : ''}">${esc(it.status)}</td><td>${esc(it.failedStep || '-')}</td>
+      <td class="text-break">${esc(it.status === 'SUCCESS' ? (it.location || '') : (it.errMsg || ''))}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function zrBadges(d) {
+  const b = [];
+  if (d.execStsCd) b.push(`<span class="badge ${d.execStsCd === 'SUCCESS' ? 'text-bg-success' : d.execStsCd === 'FAIL' ? 'text-bg-danger' : 'text-bg-warning'}">T1 ${esc(d.execStsCd)}</span>`);
+  if (d.fault) b.push(`<span class="badge ${d.fault.mode === 'UP' ? 'text-bg-success' : 'text-bg-danger'}">제논 ${esc(d.fault.label)}</span>`);
+  $('zr-badges').innerHTML = b.join('');
+}
+async function zrArm() {
+  if (isReal() && !(await dmConfirmDashboard('[⑦] 전송 재처리 — 대시보드용 더미(DMY)'))) return;
+  const s = ZR_CFG[ZR_SEL];
+  const per = Math.max(1, Number($('zr-per').value) || 3), chunk = Math.max(1, Number($('zr-chunk').value) || 2);
+  const date = $('zr-date').value;
+  $('zr-log').innerHTML = '';
+  zrBusy(true);
+  zrLog('RUN', s.arm, `더미 생성(${isReal() ? 'DMY · 대시보드용' : 'SIM · 시뮬레이터용'} · 접견 ${per} · 전화 ${per}) → 제논 장애 → 청크 ${chunk}건 → 배치 실행(test=${testParam()})`);
+  try {
+    const info = await callFull('POST', `/api/v1/mock/zenon/sim/reprocess/arm?scenario=${s.api}&target=${runTarget()}&perType=${per}&chunkRecords=${chunk}`
+        + (date ? `&targetDate=${date}` : ''), `[⑦ 전송 재처리] ${s.arm}`);
+    $('zr-log').innerHTML = '';
+    if (!info.ok) { zrLog('FAIL', '오류 상황 재현 실패', esc(info.body?.message || info.error || ('HTTP ' + info.status))); return; }
+    const d = info.body;
+    ZR_EXEC = d.execId;
+    $('zr-exec').value = d.execId || '';
+    zrLog('OK', 'EXEC_ID 채번', `로그 컬렉터가 배치를 채번했습니다 → <code>${esc(d.execId)}</code> (${/UNS/.test(d.execId || '') ? '실제 배치 UNS — 대시보드에 나옵니다' : '시험 실행 TST'})`);
+    zrLog(d.execStsCd === 'SUCCESS' ? 'OK' : 'FAIL', `1차 실행 — T1 ${d.execStsCd || '?'}`, esc(d.summary || ''));
+    const t = d.transfer || {};
+    zrLog(t.failed ? 'FAIL' : 'OK', `제논 전송 — 청크 ${t.chunkCount ?? 0}개 · ${t.delivered ?? 0}건 받아들여짐 · ${t.failed ?? 0}건 실패`,
+      esc((t.chunks || []).map(c => `seq ${c.seq} ${c.result}${c.status ? '(' + c.status + ')' : ''}`).join(' · ')));
+    zrLog('INFO', '다음', esc(d.next || ''));
+    zrBadges(d); zrFlow(d, 'arm'); zrChunks(d, 'arm'); zrLedger(d.ledger, '수신 장부'); zrItems(d.items);
+    $('zr-resume').innerHTML = '';
+  } finally {
+    zrBusy(false);
+    ztLedgers();
+  }
+}
+async function zrFix() {
+  zrBusy(true);
+  try {
+    const info = await callFull('POST', '/api/v1/mock/zenon/sim/reprocess/fix', '[⑦ 전송 재처리] ② 제논 정상화');
+    if (!info.ok) { zrLog('FAIL', '정상화 실패', esc(info.body?.message || info.error || '')); return; }
+    zrLog('OK', '② 제논 정상화 — 수신기 200 OK', esc(info.body.message || ''));
+    zrBadges({ execStsCd: null, fault: info.body.fault });
+  } finally { zrBusy(false); ztLedgers(); }
+}
+async function zrGo() {
+  if (!ZR_EXEC) { zrLog('FAIL', '긴급 재처리', 'EXEC_ID 가 아직 없습니다 — 먼저 ① 오류 상황 재현을 실행하십시오.'); return; }
+  zrBusy(true);
+  zrLog('RUN', '③ 긴급 재처리', `admin 과 같은 경로 — POST /internal/batch/reprocess {execId:${esc(ZR_EXEC)}, dataTypeCd:UNSTRUCTURED, stepTypeCd:SEND, stepSeq:3} · 끝날 때까지 기다립니다`);
+  try {
+    const info = await callFull('POST', `/api/v1/mock/zenon/sim/reprocess/run?execId=${encodeURIComponent(ZR_EXEC)}&stepTypeCd=SEND`, '[⑦ 전송 재처리] ③ 긴급 재처리');
+    if (!info.ok) { zrLog('FAIL', '긴급 재처리 실패', esc(info.body?.message || info.error || ('HTTP ' + info.status))); return; }
+    const d = info.body;
+    const t = d.transfer || {};
+    zrLog(d.execStsCd === 'SUCCESS' || (!t.failed && t.delivered) ? 'OK' : 'FAIL', `재처리 실행 ${d.execId} — T1 ${d.execStsCd || '?'} · resume ${d.resume}`, esc(d.path || ''));
+    zrLog(t.failed ? 'FAIL' : 'OK', `제논 전송 — 런 ${t.runId || '-'}${t.continued ? ' (원배치 런 이어달리기)' : ''} · seq ${t.fromSeq ?? '-'}부터 ${t.chunkCount ?? 0}청크 · ${t.delivered ?? 0}건 전송`,
+      esc((t.chunks || []).map(c => `seq ${c.seq} ${c.result}`).join(' · ')));
+    const led = d.originLedger || d.ledger;
+    if (led) zrLog(led.complete ? 'OK' : 'FAIL', `수신 장부 — ${led.state}`, esc(led.message || ''));
+    $('zr-resume').innerHTML = `<span class="badge text-bg-success">재개 지점: SEND</span> 전사 보존물(<code>stt_temp/${esc(ZR_EXEC)}</code>)로 수집 · STT 를 건너뛰고`
+      + ` ${t.continued ? `원배치 런 <code>${esc(t.runId)}</code> 을 <b>${t.fromSeq}번 청크부터</b> 이어 보냈습니다` : '전송만 다시 했습니다'}. 이미 성공한 건은 멱등 표식으로 건너뜁니다.`;
+    zrBadges(d); zrFlow(d, 'go'); zrChunks(d, 'go'); zrLedger(led, '원배치 런 수신 장부'); zrItems(null);
+  } finally { zrBusy(false); ztLedgers(); }
+}
+async function zrReset(quiet) {
+  await call('POST', '/api/v1/mock/zenon/sim/reprocess/reset', quiet ? '' : '[⑦ 전송 재처리] 상태 초기화', quiet);
+  ZR_EXEC = null;
+  $('zr-exec').value = '';
+  ['zr-badges', 'zr-chunks', 'zr-ledger', 'zr-items', 'zr-resume'].forEach(id => { $(id).innerHTML = ''; });
+  $('zr-log').innerHTML = '<div class="hint">초기화했습니다 — 제논 정상 · 청크 레코드 수 설정값. ① 오류 상황 재현을 누르면 새 EXEC_ID 로 시작합니다.</div>';
+  zrFlow(null, null);
+  ztLedgers();
+}
+document.addEventListener('click', (e) => {
+  const l = e.target.closest('[data-zt-load]'); if (l) { ztLoad(l.dataset.ztLoad); return; }
+  const h = e.target.closest('[data-zt-hdr]'); if (h) { ztHdr(Number(h.dataset.ztHdr)); return; }
+  const s = e.target.closest('[data-zr-scn]');
+  if (s) { const i = Number(s.dataset.zrScn); if (i !== ZR_SEL) { ZR_SEL = i; zrPaintScn(); zrReset(true); } }
+});
+$('zt-copy').onclick = () => navigator.clipboard?.writeText($('zt-template').textContent).then(() => {
+  $('zt-copy').textContent = '복사됨'; setTimeout(() => { $('zt-copy').textContent = '양식 복사'; }, 1200);
+});
+$('zt-reload').onclick = () => { ZT_TPL = null; ztLoadTemplate(); };
+$('zt-sweep').onclick = async () => { await call('POST', '/api/v1/mock/zenon/sweep?idleSec=0', '유실 판정 스윕(즉시)'); ztLedgers(); };
+$('zt-led-refresh').onclick = ztLedgers;
+$('zr-arm').onclick = zrArm;
+$('zr-fix').onclick = zrFix;
+$('zr-go').onclick = zrGo;
+$('zr-reset').onclick = () => zrReset(false);
+
 log('시뮬레이터 준비 완료. [시뮬레이션 데이터 생성] 창에서 용도(SIM/DMY) · 유형 · 건수 · 장애를 골라 만들거나, 2번 탭 고정 14건(접견 7·전화 7)은 창 아래 [예전 Clean & Seed] → [처리 대상 미리보기] → [전체 실행] 순서를 권합니다.', 'hd');
 log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 XVARM·브로커를 타지 않습니다. 파이프라인은 [수집] → [정제/분석] → [적재/전송(제논)] 3단계이고, STT 결과는 PV 에 남기지 않고 제논(Zenon)으로 보냅니다 — [제논 전송 확인] 으로 수신증을 봅니다.', 'hd');
 (async () => {
@@ -5059,6 +5661,8 @@ log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 X
   pfInit();
   imInit();
   await dmInit();
+  rmApply(false);
+  if (isReal()) log('실행 용도 — 대시보드용(REAL): DMY 더미 · 실제 배치(test=false) · EXEC_ID UNS (상단 [실행 용도]에서 바꿉니다)', 'hd');
   await loadStatus(false);
   await loadOnDemandHint();
   await checkHealth(true);

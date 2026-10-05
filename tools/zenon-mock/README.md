@@ -1,14 +1,18 @@
-# 제논(Zenon) AI 수신 REST API — Mock 서버
+# 제논(Zenon) 수신 REST API — Mock 서버 (data-collector 전송 양식)
 
 비정형 수집기의 **SEND(적재/전송)** 단계가 STT 결과를 온프레미스 제논으로 넘기는 규약을 흉내 내는 FastAPI 서버입니다.
-2026-10-01 3단계 복원(`[수집 COLLECT] → [정제/분석 ANALYZE] → [적재/전송 SEND(제논)]`)으로 클라우드 전송·비식별화(커넥터)가 빠지고,
-결과는 PV(`/k8s/unstructured_collector/xenon`)에 남기지 않고 제논으로 보냅니다.
+2026-10-05 부터 전송 양식을 **data-collector 와 같게** 맞췄습니다 — 에이전트 커넥터를 거치지 않고 제논으로 직접 보내며,
+양식은 에이전트 커넥터 시뮬레이터에서 정한 수집단 ↔ 수신단 규약(`LearnTransferController`)입니다.
+
+> 수집기 안에도 같은 수신기가 있습니다 — `ZENON_MODE=MOCK`(개발계 기본)이면 네트워크 없이 내장 수신기를 부르고,
+> dev · local 에서는 `POST /api/v1/mock/zenon/transfer` 로도 열려 있습니다(시뮬레이터 7번 탭 '제논 전송 시뮬레이션').
+> 이 서버는 수집기 밖에서 **실제 소켓**으로 받아 보고 싶을 때 씁니다.
 
 | 파일 | 내용 |
 |---|---|
 | `zenon_mock_server.py` | 목 서버 본체 |
-| `requirements.txt` | `fastapi` · `uvicorn` · `python-multipart` |
-| `mock_received_files/` | 받은 파일 저장 위치(실행 시 생성 · Git 제외) |
+| `requirements.txt` | `fastapi` · `uvicorn` |
+| `mock_received_files/` | 받은 청크(풀어서) 저장 위치 — `{runId}/seq-{n}.json`(실행 시 생성 · Git 제외) |
 
 ## 1. 설치 · 실행 (Python 3.10+)
 
@@ -19,82 +23,73 @@ pip install -r requirements.txt
 uvicorn zenon_mock_server:app --host 0.0.0.0 --port 8000
 ```
 
-- `python zenon_mock_server.py` 로도 뜹니다(`ZENON_MOCK_PORT` · `ZENON_MOCK_HOST` 로 바꿈).
-- 저장 폴더는 `ZENON_MOCK_DIR`(기본 `./mock_received_files`).
-- Swagger: <http://localhost:8000/docs>
-
-## 2. API
-
-### `POST /api/v1/zenon/receive` — multipart/form-data
-
-| 파트 | 형식 | 설명 |
+| 환경 변수 | 기본값 | 설명 |
 |---|---|---|
-| `file` | 파일 | 전송 파일(음성 = 전사 JSON, 이미지 = 사진) |
-| `metadata` | JSON 문자열 | `exec_id`, `inmate_no`, `type`(`VOICE`·`IMAGE`), `file_name` (+ 수집기가 붙이는 `kind`, `idempotency_key`, `src_file_name`, `char_count`, `engine`) |
+| `ZENON_MOCK_DIR` | `./mock_received_files` | 받은 청크 저장 폴더 |
+| `ZENON_MOCK_MAX_MB` | `512` | 해제 상한 — 넘으면 413(압축 폭탄 방어) |
+| `ZENON_MOCK_GAP_TIMEOUT_SEC` | `60` | 유실 판정 스윕의 기본 대기 |
+
+Swagger: <http://localhost:8000/docs>
+
+## 2. 전송 양식 — 요청 하나 = 청크 하나
+
+```
+POST /api/v1/learn/transfer
+Content-Type: application/json;charset=UTF-8
+Content-Encoding: gzip
+Transfer-Encoding: chunked
+X-Run-Id: 20261005UNS001        전송 런 ID = 수집 실행 ID(재처리 이어달리기면 원배치 ID)
+X-Data-Type: UNSTRUCTURED
+X-Target-Cnt: 6                 이 런의 전체 레코드 수
+X-Chunk-Cnt: 2                  이 청크의 레코드 수
+X-Seq: 1                        순번(1부터 오름차순)
+X-Is-Last: false                마지막 청크만 true
+
+{"header":{"runId":"20261005UNS001","dataTypeCd":"UNSTRUCTURED","collectDtm":"2026-10-05T10:00:00+09:00","setTypeCd":"VOICE"},
+ "payload":[{"managementNo":"(교정번호)","rawDataset":{"recFileId":"…","kind":"MEET","inmatePid":"…","transcript":{…}}}, …]}
+```
+
+| 응답 | 뜻 |
+|---|---|
+| 200 `{"code":"SUCCESS","runId","seq","duplicate":false,"receivedChunks","receivedRecords","state","missingSeqs"}` | 받음 |
+| 200 `{"duplicate":true}` | 이미 받은 (X-Run-Id + X-Seq) — 재전송 무해(멱등) |
+| 400 | 헤더 누락(X-Run-Id · X-Seq) · `header.runId` ≠ X-Run-Id · payload 건수 ≠ X-Chunk-Cnt · managementNo 없음 |
+| 413 | 해제 상한 초과 — 끝까지 풀지 않고 끊는다 |
+| 503 | 장애 흉내(`POST /fault`) |
 
 | 쿼리 | 설명 |
 |---|---|
-| `delay=<초>` | 응답 전에 기다립니다(0~600). 수집기 `zenon.read-timeout-ms`(기본 30초)보다 길게 주면 **타임아웃**을 재현합니다 |
-| `status_code=500` · `status_code=400` | 그 상태 코드로 실패 응답(`{"code":"ERROR",...}`) — 수집기는 SEND 실패로 처리하고 전사를 보존합니다 |
+| `delay=<초>` | 응답 전에 기다립니다(0~600). 수집기 `zenon.read-timeout-ms`(기본 60초)보다 길게 주면 **타임아웃** |
+| `status_code=503` | 그 상태 코드로 실패 — 수집기는 그 청크에서 멈추고(뒤 청크 미전송) 그 건들을 SEND 실패로 남깁니다 |
 
-**더미 시나리오 SEND_FAIL(키 표식)** — `metadata.idempotency_key` 가 SF 표식 키(`DMY-MEET-20261001-SF-0003` · `SIM-PHONE-20261001-SF-0001` 형식)면
-그 키는 **처음 한 번만 503** 으로 거부합니다. 같은 키를 다시 보내면(수집기 `FROM_SEND` 재처리) 받습니다. 수집기 MOCK 모드(`ZENON_MODE=MOCK`)와 같은 규칙이라,
-REST 모드로 바꿔도 "실패 → 재처리 → 성공" 시나리오가 그대로 재현됩니다. 표식 키는 시뮬레이터 [더미 데이터 생성] · `POST /api/v1/mock/sim-data/generate` 가 만듭니다.
+### 장부 · 장애
 
-성공 응답(200):
+- `GET /api/v1/learn/transfer/ledger` · `GET /api/v1/learn/transfer/ledger/{runId}` — 받은 순번 · 빈 순번 · 상태
+  (`RECEIVING` · `GAP_SUSPECT` · `COMPLETE` · `COUNT_MISMATCH` · `INGEST-GAP`)
+- `POST /api/v1/learn/transfer/sweep?idle_sec=0` — 유실 판정(빈 순번이 있거나 마지막 청크가 오지 않은 채 조용한 런 → `INGEST-GAP`)
+- `POST /fault?mode=DOWN` — 전부 503 · `POST /fault?mode=FAIL_FROM_SEQ&from_seq=3` — 3번 청크부터 503 · `POST /fault?mode=UP` — 정상화
+- `GET /health` — 수집기 상단 헬스 배지(제논 전송)가 REST 모드에서 부릅니다
 
-```json
-{"code":"SUCCESS","exec_id":"20261001TST001","received_at":"2026-10-01T17:20:05","file_name":"MEET_0001.json","file_size_bytes":1834}
-```
-
-받은 파일은 `mock_received_files/{exec_id}/{file_name}` 에 저장되고, 옆에 `{file_name}.metadata.json`(수신 시각 · 메타데이터)이 남습니다.
-콘솔에는 헤더(인증·쿠키 값은 `***`) · type · exec_id · 크기가 찍힙니다.
-
-### 그 밖
-
-- `GET /health` — 수집기 상단 헬스 배지(제논 전송)가 REST 모드에서 부릅니다.
-- `GET /api/v1/zenon/received?exec_id=...` — 받아 둔 파일 목록(수집기 [제논 전송 확인] 과 대조).
-- `GET /api/v1/zenon/scenario-faults` — SF 표식 키 중 이미 한 번 거부한 것 · `DELETE` 로 비우면 다음 전송에서 한 번 더 거부(메모리 — 재기동하면 비워짐).
-
-## 3. cURL 예시
+## 3. 수집기와 붙이기
 
 ```bash
-# 정상 수신
-echo '{"text":"테스트 전사"}' > /tmp/sample.json
-curl -s -X POST 'http://localhost:8000/api/v1/zenon/receive' \
-  -F 'file=@/tmp/sample.json;type=application/json' \
-  -F 'metadata={"exec_id":"20261001TST001","inmate_no":"2024000123","type":"VOICE","file_name":"MEET_0001.json"}'
-
-# 장애 재현 — HTTP 500
-curl -s -X POST 'http://localhost:8000/api/v1/zenon/receive?status_code=500' \
-  -F 'file=@/tmp/sample.json' \
-  -F 'metadata={"exec_id":"20261001TST001","inmate_no":"2024000123","type":"VOICE","file_name":"MEET_0001.json"}'
-
-# 지연 재현 — 35초 뒤 응답(수집기 기본 read-timeout 30초 → 타임아웃)
-curl -s -X POST 'http://localhost:8000/api/v1/zenon/receive?delay=35' \
-  -F 'file=@/tmp/sample.json' \
-  -F 'metadata={"exec_id":"20261001TST001","inmate_no":"2024000123","type":"VOICE","file_name":"MEET_0001.json"}'
-
-# 헬스 · 받은 목록
-curl -s http://localhost:8000/health
-curl -s 'http://localhost:8000/api/v1/zenon/received?exec_id=20261001TST001'
-```
-
-## 4. 수집기와 붙이기
-
-수집기 기본값은 `ZENON_MODE=MOCK`(수집기 안에서 수신증만 만들고 네트워크를 타지 않음)입니다. 이 목 서버로 실제 HTTP 전송을 보려면:
-
-```bash
-ZENON_MODE=REST ZENON_BASE_URL=http://localhost:8000 java -jar target/unstructured-collector-*.jar --server.port=18095
+ZENON_MODE=REST ZENON_BASE_URL=http://localhost:8000 java -jar target/unstructured-collector-dvlx15mqnc.jar --server.port=18095
 ```
 
 | 환경 변수 | 기본값 | 설명 |
 |---|---|---|
-| `ZENON_MODE` | `MOCK` | `MOCK` · `REST` |
-| `ZENON_BASE_URL` | (빈 값) | REST 모드의 제논 주소 |
-| `ZENON_RECEIVE_PATH` | `/api/v1/zenon/receive` | 수신 경로 |
-| `ZENON_CONNECT_TIMEOUT_MS` · `ZENON_READ_TIMEOUT_MS` | `3000` · `30000` | 연결 · 응답 타임아웃 |
-| `ZENON_KEEP_RECEIPTS` | `500` | 수집기 메모리에 남길 수신증 수(시뮬레이터 [제논 전송 확인] · 검증 패널) |
+| `ZENON_MODE` | `MOCK` | `MOCK`(내장 수신기) · `REST` |
+| `ZENON_BASE_URL` | (빈 값) | REST 모드의 제논 주소(경로 접두가 있으면 포함) |
+| `ZENON_TRANSFER_PATH` | `/api/v1/learn/transfer` | 수신 경로(data-collector `transfer-path` 와 같은 기본값) |
+| `ZENON_GZIP` | `true` | 본문 gzip |
+| `ZENON_CHUNK_RECORDS` · `ZENON_MAX_PAYLOAD_BYTES` | `50` · `52428800` | 청크 레코드 수 · 청크 직렬화 상한(50MB) |
+| `ZENON_SET_TYPE_CD` · `ZENON_DATA_TYPE_CD` | `VOICE` · `UNSTRUCTURED` | `header.setTypeCd` · `X-Data-Type` |
+| `ZENON_CONNECT_TIMEOUT_MS` · `ZENON_READ_TIMEOUT_MS` | `3000` · `60000` | 연결 · 응답 타임아웃 |
 
-장애 재처리 확인: 시뮬레이터 3번 탭 **3. 전송 장애**(수집기 안에서 SEND 실패 주입) 또는 이 서버의 `status_code=500` 으로 실패시키면
-전사가 `{ROOT}/stt_temp/{execId}/` 에 보존되고, `재처리(FROM_SEND)` 가 STT 없이 보존된 전사로 다시 보낸 뒤 보존물을 지웁니다.
+**전송 재처리** — 이 서버에 `POST /fault?mode=FAIL_FROM_SEQ&from_seq=3` 를 걸고 배치를 돌리면 1·2번 청크만 받아들여지고(PARTIAL),
+실패한 건의 전사가 `{ROOT}/stt_temp/{execId}/` 에 남습니다. `POST /fault?mode=UP` 뒤 긴급 재처리(단계 SEND)를 하면 수집기가
+**원배치 런(X-Run-Id = 원 실행 ID)을 3번 청크부터 이어** 보내고 마지막 청크로 마감합니다 — `ledger/{runId}` 가 `COMPLETE`.
+어디까지 받아들여졌는지는 수집기가 `{ROOT}/zenon/transfer_runs.json` 에 남겨 재기동 뒤에도 이어 갑니다.
+
+**키 표식 장애(SF)** — 더미 키 표식(`…-SF-…`)은 이제 수집기가 **보내기 전에** 그 건만 한 번 거부합니다(청크는 멈추지 않음).
+이 서버는 표식을 보지 않습니다.

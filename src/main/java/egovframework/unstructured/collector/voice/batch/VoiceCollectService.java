@@ -59,9 +59,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 직전에 연다. 모두 배치 끝에서 한 번에 마감한다.</p>
  *
  * <p><b>결과를 PV 에 남기지 않는다</b>: 예전에는 STT 결과를 {@code xenon/{meet|phone}/{execId}/} 에 쓰고 하류가
- * 집어 갔다. 이제 SEND 가 제논 수신 API 로 바로 보내고({@link ZenonClient}), 성공하면 그 건의 임시 파일
- * (받은 원본 · 복호화 오디오 · 전사 보존물)을 지운다(Purge). 실패한 건은 전사 보존물이 남아 {@code FROM_SEND}
- * 재처리가 STT 없이 전송부터 다시 한다.</p>
+ * 집어 갔다. 이제 SEND 가 제논 수신 API 로 바로 보낸다({@link ZenonClient}). 2026-10-05 부터 전송 양식은 data-collector 와
+ * 같다 — 건마다 레코드를 전송 런에 쌓고 배치 끝에 청크(gzip · chunked · X-Run-Id/X-Seq/X-Is-Last …)로 나눠 순서대로 보낸다.
+ * 받아들여진 건은 그 건의 임시 파일(받은 원본 · 복호화 오디오 · 전사 보존물)을 지운다(Purge). 실패한 청크와 그 뒤 청크의 건은
+ * 전사 보존물이 남아 {@code FROM_SEND} 재처리가 STT 없이 <b>원배치 런을 다음 순번부터 이어</b> 보낸다.</p>
  *
  * <p><b>워커</b>: 확보(I/O)와 STT(연산)를 다른 워커가 맡는다 — {@link Workers}. 둘 다 1 이면 순차다.</p>
  *
@@ -224,7 +225,9 @@ public class VoiceCollectService {
         // ── T2 ① COLLECT — 파일 확보·복호화. 배치 시작에 연다 ────────────────────
         RunContext ctx = new RunContext(execId);
         ctx.fromExecId = fromExecId;
-        log.info("[Batch]   전송 — 제논 {} · {}", zenon.mode(), zenon.endpoint());
+        // 전송 런 — 건마다 레코드를 쌓고 배치 끝에 청크로 나눠 보낸다(data-collector 양식). 재처리면 원배치 런을 이어 받는다
+        ctx.transfer = zenon.openSession(execId, fromExecId);
+        log.info("[Batch]   전송 — 제논 {} · {} · 청크 {}건", zenon.mode(), zenon.endpoint(), zenon.chunkRecords());
         ctx.collectStepId = logCollector.createStep(execId, StepType.COLLECT.seq(), StepType.COLLECT.name());
 
         List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
@@ -272,6 +275,9 @@ public class VoiceCollectService {
             ctx.capElapsed(System.currentTimeMillis() - loopStartedAt);
         }
 
+        // ── SEND 마무리 — 쌓아 둔 레코드를 청크로 나눠 순서대로 보낸다. 실패한 청크(와 그 뒤)의 건은 SEND 실패로 바꾼다
+        ZenonClient.Report transfer = flushTransfer(ctx, outcomes);
+
         int success = (int) outcomes.stream().filter(FileProcOutcome::isSuccess).count();
         int skipped = (int) outcomes.stream().filter(o -> o.status() == ProcStatus.SKIPPED).count();
         int fail = outcomes.size() - success - skipped;
@@ -306,6 +312,13 @@ public class VoiceCollectService {
         sent.put("mode", zenon.mode());
         sent.put("endpoint", zenon.endpoint());
         sent.put("sent", String.valueOf(success));
+        if (!transfer.isEmpty()) {
+            sent.put("runId", transfer.runId());
+            sent.put("chunks", String.valueOf(transfer.chunks().size()));
+            sent.put("seq", transfer.fromSeq() + "~" + (transfer.fromSeq() + transfer.chunks().size() - 1));
+            sent.put("continued", String.valueOf(transfer.continued()));
+            sent.put("closed", String.valueOf(transfer.closed()));
+        }
 
         long elapsedMs = System.currentTimeMillis() - startedAt;
         VoiceBatchResult result = new VoiceBatchResult(execId, collectorExecId != null, window.toString(),
@@ -325,6 +338,60 @@ public class VoiceCollectService {
 
     /** 중단 사유 — 순차·생산자-소비자가 같은 문구를 쓴다(화면이 이 접두로 센다). */
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
+
+    /** SEND 에 쌓아 둔 건의 임시 위치 — flushTransfer 가 수신증 위치로 바꾼다. */
+    private static final String PENDING_SEND = "zenon:pending";
+
+    /**
+     * 쌓아 둔 레코드를 보낸다 — 청크로 나눠 순서대로, 한 청크가 실패하면 멈춘다({@link ZenonClient.Session#flush}).
+     *
+     * <p>받아들여진 건은 수신증 위치로, 실패한 청크 · 그 뒤 청크의 건은 SEND 실패로 결과를 고친다. 정합성 대사
+     * (T1.SUCCESS_CNT == Σ T4 SUCCESS)는 고친 뒤의 결과로 맞춘다. 중단(cancel)된 배치도 이미 STT 를 마친 건은 보낸다.</p>
+     */
+    private ZenonClient.Report flushTransfer(RunContext ctx, List<FileProcOutcome> outcomes) {
+        if (ctx.transfer == null || ctx.transfer.size() == 0) {
+            return ZenonClient.Report.empty(ctx.execId, zenon.mode(), zenon.endpoint());
+        }
+        long t0 = System.currentTimeMillis();
+        long mSend = meter.start();
+        ZenonClient.Report rep;
+        try {
+            rep = ctx.transfer.flush();
+        } catch (RuntimeException e) {
+            // 전송 코드 자체가 깨졌다 — 쌓인 건을 모두 SEND 실패로 남긴다(전사는 남아 있어 재처리할 수 있다)
+            log.error("[Batch] 제논 전송 실패(예기치 않음) — execId={} · {}", ctx.execId, e.toString(), e);
+            for (FileProcOutcome o : outcomes) {
+                if (o.isSuccess() && PENDING_SEND.equals(o.sttPath())) {
+                    ctx.sendFailed.putIfAbsent(o.target().idempotencyKey(),
+                            e.getClass().getSimpleName() + ": " + shorten(e.getMessage()));
+                }
+            }
+            rep = ZenonClient.Report.empty(ctx.execId, zenon.mode(), zenon.endpoint());
+        } finally {
+            meter.add(PerfStage.SEND, mSend);
+        }
+        ctx.addSend(System.currentTimeMillis() - t0);
+        for (int i = 0; i < outcomes.size(); i++) {
+            FileProcOutcome o = outcomes.get(i);
+            if (!o.isSuccess() || !PENDING_SEND.equals(o.sttPath())) {
+                continue;
+            }
+            String key = o.target().idempotencyKey();
+            ZenonClient.Receipt rc = ctx.delivered.get(key);
+            if (rc != null) {
+                outcomes.set(i, FileProcOutcome.success(o.target(), o.fileSize(), o.sttChars(), rc.location(), o.elapsedMs()));
+            } else {
+                String why = ctx.sendFailed.getOrDefault(key, "전송 결과 없음");
+                if (!progress.isCancelRequested()) {
+                    meter.error(PerfStage.SEND);
+                }
+                log.warn("[Batch] 처리 실패 [{}] — {} ({})", FileProcOutcome.STEP_SEND, o.target().shortId(), why);
+                outcomes.set(i, FileProcOutcome.fail(o.target(), FileProcOutcome.STEP_SEND,
+                        "ZenonSendException: " + shorten(why), o.elapsedMs()));
+            }
+        }
+        return rep;
+    }
 
     /** 확보 워커가 STT 워커에게 넘기는 끝 표시 — 확보 워커가 모두 끝나면 STT 워커 수만큼 넣는다. */
     private static final Staged END = new Staged(null, ResumeMode.FULL, -1);
@@ -524,6 +591,11 @@ public class VoiceCollectService {
         String sendStepId;
         boolean analyzeStarted;
         boolean sendStarted;
+        /** 제논 전송 런 — SEND 가 레코드를 쌓고 배치 끝에 보낸다. */
+        ZenonClient.Session transfer;
+        /** 전송 결과 — 키 → 수신증(받아들여짐) / 사유(실패 · 미전송). flush 가 채우고 결과를 고친다. */
+        final Map<String, ZenonClient.Receipt> delivered = new java.util.concurrent.ConcurrentHashMap<>();
+        final Map<String, String> sendFailed = new java.util.concurrent.ConcurrentHashMap<>();
         long collectMs;
         long analyzeMs;
         long sendMs;
@@ -965,27 +1037,27 @@ public class VoiceCollectService {
             if (stageFault.shouldFail(StageFaultState.Stage.SEND)) {
                 throw StageFaultState.fault(StageFaultState.Stage.SEND, "제논 전송 실패(500/Timeout) 주입");
             }
-            long mSend = meter.start();
-            ZenonClient.Receipt receipt;
+            ZenonClient.Record record = ZenonVoiceDocument.of(ctx.execId, target, stt, fileSize,
+                    pidGenerator.of(target.corrNo()), objectMapper);
             try {
-                receipt = zenon.send(ZenonVoiceDocument.of(ctx.execId, target, stt, fileSize, objectMapper));
+                zenon.precheck(record);   // 키 표식(SF) — 그 건만 한 번 거부(청크는 멈추지 않는다)
             } catch (RuntimeException e) {
                 if (!progress.isCancelRequested()) {
                     meter.error(PerfStage.SEND);
                 }
                 throw e;
-            } finally {
-                meter.add(PerfStage.SEND, mSend);
             }
+            // 전송 런에 쌓는다 — 보내는 것은 배치 끝(flushTransfer). 받아들여지면 그때 전사 보존물을 지우고 멱등 표식을 남긴다
+            //   (안 받아들여지면 둘 다 남아 FROM_SEND 재처리가 전사를 다시 쓴다). 받은 원본 · 복호화 오디오는 전사가 있으니 지금 지운다.
+            ctx.transfer.stage(record, receipt -> {
+                ctx.delivered.put(target.idempotencyKey(), receipt);
+                sttTemp.discardAnywhere(target);
+                idempotency.markProcessed(target);
+                log.debug("[Purge] 전송 완료 — {} · 임시 파일 정리", target.shortId());
+            }, why -> ctx.sendFailed.put(target.idempotencyKey(), why));
             ctx.addSend(System.currentTimeMillis() - tAnalyzed);
-
-            // ── Purge — 보냈으니 이 건의 임시 파일은 더 필요 없다 ─────────────────
-            //   받은 원본 · 복호화 오디오는 finish(ok) 가, 전사 보존물(stt_temp)은 여기서 지운다.
-            sttTemp.discardAnywhere(target);
-            idempotency.markProcessed(target);
             ok = true;
-            log.debug("[Purge] 전송 완료 — {} · 임시 파일 정리", target.shortId());
-            return FileProcOutcome.success(target, fileSize, stt.charCount(), receipt.location(),
+            return FileProcOutcome.success(target, fileSize, stt.charCount(), PENDING_SEND,
                     st.activeMs + System.currentTimeMillis() - t0);
 
         } catch (Exception e) {

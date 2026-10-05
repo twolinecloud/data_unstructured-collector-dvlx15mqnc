@@ -355,7 +355,10 @@ public class VerificationService {
         l.add(cmd("제논 전송 수신증 (이 배치)",
                 "curl -s '" + (k8s ? "https://<admin-fe>/voice" : "http://localhost:8085")
                         + "/api/v1/mock/zenon/receipts?execId=" + id + "'"));
-        l.add(cmd("제논 목 서버가 받은 파일 (REST 모드 · tools/zenon-mock)", "ls -la ./mock_received_files"));
+        l.add(cmd("제논 수신 장부 (이 배치 런 — 순번 · 빈 순번 · 상태)",
+                "curl -s '" + (k8s ? "https://<admin-fe>/voice" : "http://localhost:8085")
+                        + "/api/v1/mock/zenon/ledger?runId=" + id + "'"));
+        l.add(cmd("제논 목 서버가 받은 청크 (REST 모드 · tools/zenon-mock)", "ls -la ./mock_received_files/" + id));
         return l;
     }
 

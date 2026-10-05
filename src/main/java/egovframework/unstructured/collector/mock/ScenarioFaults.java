@@ -43,7 +43,8 @@ import java.util.function.Supplier;
  * 예전에는 메모리에만 있어서 실패와 재처리 사이에 파드가 다시 뜨면(개발계는 dev 머지마다 재배포) 재처리에서 한 번 더 실패했다.
  * 이제 기동할 때 파일을 읽어 "이미 한 번 실패한 키" 를 그대로 기억한다. 표시가 생기거나 지워질 때마다 파일 전체를 새로 쓴다
  * (임시 파일에 쓰고 바꿔 끼운다 — 쓰다 죽어도 반쯤 쓴 파일이 남지 않는다). 파일을 읽거나 쓰지 못해도 배치는 멈추지 않는다
- * (경고만 남기고 메모리로 계속). 더미 초기화 · {@code DELETE /api/v1/mock/sim-data/scenario-faults} 가 지우면 파일에서도 빠진다.</p>
+ * (경고만 남기고 메모리로 계속). 더미 초기화 · {@code DELETE /api/v1/mock/sim-data/scenario-faults} 가 지우면 파일에서도 빠지고,
+ * 하나도 남지 않으면 파일을 지운다.</p>
  *
  * <p><b>운영 프로필에서는 아무 일도 하지 않는다</b> — 형식이 맞는 키도 실패시키지 않고 파일도 읽거나 쓰지 않는다.</p>
  */
@@ -195,13 +196,21 @@ public class ScenarioFaults {
         }
     }
 
-    /** 지금 표시 전체를 파일로 — 임시 파일에 쓰고 바꿔 끼운다. 실패해도 경고만(배치는 계속). */
+    /**
+     * 지금 표시 전체를 파일로 — 임시 파일에 쓰고 바꿔 끼운다. 실패해도 경고만(배치는 계속).
+     * 초기화로 표시가 하나도 남지 않으면 파일을 지운다(2026-10-05 — 한 용도만 초기화하면 다른 용도의 표시는 남는다).
+     */
     private synchronized void save() {
         Path f = path();
         if (f == null) {
             return;
         }
         try {
+            if (consumed.isEmpty()) {
+                Files.deleteIfExists(f);
+                log.info("[Scenario] 소진 표시가 모두 지워져 파일도 지웠다 — {}", f);
+                return;
+            }
             Files.createDirectories(f.getParent());
             Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
             JSON.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), new TreeMap<>(consumed));

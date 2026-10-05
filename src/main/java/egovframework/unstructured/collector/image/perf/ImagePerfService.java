@@ -84,6 +84,8 @@ public class ImagePerfService {
     private static final int LATEST_SN = 2;
     /** 브로커가 수신 폴더에 떨군 SIM 암호문 이름의 앞부분 — {@code ImageTarget.receiveName()} = img_{CORR_NO}_{IMAGE_SN}.bin. */
     private static final String RECEIVED_PREFIX = "img_" + ImageSimulationService.PREFIX;
+    /** 대시보드용(REAL) 한 번에 만들 수 있는 최대 — DMY 더미 생성기 상한. */
+    private static final int DASHBOARD_MAX = 300;
 
     public enum Phase {
         PREPARING("준비"), RUNNING("측정"), VERIFYING("검증"), DONE("완료"), FAILED("실패");
@@ -201,6 +203,10 @@ public class ImagePerfService {
     private final ObjectMapper objectMapper;
     /** 단계별 실행 기록 — 상태 폴링에 새 줄만, 결과에 전체를 싣는다. */
     private final egovframework.unstructured.collector.image.batch.ImageTrace trace;
+    /** 대시보드용(REAL) 데이터 — DMY 더미 생성기(dev · local 에만 있다). */
+    private final org.springframework.beans.factory.ObjectProvider<egovframework.unstructured.collector.mock.DummyDataService> dummy;
+    /** 대시보드용 마지막 신규 실행이 만든 DMYIMG 교정번호 — 재실행(RERUN)이 이것으로 다시 돈다. */
+    private volatile List<String> dashboardSeeded = List.of();
 
     private final ExecutorService runner = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "image-perf-runner");
@@ -214,6 +220,8 @@ public class ImagePerfService {
     private static final class Run {
         final String id;
         final ImagePerfRequest req;
+        /** 용도 — SIMULATOR(SIMIMG · 시험 실행 TST) · DASHBOARD(DMYIMG · 실제 배치 UNS). */
+        final egovframework.unstructured.collector.mock.DummyTarget target;
         final long startedAt = System.currentTimeMillis();
         volatile Phase phase = Phase.PREPARING;
         volatile String message = "준비 중…";
@@ -222,9 +230,19 @@ public class ImagePerfService {
         volatile String error;
         volatile boolean cancelRequested;
 
-        Run(String id, ImagePerfRequest req) {
+        Run(String id, ImagePerfRequest req, egovframework.unstructured.collector.mock.DummyTarget target) {
             this.id = id;
             this.req = req;
+            this.target = target == null ? egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR : target;
+        }
+
+        boolean real() {
+            return target == egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD;
+        }
+
+        /** 이 실행이 다루는 교정번호 접두 — SIMIMG / DMYIMG. */
+        String prefix() {
+            return real() ? target.imagePrefix() : ImageSimulationService.PREFIX;
         }
 
         void to(Phase p, String msg) {
@@ -235,8 +253,24 @@ public class ImagePerfService {
     }
 
     public synchronized Map<String, Object> start(ImagePerfRequest raw) {
+        return start(raw, null);
+    }
+
+    /**
+     * 용도를 고른다 — {@code DASHBOARD}(대시보드용 REAL)면 DMYIMG 더미로 <b>실제 배치</b>(test=false · EXEC_ID UNS)를 돈다(2026-10-05).
+     * 신규 실행은 DMY 더미를 지우고 새로 만든다(최대 300명). 실제 배치라 의도적 실패 주입은 쓰지 않는다 — 장애는 키 표식 더미(CF·AF·SF)로.
+     */
+    public synchronized Map<String, Object> start(ImagePerfRequest raw, egovframework.unstructured.collector.mock.DummyTarget target) {
         ImagePerfRequest req = (raw == null ? new ImagePerfRequest(null, null, null, null, null, null, null) : raw).withDefaults();
         req.validate();
+        if (target == egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD) {
+            if (dummy.getIfAvailable() == null) {
+                throw new IllegalArgumentException("대시보드용(REAL) 이미지 검증은 더미 생성기가 있는 dev · local 에서만 됩니다");
+            }
+            if (req.mode() == Mode.NEW && req.count() > DASHBOARD_MAX) {
+                throw new IllegalArgumentException("대시보드용(REAL) 이미지 검증은 최대 " + DASHBOARD_MAX + "명입니다: " + req.count());
+            }
+        }
         Run running = current;
         if (running != null && running.phase.active()) {
             throw new IllegalStateException("수용자 이미지 검증이 이미 돌고 있습니다 — " + running.id);
@@ -247,7 +281,7 @@ public class ImagePerfService {
         if (voicePerf.isActive() || voiceProgress.isRunning()) {
             throw new IllegalStateException("음성 배치·성능 시험이 돌고 있습니다 — 풀 최고치 측정이 섞이므로 끝난 뒤 시작하십시오");
         }
-        Run run = new Run(LocalDateTime.now().format(RUN_ID), req);
+        Run run = new Run(LocalDateTime.now().format(RUN_ID), req, target);
         current = run;
         runner.submit(() -> execute(run));
         return snapshot(run);
@@ -324,6 +358,7 @@ public class ImagePerfService {
     private Map<String, Object> snapshot(Run run) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("runId", run.id);
+        m.put("target", run.target.name());
         m.put("phase", run.phase.name());
         m.put("phaseLabel", run.phase.label);
         m.put("active", run.phase.active());
@@ -351,7 +386,26 @@ public class ImagePerfService {
             Map<String, Object> seed;
             List<String> seeded;
             Set<String> before;
-            if (req.mode() == Mode.NEW) {
+            if (run.real() && req.mode() == Mode.NEW) {
+                run.to(Phase.PREPARING, "대시보드용(REAL) — DMY 더미 정리 후 DMYIMG 사진 %d명분 생성 (보라미 3테이블 + 암호화 더미) — %s"
+                        .formatted(req.count(), dbKind.label()));
+                seed = seedDashboard(req.count());
+                @SuppressWarnings("unchecked")
+                List<String> keys = (List<String>) seed.getOrDefault("keys", List.of());
+                seeded = List.copyOf(keys);
+                dashboardSeeded = seeded;
+                before = Set.of();
+            } else if (run.real()) {
+                run.to(Phase.PREPARING, "대시보드용(REAL) — 지난 신규 실행의 DMYIMG 확인 · 재실행 전 매핑 스냅샷");
+                seeded = dashboardSeeded;
+                if (seeded.isEmpty()) {
+                    throw new IllegalStateException("재실행할 DMYIMG 데이터가 없습니다 — 대시보드용 [초기화 후 신규 실행] 을 먼저 하십시오");
+                }
+                before = new HashSet<>(photos.mappedCorrNos(run.prefix()));
+                before.retainAll(new HashSet<>(seeded));
+                seed = new LinkedHashMap<>();
+                seed.put("inmates", seeded.size());
+            } else if (req.mode() == Mode.NEW) {
                 run.to(Phase.PREPARING, "남은 SIM 정리 후 SIM 사진 %d명분 생성 (보라미 3테이블 + 암호화 더미) — %s"
                         .formatted(req.count(), dbKind.label()));
                 seed = sim.seed(req.count());
@@ -376,15 +430,16 @@ public class ImagePerfService {
             // 실제로 단계를 거치는 건 — 재실행 MISSING 은 이미 매핑된(변경 없는) 건을 건너뛴다
             boolean force = req.mode() == Mode.NEW || req.rerunScope() == Scope.ALL;
             List<String> candidates = force ? seeded : seeded.stream().filter(c -> !before.contains(c)).toList();
-            Map<String, ImageStage> injected = pickInjected(candidates, req.failRatePct(), req.failStage());
+            // 대시보드용(REAL)은 실제 배치 — 의도적 실패 주입은 시험 실행에서만 된다(ImageCollectService)
+            Map<String, ImageStage> injected = run.real() ? Map.of() : pickInjected(candidates, req.failRatePct(), req.failStage());
 
             run.to(Phase.RUNNING, "%s%s · 워커 %d개 · 건당 가상 지연 %dms · %d명%s".formatted(req.mode().label(),
                     req.mode() == Mode.RERUN ? "(" + req.rerunScope().label() + ")" : "", req.workers(), req.latencyMs(),
                     seeded.size(), injected.isEmpty() ? "" : " · 의도적 실패 " + injected.size() + "건"));
             poolPeak.reset();
             ImageCollectService.ImageRunResult r = collect.run(new ImageCollectService.ImageRunRequest(
-                    null, ImageSimulationService.PREFIX, seeded.size(), req.workers(), force, req.latencyMs(), "PERF", true,
-                    true,   // SIM 원본은 수집기 저장소에만 있다 — 내장 Mock 브로커로 받는다
+                    null, run.prefix(), seeded.size(), req.workers(), force, req.latencyMs(), "PERF", !run.real(),
+                    true,   // SIM · DMY 원본은 수집기 저장소에만 있다 — 내장 Mock 브로커로 받는다
                     injected));
             Map<String, Object> hikari = new LinkedHashMap<>(poolPeak.snapshot());
             Map<String, Object> after = poolPeak.state();
@@ -392,9 +447,11 @@ public class ImagePerfService {
 
             run.to(Phase.VERIFYING, "기대값(신규·UPSERT·실패·최종 매핑) 대조 · 롤백 · 최신 순번 · 원문 해시 · 풀 반납");
             Expect ex = new Expect(req, seeded, before, candidates, injected);
-            Map<String, Object> checks = checks(ex, r, after);
+            Map<String, Object> checks = checks(ex, r, after, run.prefix());
             result = summarize(run, req, r, seed, prepareMs, hikari, checks, ex);
-            result.put("simKept", sim.residual());
+            result.put("target", run.target.name());
+            result.put("simKept", run.real() ? Map.of("dmyimg", seeded.size(), "note", "DMY 더미는 남긴다 — [대시보드 테스트 데이터 초기화]로 지운다")
+                    : sim.residual());
             result.put("trace", trace.entries());
         } catch (Exception e) {
             error = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -414,6 +471,27 @@ public class ImagePerfService {
                     result.get("injectedFail"), result.get("tps"), result.get("totalSec"),
                     Boolean.TRUE.equals(((Map<?, ?>) result.get("checks")).get("ok")) ? "✓" : "✗"));
         }
+    }
+
+    /** 대시보드용 이미지 — DMY 더미를 지우고(그 용도 전부) DMYIMG 를 어제 날짜로 만든다. 만든 교정번호를 {@code keys} 로 싣는다. */
+    private Map<String, Object> seedDashboard(int count) {
+        Map<egovframework.unstructured.collector.mock.DummyDataType, Integer> counts = new java.util.EnumMap<>(
+                egovframework.unstructured.collector.mock.DummyDataType.class);
+        counts.put(egovframework.unstructured.collector.mock.DummyDataType.IMAGE, count);
+        Map<String, Object> g = dummy.getObject().generate(new egovframework.unstructured.collector.mock.DummyDataService.GenerateRequest(
+                egovframework.unstructured.collector.mock.DummyTarget.DASHBOARD, List.of(egovframework.unstructured.collector.mock.DummyDataType.IMAGE),
+                java.time.LocalDate.now().minusDays(1), null, Map.of(), false, counts));
+        Map<String, Object> seed = new LinkedHashMap<>();
+        seed.put("db", g.get("db"));
+        seed.put("inmates", count);
+        seed.put("target", "DASHBOARD");
+        Object types = g.get("types");
+        if (types instanceof Map<?, ?> tm && tm.get("IMAGE") instanceof Map<?, ?> img) {
+            seed.put("keys", img.get("keys"));
+            seed.put("files", img.get("files"));
+        }
+        seed.put("encrypted", g.get("encrypted"));
+        return seed;
     }
 
     /**
@@ -465,11 +543,12 @@ public class ImagePerfService {
         }
     }
 
-    private Map<String, Object> checks(Expect ex, ImageCollectService.ImageRunResult r, Map<String, Object> poolAfter) {
+    private Map<String, Object> checks(Expect ex, ImageCollectService.ImageRunResult r, Map<String, Object> poolAfter,
+                                       String prefix) {
         Map<String, Object> c = new LinkedHashMap<>();
         List<Map<String, Object>> rows;
         try {
-            rows = photos.listByPrefix(ImageSimulationService.PREFIX, 100_000);
+            rows = photos.listByPrefix(prefix, 100_000);
         } catch (Exception e) {
             c.put("available", false);
             c.put("reason", "Admin DB 매핑 테이블 조회 실패 — " + e.getMessage());
@@ -510,7 +589,7 @@ public class ImagePerfService {
         item(items, "dupKey", r.dupKeyFail() == 0, "PK 중복 오류 %d건".formatted(r.dupKeyFail()));
         item(items, "pool", returned, returned ? "커넥션 풀 반납 완료 (사용 0 · 대기 0)" : "커넥션 풀 반납 안 됨");
 
-        traceVerify(r, rows.size(), touched.size(), latest, exist, plainOk, plain.size(), poolAfter);
+        traceVerify(r, rows.size(), touched.size(), latest, exist, plainOk, plain.size(), poolAfter, prefix);
 
         c.put("items", items);
         c.put("mappedRows", rows.size());
@@ -527,14 +606,14 @@ public class ImagePerfService {
 
     /** 사후 검증을 손으로 돌릴 명령과 이번 결과 — 2번 탭 "실행 결과 상세 검증" 과 같은 모양. */
     private void traceVerify(ImageCollectService.ImageRunResult r, int mapped, int touched, long latest, long exist,
-                             long plainOk, int plainChecked, Map<String, Object> poolAfter) {
+                             long plainOk, int plainChecked, Map<String, Object> poolAfter, String prefix) {
         var V = egovframework.unstructured.collector.image.batch.ImageTrace.Step.VERIFY;
         trace.add(V, "매핑 테이블 — SIM 행 수 · 이번 실행이 쓴 행 · 최신 순번(" + LATEST_SN + ")", "SQL",
-                photos.verifySqlFor(ImageSimulationService.PREFIX, r.execId(), LATEST_SN),
+                photos.verifySqlFor(prefix, r.execId(), LATEST_SN),
                 "total | touched | latest\n" + mapped + " | " + touched + " | " + latest);
         String root = String.valueOf(r.outputRoot());
         trace.add(V, "저장 사진 — PV 의 이미지 폴더(수용자별 하위 폴더)", "SHELL",
-                "find " + root + " -type f -name '" + ImageSimulationService.PREFIX + "*' | wc -l",
+                "find " + root + " -type f -name '" + prefix + "*' | wc -l",
                 exist + "   # 매핑 " + mapped + "행 중 파일이 있는 것");
         trace.add(V, "수신 폴더 잔여물 — 받은 암호문(img_{수용자}_{순번}.bin)은 처리 뒤 지운다", "SHELL",
                 "ls " + dirs.receiveMeet().replace('\\', '/') + " | grep -c '^" + RECEIVED_PREFIX + "'",

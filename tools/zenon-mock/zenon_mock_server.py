@@ -1,24 +1,29 @@
 """
-제논(Zenon) AI 수신 REST API — 목(Mock) 서버.
+제논(Zenon) 수신 REST API — 목(Mock) 서버. data-collector 와 같은 전송 양식(2026-10-05).
 
-비정형 수집기(unstructured-collector)의 SEND 단계(적재/전송)가 STT 결과를 온프레미스 제논으로 넘기는
-규약을 흉내 낸다. 수집기를 ``ZENON_MODE=REST``, ``ZENON_BASE_URL=http://<이 서버>:8000`` 으로 띄우면
-실제 HTTP multipart 전송 · 실패(4xx/5xx) · 지연(타임아웃)을 로컬에서 재현할 수 있다.
+비정형 수집기(unstructured-collector)의 SEND 단계(적재/전송)가 STT 결과를 온프레미스 제논으로 직접 보내는 규약을 흉내 낸다
+(에이전트 커넥터 LearnTransferController 와 같은 수신단). 수집기를 ``ZENON_MODE=REST``, ``ZENON_BASE_URL=http://<이 서버>:8000``
+으로 띄우면 실제 소켓으로 gzip + chunked 전송 · 순번/중복/유실 판정 · 장애(503) · 해제 상한(413)을 로컬에서 재현할 수 있다.
+(수집기 안에도 같은 수신기가 있다 — ZENON_MODE=MOCK 기본, 또는 /api/v1/mock/zenon/transfer)
 
 엔드포인트
-  POST /api/v1/zenon/receive   multipart/form-data
-       - file      : 전송 파일(음성 전사 JSON · 이미지 등)
-       - metadata  : JSON 문자열 {"exec_id", "inmate_no", "type": "VOICE"|"IMAGE", "file_name", ...}
-       - ?delay=<초>        응답 전에 기다린다(수집기 read-timeout 재현)
-       - ?status_code=500|400  그 상태 코드로 실패 응답(장애 재현)
-       - 더미 시나리오 SEND_FAIL — metadata.idempotency_key 가 SF 표식 키(예 DMY-MEET-20261001-SF-0003)면
-         그 키는 처음 한 번만 503 으로 거부한다(수집기 FROM_SEND 재처리는 통과). 수집기 MOCK 모드와 같은 규칙
-       → 200 {"code":"SUCCESS","exec_id","received_at","file_name","file_size_bytes"}
-  GET  /health                 수집기 헬스 배지(HealthProbeService)가 부른다
-  GET  /api/v1/zenon/received  받아 둔 파일 목록(확인용)
-  GET|DELETE /api/v1/zenon/scenario-faults  SF 표식 키 중 이미 한 번 거부한 것 · 비우기(다시 한 번 거부하게)
+  POST /api/v1/learn/transfer          청크 1건 — 요청 하나 = 청크 하나
+       헤더  X-Run-Id(필수) · X-Seq(필수, 1부터) · X-Is-Last · X-Target-Cnt(런 전체 레코드) · X-Chunk-Cnt(이 청크 레코드) · X-Data-Type
+             Content-Encoding: gzip (선택) · Transfer-Encoding: chunked
+       본문  {"header":{"runId","dataTypeCd","collectDtm","setTypeCd"}, "payload":[{"managementNo","rawDataset"}, ...]}
+       ?delay=<초>                응답 전에 기다린다(수집기 read-timeout 재현)
+       ?status_code=503|500|400   그 상태 코드로 실패(장애 재현)
+       → 200 {"code":"SUCCESS","runId","seq","duplicate","receivedChunks","receivedRecords","state","missingSeqs"}
+         400 헤더 누락 · header.runId ≠ X-Run-Id · payload 건수 ≠ X-Chunk-Cnt · managementNo 없음
+         413 해제 상한 초과(ZENON_MOCK_MAX_MB, 기본 512) · 503 장애 흉내(POST /fault)
+       (X-Run-Id + X-Seq) 멱등 — 이미 받은 청크는 200 + duplicate=true
+  GET  /api/v1/learn/transfer/ledger            최근 런 장부
+  GET  /api/v1/learn/transfer/ledger/{run_id}   런 하나 — 받은 순번 · 빈 순번 · 상태(RECEIVING · GAP_SUSPECT · COMPLETE · INGEST-GAP)
+  POST /api/v1/learn/transfer/sweep?idle_sec=0  유실 판정(빈 순번이 있거나 마지막이 안 온 채 조용한 런 → INGEST-GAP)
+  POST /fault?mode=UP|DOWN|FAIL_FROM_SEQ&from_seq=3   장애 흉내(전송 재처리 시나리오)
+  GET  /health                                  수집기 헬스 배지(HealthProbeService)가 부른다
 
-받은 파일은 ./mock_received_files/{exec_id}/{file_name} 에 저장하고, 옆에 {file_name}.metadata.json 을 남긴다.
+받은 청크는 ./mock_received_files/{runId}/seq-{n}.json 에 (풀어서) 저장한다 — 확인용.
 
 실행 (Python 3.10+)
   pip install -r requirements.txt
@@ -32,172 +37,200 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+import zlib
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
 # ── 설정 ────────────────────────────────────────────────────────────────
 RECEIVE_DIR = Path(os.environ.get("ZENON_MOCK_DIR", "./mock_received_files")).resolve()
-ALLOWED_TYPES = {"VOICE", "IMAGE"}
+MAX_DECOMPRESSED = int(os.environ.get("ZENON_MOCK_MAX_MB", "512")) * 1024 * 1024
+GAP_TIMEOUT_SEC = int(os.environ.get("ZENON_MOCK_GAP_TIMEOUT_SEC", "60"))
 MAX_DELAY_SEC = 600.0
-# 로그에 값을 찍지 않을 헤더 — 토큰·쿠키가 콘솔에 남지 않게
-MASKED_HEADERS = {"authorization", "cookie", "proxy-authorization", "x-api-key"}
-# 더미 시나리오 SEND_FAIL 표식 키 — 수집기 FailureScenario 와 같은 형식만(실제 키는 어떤 경우에도 걸리지 않는다)
-SEND_FAIL_KEY = re.compile(r"^(SIM|DMY)-(MEET|PHONE)-\d{8}-SF-\d{4}$")
-# 이미 한 번 거부한 키 — 메모리(재기동하면 비워져 다시 한 번 거부한다)
-_FAILED_ONCE: dict[str, str] = {}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s [zenon-mock] %(message)s")
 log = logging.getLogger("zenon-mock")
 
 app = FastAPI(
-    title="Zenon AI 수신 Mock 서버",
-    version="1.0.0",
-    description="비정형 수집기 SEND(적재/전송) 단계용 제논 수신 API 목 — multipart(file + metadata JSON) 수신 · 저장 · 장애/지연 재현",
+    title="Zenon 수신 Mock 서버",
+    version="2.0.0",
+    description="비정형 수집기 SEND — data-collector 와 같은 전송 양식(gzip · chunked · 유실검증 헤더 6종 · 2xx) 수신 · 장부 · 장애/지연 재현",
 )
 
-
-def _now() -> str:
-    return datetime.now().replace(microsecond=0).isoformat()
-
-
-def _safe(name: str, fallback: str) -> str:
-    """경로 조작(../, 절대경로, 드라이브 문자)을 막는다 — 파일명 한 조각만 남긴다."""
-    base = os.path.basename((name or "").replace("\\", "/")).strip()
-    base = re.sub(r"[^0-9A-Za-z가-힣._-]", "_", base)
-    base = base.lstrip(".")
-    return base[:200] or fallback
+# 런별 장부 — 메모리(재기동하면 비워진다. 중복 수신은 멱등이라 무해)
+_RUNS: dict[str, dict[str, Any]] = {}
+_FAULT: dict[str, Any] = {"mode": "UP", "from_seq": 0}
 
 
-def scenario_send_fail(meta: dict[str, Any]) -> Optional[str]:
-    """SF 표식 키를 처음 받으면 그 키를 돌려준다(이번에 거부한다). 두 번째부터는 None — 재처리는 통과한다."""
-    key = str(meta.get("idempotency_key") or "").strip()
-    if not SEND_FAIL_KEY.match(key) or key in _FAILED_ONCE:
-        return None
-    _FAILED_ONCE[key] = _now()
-    return key
+def _now() -> datetime:
+    return datetime.now().replace(microsecond=0)
 
 
-def _headers_for_log(request: Request) -> dict[str, str]:
-    return {k: ("***" if k.lower() in MASKED_HEADERS else v) for k, v in request.headers.items()}
+def _safe(name: str) -> str:
+    """경로 조작을 막는다 — 한 조각만 남긴다."""
+    return re.sub(r"[^0-9A-Za-z가-힣._-]", "_", os.path.basename((name or "").replace("\\", "/"))).lstrip(".")[:120] or "run"
 
 
-def _error(status: int, code: str, message: str, exec_id: Optional[str] = None) -> JSONResponse:
-    body: dict[str, Any] = {"code": code, "message": message, "received_at": _now()}
-    if exec_id:
-        body["exec_id"] = exec_id
-    return JSONResponse(status_code=status, content=body)
+def _error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status, content={"code": code, "message": message, "received_at": _now().isoformat()})
+
+
+def _run(run_id: str) -> dict[str, Any]:
+    return _RUNS.setdefault(run_id, {"runId": run_id, "seqs": {}, "records": 0, "bytes": 0, "rawBytes": 0, "targetCnt": -1,
+                                     "lastSeq": -1, "duplicates": 0, "state": "RECEIVING", "rejected": set(),
+                                     "firstSeenAt": _now(), "lastSeenAt": _now()})
+
+
+def _missing(r: dict[str, Any]) -> list[int]:
+    up_to = r["lastSeq"] if r["lastSeq"] > 0 else (max(r["seqs"]) if r["seqs"] else 0)
+    return [i for i in range(1, up_to + 1) if i not in r["seqs"]]
+
+
+def _refresh(r: dict[str, Any]) -> None:
+    full = r["lastSeq"] > 0 and not _missing(r)
+    if full and (r["targetCnt"] < 0 or r["records"] == r["targetCnt"]):
+        r["state"] = "COMPLETE"
+    elif full:
+        r["state"] = "COUNT_MISMATCH"
+    elif _missing(r):
+        r["state"] = "GAP_SUSPECT"
+    else:
+        r["state"] = "RECEIVING"
+
+
+def _view(r: dict[str, Any]) -> dict[str, Any]:
+    return {"runId": r["runId"], "state": r["state"], "complete": r["state"] == "COMPLETE",
+            "receivedSeqs": sorted(r["seqs"]), "missingSeqs": _missing(r), "rejectedSeqs": sorted(r["rejected"]),
+            "lastSeq": r["lastSeq"], "records": r["records"], "targetCnt": r["targetCnt"], "bytes": r["bytes"],
+            "rawBytes": r["rawBytes"], "duplicates": r["duplicates"], "firstSeenAt": r["firstSeenAt"].isoformat(),
+            "lastSeenAt": r["lastSeenAt"].isoformat()}
+
+
+def _int(v: Optional[str], default: int) -> int:
+    try:
+        return int(v) if v not in (None, "") else default
+    except ValueError:
+        return default
 
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    return {"status": "UP", "service": "zenon-mock", "receive_dir": str(RECEIVE_DIR), "checked_at": _now()}
+    return {"status": "UP", "service": "zenon-mock", "protocol": "data-collector transfer (gzip · chunked · X-Run-Id/X-Seq)",
+            "receive_dir": str(RECEIVE_DIR), "fault": _FAULT, "checked_at": _now().isoformat()}
 
 
-@app.post("/api/v1/zenon/receive")
-async def receive(
+@app.post("/api/v1/learn/transfer")
+async def transfer(
     request: Request,
-    file: UploadFile = File(..., description="전송 파일"),
-    metadata: str = Form(..., description='JSON 문자열 — {"exec_id","inmate_no","type":"VOICE|IMAGE","file_name"}'),
     delay: float = Query(0.0, ge=0.0, le=MAX_DELAY_SEC, description="응답 지연(초) — 수집기 read-timeout 재현"),
-    status_code: Optional[int] = Query(None, ge=400, le=599, description="실패 응답 상태 코드(예: 500 · 400)"),
+    status_code: Optional[int] = Query(None, ge=400, le=599, description="실패 응답 상태 코드(예: 503 · 500 · 400)"),
 ) -> JSONResponse:
-    content = await file.read()
-    size = len(content)
+    h = request.headers
+    run_id = (h.get("x-run-id") or "").strip()
+    seq_text = (h.get("x-seq") or "").strip()
+    if not run_id or not seq_text:
+        return _error(400, "MISSING_HEADER", "필수 헤더 누락 — X-Run-Id · X-Seq")
+    seq = _int(seq_text, -1)
+    if seq < 1:
+        return _error(400, "BAD_HEADER", f"X-Seq 는 1부터: {seq_text}")
+    target = _int(h.get("x-target-cnt"), -1)
+    chunk_cnt = _int(h.get("x-chunk-cnt"), -1)
+    last = (h.get("x-is-last") or "").strip().lower() == "true"
 
-    # ── 메타데이터 ──
+    r = _run(run_id)
+    if _FAULT["mode"] == "DOWN" or (_FAULT["mode"] == "FAIL_FROM_SEQ" and seq >= _FAULT["from_seq"]):
+        r["rejected"].add(seq)
+        r["lastSeenAt"] = _now()
+        log.warning("장애 흉내 503 — runId=%s seq=%d (%s)", run_id, seq, _FAULT)
+        return _error(503, "UNAVAILABLE", f"(MOCK) 제논 수신 장애 — {_FAULT['mode']} · seq {seq}")
+    if status_code:
+        return _error(status_code, "FORCED", f"요청한 실패 응답 {status_code}")
+    if seq in r["seqs"]:
+        async for _ in request.stream():
+            pass
+        r["duplicates"] += 1
+        r["lastSeenAt"] = _now()
+        return JSONResponse({"code": "SUCCESS", "runId": run_id, "seq": seq, "duplicate": True,
+                             "receivedChunks": len(r["seqs"]), "receivedRecords": r["records"], "state": r["state"]})
+
+    # 본문 — 흘려 받으며 푼다. 상한을 넘으면 413(끝까지 풀지 않는다)
+    gz = "gzip" in (h.get("content-encoding") or "").lower()
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS) if gz else None
+    wire, plain = 0, bytearray()
+    async for part in request.stream():
+        wire += len(part)
+        data = inflater.decompress(part, MAX_DECOMPRESSED + 1 - len(plain)) if inflater else part
+        plain.extend(data)
+        if len(plain) > MAX_DECOMPRESSED:
+            log.warning("해제 상한 초과 413 — runId=%s seq=%d", run_id, seq)
+            return _error(413, "PAYLOAD_TOO_LARGE", f"해제 상한 {MAX_DECOMPRESSED // 1048576}MB 초과 — 청크를 더 잘게(권장 50MB)")
     try:
-        meta = json.loads(metadata)
-        if not isinstance(meta, dict):
-            raise ValueError("JSON 객체가 아닙니다")
-    except (ValueError, json.JSONDecodeError) as e:
-        log.warning("메타데이터 파싱 실패 — %s · file=%s (%d bytes)", e, file.filename, size)
-        return _error(400, "INVALID_METADATA", f"metadata 가 올바른 JSON 객체가 아닙니다: {e}")
+        body = json.loads(plain.decode("utf-8"))
+        payload = body["payload"]
+        if not isinstance(payload, list):
+            raise ValueError("payload 가 배열이 아니다")
+    except (ValueError, KeyError, UnicodeDecodeError) as e:
+        return _error(400, "BAD_BODY", f"본문을 읽지 못함 — {e}")
+    header = body.get("header") or {}
+    if header.get("runId") and header["runId"] != run_id:
+        return _error(400, "RUN_ID_MISMATCH", f"header.runId({header['runId']}) ≠ X-Run-Id({run_id})")
+    if chunk_cnt >= 0 and chunk_cnt != len(payload):
+        return _error(400, "CHUNK_CNT_MISMATCH", f"X-Chunk-Cnt {chunk_cnt} ≠ payload {len(payload)}건")
+    if any(not isinstance(p, dict) or not p.get("managementNo") for p in payload):
+        return _error(400, "BAD_RECORD", "managementNo 없는 레코드가 있다")
 
-    exec_id = str(meta.get("exec_id") or "").strip()
-    doc_type = str(meta.get("type") or "").strip().upper()
-    file_name = _safe(str(meta.get("file_name") or file.filename or ""), "unnamed.bin")
-
-    log.info("수신 ─ type=%s exec_id=%s inmate_no=%s file=%s size=%d bytes content-type=%s",
-             doc_type or "(없음)", exec_id or "(없음)", meta.get("inmate_no"), file_name, size, file.content_type)
-    log.info("  headers=%s", _headers_for_log(request))
-    log.info("  metadata=%s", json.dumps(meta, ensure_ascii=False))
-    if delay or status_code:
-        log.info("  시뮬레이션 — delay=%ss status_code=%s", delay, status_code)
-
-    # ── 지연 · 장애 재현 ──
-    if delay > 0:
+    if delay:
         await asyncio.sleep(delay)
-    if status_code is not None:
-        log.warning("  → 의도적 실패 응답 HTTP %d (exec_id=%s)", status_code, exec_id)
-        return _error(status_code, "ERROR", f"Mock 장애 재현 — status_code={status_code}", exec_id)
-    failed_key = scenario_send_fail(meta)
-    if failed_key:
-        log.warning("  → 더미 시나리오 SEND_FAIL — %s 를 이번 한 번 503 으로 거부 (exec_id=%s)", failed_key, exec_id)
-        return _error(503, "ERROR", f"더미 시나리오 SEND_FAIL — {failed_key} 1회 거부(재전송은 받는다)", exec_id)
-
-    # ── 규약 검증 ──
-    if not exec_id:
-        return _error(400, "INVALID_METADATA", "metadata.exec_id 가 비어 있습니다")
-    if doc_type not in ALLOWED_TYPES:
-        return _error(400, "INVALID_METADATA", f"metadata.type 은 VOICE 또는 IMAGE 여야 합니다: {doc_type or '(없음)'}", exec_id)
-
-    # ── 저장 ──
-    target_dir = RECEIVE_DIR / _safe(exec_id, "no-exec-id")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / file_name
-    target.write_bytes(content)
-    received_at = _now()
-    (target_dir / (file_name + ".metadata.json")).write_text(
-        json.dumps({"received_at": received_at, "content_type": file.content_type, "metadata": meta},
-                   ensure_ascii=False, indent=2),
-        encoding="utf-8")
-    log.info("  → 저장 %s (%d bytes)", target, size)
-
-    return JSONResponse(status_code=200, content={
-        "code": "SUCCESS",
-        "exec_id": exec_id,
-        "received_at": received_at,
-        "file_name": file_name,
-        "file_size_bytes": size,
-    })
+    r["seqs"][seq] = len(payload)
+    r["records"] += len(payload)
+    r["bytes"] += wire
+    r["rawBytes"] += len(plain)
+    r["rejected"].discard(seq)
+    if target >= 0:
+        r["targetCnt"] = target
+    if last:
+        r["lastSeq"] = seq
+    r["lastSeenAt"] = _now()
+    _refresh(r)
+    out = RECEIVE_DIR / _safe(run_id)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"seq-{seq}.json").write_bytes(bytes(plain))
+    log.info("청크 수신 runId=%s seq=%d last=%s 레코드 %d · 압축 %dB → 해제 %dB · %s", run_id, seq, last, len(payload), wire,
+             len(plain), r["state"])
+    return JSONResponse({"code": "SUCCESS", "runId": run_id, "seq": seq, "duplicate": False, "receivedChunks": len(r["seqs"]),
+                         "receivedRecords": r["records"], "last": last, "records": len(payload), "bytes": wire,
+                         "rawBytes": len(plain), "state": r["state"], "missingSeqs": _missing(r)})
 
 
-@app.get("/api/v1/zenon/received")
-async def received(exec_id: Optional[str] = Query(None, description="이 실행 ID 의 파일만")) -> dict[str, Any]:
-    """받아 둔 파일 목록 — 수집기 [제논 전송 확인] 결과와 대조할 때 쓴다."""
-    rows: list[dict[str, Any]] = []
-    if RECEIVE_DIR.is_dir():
-        dirs = [RECEIVE_DIR / _safe(exec_id, "")] if exec_id else sorted(p for p in RECEIVE_DIR.iterdir() if p.is_dir())
-        for d in dirs:
-            if not d.is_dir():
-                continue
-            for f in sorted(d.iterdir()):
-                if f.is_file() and not f.name.endswith(".metadata.json"):
-                    rows.append({"exec_id": d.name, "file_name": f.name, "file_size_bytes": f.stat().st_size,
-                                 "saved_at": datetime.fromtimestamp(f.stat().st_mtime).replace(microsecond=0).isoformat()})
-    return {"receive_dir": str(RECEIVE_DIR), "total": len(rows), "files": rows}
+@app.get("/api/v1/learn/transfer/ledger")
+async def ledgers(limit: int = Query(20, ge=1, le=500)) -> list[dict[str, Any]]:
+    runs = sorted(_RUNS.values(), key=lambda x: x["lastSeenAt"], reverse=True)[:limit]
+    return [_view(r) for r in runs]
 
 
-@app.get("/api/v1/zenon/scenario-faults")
-async def scenario_faults() -> dict[str, Any]:
-    """SF 표식 키 중 이미 한 번 거부한 것 — 여기 있는 키는 다음 전송을 받는다."""
-    return {"total": len(_FAILED_ONCE), "rows": [{"key": k, "failed_at": v} for k, v in sorted(_FAILED_ONCE.items())]}
+@app.get("/api/v1/learn/transfer/ledger/{run_id}")
+async def ledger(run_id: str) -> JSONResponse:
+    r = _RUNS.get(run_id)
+    return JSONResponse(_view(r)) if r else _error(404, "NOT_FOUND", f"장부 없음 — {run_id}")
 
 
-@app.delete("/api/v1/zenon/scenario-faults")
-async def reset_scenario_faults() -> dict[str, Any]:
-    """거부 기록을 비운다 — SF 표식 키를 다음 전송에서 한 번 더 거부한다."""
-    n = len(_FAILED_ONCE)
-    _FAILED_ONCE.clear()
-    return {"cleared": n}
+@app.post("/api/v1/learn/transfer/sweep")
+async def sweep(idle_sec: int = Query(GAP_TIMEOUT_SEC, ge=0)) -> dict[str, Any]:
+    cut = _now() - timedelta(seconds=idle_sec)
+    swept = []
+    for r in _RUNS.values():
+        incomplete = _missing(r) or (r["lastSeq"] < 0 and r["seqs"])
+        if r["state"] not in ("COMPLETE", "INGEST-GAP") and incomplete and r["lastSeenAt"] <= cut:
+            r["state"] = "INGEST-GAP"
+            swept.append(r["runId"])
+    return {"idleSec": idle_sec, "sweptCount": len(swept), "swept": swept}
 
 
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("zenon_mock_server:app", host=os.environ.get("ZENON_MOCK_HOST", "0.0.0.0"),
-                port=int(os.environ.get("ZENON_MOCK_PORT", "8000")))
+@app.post("/fault")
+async def fault(mode: str = Query("UP", pattern="^(UP|DOWN|FAIL_FROM_SEQ)$"), from_seq: int = Query(3, ge=1)) -> dict[str, Any]:
+    _FAULT.update({"mode": mode, "from_seq": from_seq if mode == "FAIL_FROM_SEQ" else 0})
+    log.warning("장애 설정 — %s", _FAULT)
+    return _FAULT

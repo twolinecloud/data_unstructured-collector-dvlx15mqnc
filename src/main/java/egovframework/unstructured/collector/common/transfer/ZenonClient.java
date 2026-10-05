@@ -1,67 +1,106 @@
 package egovframework.unstructured.collector.common.transfer;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.client.RestTemplate;
 
-import java.net.http.HttpClient;
-import java.time.Duration;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.function.Consumer;
+import java.util.zip.GZIPOutputStream;
 
 /**
- * 제논(Zenon) AI 전송 — 파이프라인 3단계 {@code SEND}.
+ * 제논(Zenon) 전송 — 파이프라인 3단계 {@code SEND}. <b>data-collector 와 같은 전송 양식</b>(2026-10-05).
  *
- * <p><b>REST</b>: {@code POST {base-url}{receive-path}} · {@code multipart/form-data}</p>
+ * <p>에이전트 커넥터(비식별 · 클라우드 중계)를 거치지 않고 제논 수신 API 로 직접 보낸다. 양식은 data-collector
+ * {@code FeatureSetTransferSink} 와 같다 — 에이전트 커넥터 시뮬레이터에서 정해 둔 수집단 ↔ 수신단 규약이다.</p>
+ *
+ * <h3>요청 하나 = 청크 하나</h3>
+ * <pre>
+ * POST {base-url}{transfer-path}            (기본 /api/v1/learn/transfer)
+ * Content-Type: application/json;charset=UTF-8
+ * Content-Encoding: gzip                     (zenon.gzip)
+ * Transfer-Encoding: chunked
+ * X-Run-Id: 20261005UNS001                   전송 런 ID = 실행 ID(재처리 이어달리기면 원배치 ID)
+ * X-Data-Type: UNSTRUCTURED
+ * X-Target-Cnt: 6                            이 런의 전체 레코드 수
+ * X-Chunk-Cnt: 2                             이 청크의 레코드 수
+ * X-Seq: 1                                   순번(1부터 오름차순)
+ * X-Is-Last: false                           마지막 청크만 true
+ *
+ * {"header":{"runId":"20261005UNS001","dataTypeCd":"UNSTRUCTURED","collectDtm":"2026-10-05T10:00:00+09:00","setTypeCd":"VOICE"},
+ *  "payload":[{"managementNo":"교정번호","rawDataset":{"recFileId":"…","kind":"MEET","inmatePid":"…","transcript":{…}}}, …]}
+ * </pre>
+ *
  * <ul>
- *   <li>{@code file} — 보낼 파일(음성은 STT 전사 JSON, 이미지는 복호화한 사진)</li>
- *   <li>{@code metadata} — JSON 문자열: {@code exec_id} · {@code inmate_no} · {@code type}(VOICE|IMAGE) · {@code file_name} 과 부가 항목</li>
+ *   <li><b>성공 = HTTP 2xx</b>(응답 꼬리에 {@code "aborted"} 가 있으면 실패 — data-collector 와 같다). 중복 청크는 수신단이
+ *       (X-Run-Id + X-Seq) 멱등으로 200 + {@code duplicate:true} — 보낸 것으로 친다.</li>
+ *   <li><b>순서대로 · 실패하면 멈춘다</b> — 한 청크가 실패하면 뒤 청크는 보내지 않는다(수신단이 오름차순 도착을 전제로 유실을 판정).
+ *       실패 청크와 그 뒤 청크의 레코드는 그 건만 SEND 실패로 남고, 보존된 전사({@code stt_temp})로 {@code FROM_SEND} 재처리가
+ *       <b>원배치 런을 이어 받아 다음 순번부터</b> 보낸다({@link ZenonTransferRuns}).</li>
+ *   <li><b>전이중</b> — {@link StreamingHttpClient}(data-collector 원본)로 본문을 쓰는 동안 응답을 동시에 읽는다.</li>
+ *   <li><b>MOCK</b>(개발계 기본) — 네트워크 없이 {@link ZenonMockReceiver} 를 직접 부른다. 본문 바이트 · 헤더는 REST 와 같다.</li>
  * </ul>
- * <p>응답 {@code 200} 이고 {@code code == "SUCCESS"} 일 때만 성공이다. 그 밖(4xx·5xx·연결 실패·다른 code)은
- * {@link ZenonSendException} — 그 건만 SEND 실패로 남고, 보존된 전사로 {@code FROM_SEND} 재처리가 이어 간다.</p>
  *
- * <p><b>MOCK</b>(개발계 기본): 네트워크 없이 수신증만 만든다. 수신증은 REST 든 MOCK 이든 최근 {@code keep-receipts}
- * 개를 메모리에 남긴다 — 시뮬레이터 검증 화면이 "이 배치가 제논에 무엇을 보냈는가" 를 보여 주는 근거다.</p>
+ * <p>배치는 건마다 레코드를 {@link Session#stage 쌓고} 끝에 {@link Session#flush 한 번에} 청크로 나눠 보낸다 — 대상 건수
+ * ({@code X-Target-Cnt})와 마지막 청크를 정확히 알기 위해서다(data-collector 도 레코드를 다 모은 뒤 청크로 나눈다).
+ * 수신증은 최근 {@code keep-receipts} 개를 메모리에 남긴다 — 시뮬레이터 검증 화면의 근거다.</p>
  */
 @Log4j2
 @Component
 public class ZenonClient {
 
-    /** 수신증 — 제논 응답(REST) 또는 수집기가 만든 것(MOCK). */
+    /** 응답 꼬리(요약 판독용) — 작은 Ack 는 통째로 담긴다. data-collector RESP_TAIL_BYTES 와 같다. */
+    private static final int RESP_TAIL_BYTES = 64 * 1024;
+    /** 청크 레코드 수 상한 — 설정 · 시뮬레이터 덮어쓰기 모두 이 안에서. */
+    private static final int MAX_CHUNK_RECORDS = 10_000;
+
+    /** 수신증 — 레코드 1건이 어느 런 · 어느 순번으로 받아들여졌는가. */
     public record Receipt(String code, String execId, String type, String inmateNo, String fileName,
                           long fileSizeBytes, String receivedAt, String mode, String endpoint,
-                          Map<String, Object> metadata, String preview) {
+                          Map<String, Object> metadata, String preview, String runId, int seq) {
 
-        /** T4·배치 결과에 남길 위치 표기 — 디스크 경로 대신 "어디로 보냈는가". */
+        /** T4 · 배치 결과에 남길 위치 표기 — 디스크 경로 대신 "어디로 · 어느 런 · 몇 번 청크로 보냈는가". */
         public String location() {
-            return "zenon:" + (mode.equals("MOCK") ? "mock" : endpoint) + "/" + fileName;
+            return "zenon:" + ("MOCK".equals(mode) ? "mock" : endpoint) + "/" + runId + "#" + seq + "/" + fileName;
         }
     }
 
-    /** 보낼 문서. */
-    public record Document(String type, String execId, String inmateNo, String fileName, byte[] content,
-                           String contentType, Map<String, Object> extra, String preview) {}
+    /**
+     * 전송 레코드 1건 — payload 원소 {@code {managementNo, rawDataset}}.
+     *
+     * @param type         VOICE
+     * @param execId       이 레코드를 만든 실행
+     * @param key          레코드 키(접견 TARE_FILE_NO · 전화 VRFC_ESTL_ID) — 키 표식 장애 · 수신증 대조
+     * @param managementNo 관리번호 — data-collector 예측과 같은 교정번호(CORR_NO). 화면 · 로그에는 남기지 않는다
+     * @param fileName     수신증 표기용 이름({@code {건ID}.json})
+     * @param rawDataset   전송 대상 JSON(처리 메타 + 전사)
+     * @param metadata     수신증에 남길 요약(kind · 키 · 글자 수 · 엔진)
+     * @param preview      전사 미리보기(앞 200자) — 시뮬레이터 검증 화면용
+     */
+    public record Record(String type, String execId, String key, String managementNo, String fileName,
+                         ObjectNode rawDataset, Map<String, Object> metadata, String preview) {}
 
-    /** 제논 전송 실패 — 그 건만 SEND 실패다. */
+    /** 제논 전송 실패 — 그 건(또는 그 청크 · 뒤 청크의 건)만 SEND 실패다. */
     public static class ZenonSendException extends RuntimeException {
         public ZenonSendException(String message) {
             super(message);
@@ -72,39 +111,78 @@ public class ZenonClient {
         }
     }
 
+    /**
+     * 청크 하나의 결과.
+     *
+     * @param result SENT · DUPLICATE(멱등 — 이미 받은 순번) · FAILED · NOT_SENT(앞 청크 실패로 보내지 않음)
+     */
+    public record Chunk(int seq, int records, boolean last, String result, int status, String message,
+                        long bytes, long elapsedMs, List<String> keys) {}
+
+    /** 한 번의 전송(flush) 결과. */
+    public record Report(String runId, String execId, boolean continued, int fromSeq, long targetCnt,
+                         List<Chunk> chunks, int delivered, int failed, boolean closed, String mode, String endpoint) {
+
+        public static Report empty(String execId, String mode, String endpoint) {
+            return new Report(null, execId, false, 0, 0, List.of(), 0, 0, false, mode, endpoint);
+        }
+
+        public boolean isEmpty() {
+            return chunks.isEmpty();
+        }
+
+        /** 화면 · 응답용. */
+        public Map<String, Object> view() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("runId", runId);
+            m.put("execId", execId);
+            m.put("continued", continued);
+            m.put("fromSeq", fromSeq);
+            m.put("targetCnt", targetCnt);
+            m.put("chunkCount", chunks.size());
+            m.put("delivered", delivered);
+            m.put("failed", failed);
+            m.put("closed", closed);
+            m.put("mode", mode);
+            m.put("endpoint", endpoint);
+            m.put("chunks", chunks);
+            return m;
+        }
+    }
+
     private final ZenonProperties props;
     private final ObjectMapper objectMapper;
-    private final RestTemplate rest;
-    /** 더미 키 표식(SF) 장애 — MOCK 모드에서 이 건의 전송을 한 번만 거부한다(REST 면 tools/zenon-mock 서버가 같은 표식에 503). */
+    private final ZenonMockReceiver receiver;
+    private final ZenonTransferRuns runs;
+    /** 더미 키 표식(SF) 장애 — 이 레코드를 한 번만 거부한다(그 건만 실패 · 청크는 멈추지 않는다). */
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
+    private final Clock clock;
     private final Deque<Receipt> receipts = new ConcurrentLinkedDeque<>();
+    /** 시뮬레이터가 덮어쓴 청크 레코드 수(전송 재처리 시나리오 — 6건을 2건씩 3청크로). null 이면 설정값. */
+    private volatile Integer chunkRecordsOverride;
+    /** 마지막 전송 결과 — 화면용. */
+    private volatile Report lastReport;
 
     @Autowired
-    public ZenonClient(ZenonProperties props, ObjectMapper objectMapper,
-                       egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
-        this(props, objectMapper, restTemplate(props), scenarioFaults);
+    public ZenonClient(ZenonProperties props, ObjectMapper objectMapper, ZenonMockReceiver receiver,
+                       ZenonTransferRuns runs, egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
+        this(props, objectMapper, receiver, runs, scenarioFaults, Clock.systemDefaultZone());
     }
 
-    /** 시험용 — RestTemplate 을 넘겨받는다(MockRestServiceServer). 키 표식 장애는 쓰지 않는다. */
-    ZenonClient(ZenonProperties props, ObjectMapper objectMapper, RestTemplate rest) {
-        this(props, objectMapper, rest, egovframework.unstructured.collector.mock.ScenarioFaults.inactive());
-    }
-
-    ZenonClient(ZenonProperties props, ObjectMapper objectMapper, RestTemplate rest,
-                egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
+    ZenonClient(ZenonProperties props, ObjectMapper objectMapper, ZenonMockReceiver receiver, ZenonTransferRuns runs,
+                egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults, Clock clock) {
         this.props = props;
         this.objectMapper = objectMapper;
-        this.rest = rest;
+        this.receiver = receiver;
+        this.runs = runs;
         this.scenarioFaults = scenarioFaults;
-        log.info("[Zenon] 전송 모드 {} · {}", props.mode(), endpoint());
+        this.clock = clock;
+        log.info("[Zenon] 전송 모드 {} · {} · gzip={} · 청크 {}건", props.mode(), endpoint(), props.gzip(), chunkRecords());
     }
 
-    private static RestTemplate restTemplate(ZenonProperties p) {
-        JdkClientHttpRequestFactory f = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(Math.max(500, p.connectTimeoutMs()))).build());
-        f.setReadTimeout(Duration.ofMillis(Math.max(1_000, p.readTimeoutMs())));
-        return new RestTemplate(f);
-    }
+    // ══════════════════════════════════════════════════════════════════════
+    //  설정 · 상태
+    // ══════════════════════════════════════════════════════════════════════
 
     public String mode() {
         return props.mode().name();
@@ -118,88 +196,339 @@ public class ZenonClient {
     /** 수신 API 전체 주소(REST) — MOCK 이면 표기용 설명. */
     public String endpoint() {
         if (props.mode() == ZenonProperties.Mode.MOCK) {
-            return "MOCK(수집기 내장 — 네트워크 없음)";
+            return "MOCK(수집기 내장 수신기 — 네트워크 없음 · " + props.transferPath() + " 규약)";
         }
         return (StringUtils.hasText(props.baseUrl()) ? props.baseUrl().replaceAll("/+$", "") : "(base-url 비어 있음)")
-                + props.receivePath();
+                + props.transferPath();
+    }
+
+    /** 지금 쓰는 청크 레코드 수. */
+    public int chunkRecords() {
+        Integer o = chunkRecordsOverride;
+        int v = o != null ? o : props.chunkRecords();
+        return Math.max(1, Math.min(MAX_CHUNK_RECORDS, v));
+    }
+
+    /** 시뮬레이터 — 청크 레코드 수를 덮어쓴다(null 이면 설정값으로 되돌림). */
+    public void overrideChunkRecords(Integer records) {
+        this.chunkRecordsOverride = records == null || records < 1 ? null : Math.min(MAX_CHUNK_RECORDS, records);
+        log.info("[Zenon] 청크 레코드 수 {}", chunkRecordsOverride == null ? "설정값(" + props.chunkRecords() + ")" : chunkRecordsOverride);
+    }
+
+    public Report lastReport() {
+        return lastReport;
+    }
+
+    /** 상태 — 화면 · 헬스용. */
+    public Map<String, Object> status() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("mode", mode());
+        m.put("endpoint", endpoint());
+        m.put("transferPath", props.transferPath());
+        m.put("gzip", props.gzip());
+        m.put("dataTypeCd", props.dataTypeCd());
+        m.put("setTypeCd", props.setTypeCd());
+        m.put("chunkRecords", chunkRecords());
+        m.put("chunkRecordsOverridden", chunkRecordsOverride != null);
+        m.put("receiptsKept", receipts.size());
+        if (props.mode() == ZenonProperties.Mode.MOCK) {
+            m.put("receiver", receiver.status());
+        }
+        m.put("runsFile", runs.filePath());
+        Report r = lastReport;
+        if (r != null) {
+            m.put("lastTransfer", Map.of("runId", String.valueOf(r.runId()), "execId", String.valueOf(r.execId()),
+                    "delivered", r.delivered(), "failed", r.failed(), "closed", r.closed()));
+        }
+        return m;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  전송 세션 — 배치 1회
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * 키 표식(SF) 장애 — 이 레코드가 표식을 달았고 아직 실패한 적이 없으면 거부한다. 그 건만 실패하고 청크는 멈추지 않는다
+     * (수신 서버 장애가 아니라 건 하나의 거절을 흉내 낸다 — "표식 건만 정해진 단계에서 실패").
+     *
+     * @throws ZenonSendException 표식 건의 첫 전송
+     */
+    public void precheck(Record r) {
+        if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL, r.key())) {
+            throw new ZenonSendException("제논 HTTP 503 — (MOCK) 수신 거부 [더미 시나리오 SEND_FAIL · 1회]");
+        }
     }
 
     /**
-     * 한 건을 보낸다.
+     * 배치 하나의 전송 세션을 연다.
      *
-     * @throws ZenonSendException 전송 실패(연결 · 4xx · 5xx · code≠SUCCESS)
+     * @param execId       이 실행 ID
+     * @param originExecId 재처리면 원배치 ID — 원배치 런이 마감되지 않았으면 그 런을 이어 받는다(이어달리기)
      */
-    public Receipt send(Document d) {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("exec_id", d.execId());
-        meta.put("inmate_no", d.inmateNo());
-        meta.put("type", d.type());
-        meta.put("file_name", d.fileName());
-        if (d.extra() != null) {
-            meta.putAll(d.extra());
-        }
-        Receipt r = props.mode() == ZenonProperties.Mode.MOCK ? mock(d, meta) : rest(d, meta);
-        keep(r);
-        log.info("[Zenon] 전송 {} — {} {} ({} bytes) → {}", r.code(), d.type(), d.fileName(), d.content().length,
-                props.mode() == ZenonProperties.Mode.MOCK ? "MOCK" : endpoint());
-        return r;
+    public Session openSession(String execId, String originExecId) {
+        return new Session(execId, originExecId);
     }
 
-    private Receipt mock(Document d, Map<String, Object> meta) {
-        // 더미 시나리오 SEND_FAIL — 데이터 성질이 아니라 전송 실패라 수신 쪽이 거부하게 한다. 표식 건만 · 한 번만.
-        Object key = d.extra() == null ? null : d.extra().get("idempotency_key");
-        if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL,
-                key == null ? null : key.toString())) {
-            throw new ZenonSendException("제논 HTTP 503 — (MOCK) 수신 거부 [더미 시나리오 SEND_FAIL · 1회]");
+    /** 배치 하나의 전송 — 건마다 {@link #stage} 하고 끝에 {@link #flush} 한 번. 여러 워커가 동시에 쌓아도 된다. */
+    public final class Session {
+        private final String execId;
+        private final String originExecId;
+        private final List<Staged> staged = new ArrayList<>();
+        private boolean flushed;
+
+        private record Staged(Record record, Consumer<Receipt> onDelivered, Consumer<String> onFailed) {}
+
+        private Session(String execId, String originExecId) {
+            this.execId = execId;
+            this.originExecId = originExecId;
         }
-        return new Receipt("SUCCESS", d.execId(), d.type(), d.inmateNo(), d.fileName(), d.content().length,
-                LocalDateTime.now().withNano(0).toString(), "MOCK", endpoint(), meta, d.preview());
+
+        /**
+         * 레코드 하나를 쌓는다.
+         *
+         * @param onDelivered 받아들여졌을 때(그 건의 전사 보존물 정리 · 멱등 표식)
+         * @param onFailed    그 청크가 실패했거나 앞 청크 실패로 보내지 못했을 때(사유)
+         */
+        public synchronized void stage(Record record, Consumer<Receipt> onDelivered, Consumer<String> onFailed) {
+            if (flushed) {
+                throw new IllegalStateException("이미 보낸 세션 — execId=" + execId);
+            }
+            staged.add(new Staged(record, onDelivered, onFailed));
+        }
+
+        public synchronized int size() {
+            return staged.size();
+        }
+
+        /** 쌓인 레코드를 청크로 나눠 순서대로 보낸다 — 한 청크가 실패하면 멈춘다. */
+        public synchronized Report flush() {
+            flushed = true;
+            if (staged.isEmpty()) {
+                return Report.empty(execId, mode(), endpoint());
+            }
+            boolean continued = originExecId != null && !originExecId.equals(execId) && runs.isOpen(originExecId);
+            String runId = continued ? originExecId : execId;
+            ZenonTransferRuns.RunState before = runs.get(runId);
+            int base = before == null ? 0 : before.deliveredSeq;
+            long prior = before == null ? 0 : before.deliveredRecords;
+            runs.attach(runId, execId);
+            long targetCnt = prior + staged.size();
+            List<List<Staged>> parts = split(staged);
+            if (continued) {
+                log.info("[Zenon] 이어달리기 — 원배치 런 {} 의 {}번 청크부터 (앞서 {}건 전송) · 이번 실행 {}", runId, base + 1, prior, execId);
+            }
+            List<Chunk> out = new ArrayList<>(parts.size());
+            int delivered = 0;
+            int failed = 0;
+            Integer haltedAt = null;
+            boolean closed = false;
+            for (int i = 0; i < parts.size(); i++) {
+                List<Staged> part = parts.get(i);
+                int seq = base + 1 + i;
+                boolean last = i == parts.size() - 1;
+                List<String> keys = part.stream().map(s -> s.record().key()).toList();
+                if (haltedAt != null) {
+                    String why = "앞 청크(seq " + haltedAt + ") 실패로 미전송 — 전송 재처리가 이어서 보낸다";
+                    part.forEach(s -> s.onFailed().accept(why));
+                    failed += part.size();
+                    out.add(new Chunk(seq, part.size(), last, "NOT_SENT", 0, why, 0L, 0L, keys));
+                    continue;
+                }
+                long t0 = System.currentTimeMillis();
+                Sent sent = post(runId, seq, last, targetCnt, part.stream().map(Staged::record).toList());
+                long ms = System.currentTimeMillis() - t0;
+                if (sent.ok) {
+                    String at = LocalDateTime.now(clock).withNano(0).toString();
+                    for (Staged s : part) {
+                        Record r = s.record();
+                        Map<String, Object> meta = new LinkedHashMap<>();
+                        meta.put("exec_id", execId);
+                        meta.put("type", r.type());
+                        meta.put("file_name", r.fileName());
+                        meta.put("run_id", runId);
+                        meta.put("seq", seq);
+                        if (r.metadata() != null) {
+                            meta.putAll(r.metadata());
+                        }
+                        Receipt rc = new Receipt(sent.duplicate ? "DUPLICATE" : "SUCCESS", execId, r.type(), r.managementNo(),
+                                r.fileName(), r.rawDataset() == null ? 0 : r.rawDataset().toString().length(), at, mode(),
+                                endpoint(), meta, r.preview(), runId, seq);
+                        keep(rc);
+                        s.onDelivered().accept(rc);
+                    }
+                    delivered += part.size();
+                    runs.delivered(runId, seq, part.size(), last);
+                    closed = last;
+                    out.add(new Chunk(seq, part.size(), last, sent.duplicate ? "DUPLICATE" : "SENT", sent.status,
+                            sent.message, sent.bytes, ms, keys));
+                } else {
+                    haltedAt = seq;
+                    String why = sent.message + " (seq " + seq + ")";
+                    part.forEach(s -> s.onFailed().accept(why));
+                    failed += part.size();
+                    runs.failed(runId, seq, sent.message);
+                    out.add(new Chunk(seq, part.size(), last, "FAILED", sent.status, sent.message, sent.bytes, ms, keys));
+                    log.warn("[Zenon] 청크 실패 — runId={} seq={} ({}건) · {} → 뒤 청크 {}개는 보내지 않는다", runId, seq,
+                            part.size(), sent.message, parts.size() - i - 1);
+                }
+            }
+            Report rep = new Report(runId, execId, continued, base + 1, targetCnt, out, delivered, failed, closed,
+                    mode(), endpoint());
+            lastReport = rep;
+            log.info("[Zenon] 전송 {} — runId={} 청크 {}개(seq {}~{}) · 레코드 {}건 중 {}건 전송 · {}건 실패{}",
+                    failed == 0 ? "완료" : (delivered == 0 ? "실패" : "부분 실패"), runId, out.size(), base + 1,
+                    base + out.size(), staged.size(), delivered, failed, closed ? " · 런 마감" : "");
+            return rep;
+        }
     }
 
-    private Receipt rest(Document d, Map<String, Object> meta) {
-        if (!StringUtils.hasText(props.baseUrl())) {
-            throw new ZenonSendException("제논 주소가 비어 있다 — zenon.base-url(ZENON_BASE_URL)");
+    /** 청크로 나눈다 — 레코드 수 상한, 그리고 직렬화 크기 상한(max-payload)을 넘지 않게. */
+    private List<List<Session.Staged>> split(List<Session.Staged> all) {
+        int per = chunkRecords();
+        long maxBytes = Math.max(1024, props.maxPayloadBytes());
+        List<List<Session.Staged>> parts = new ArrayList<>();
+        List<Session.Staged> cur = new ArrayList<>();
+        long curBytes = 0;
+        for (Session.Staged s : all) {
+            long size = s.record().rawDataset() == null ? 64 : s.record().rawDataset().toString().length() + 64L;
+            if (!cur.isEmpty() && (cur.size() >= per || curBytes + size > maxBytes)) {
+                parts.add(cur);
+                cur = new ArrayList<>();
+                curBytes = 0;
+            }
+            cur.add(s);
+            curBytes += size;
         }
-        String metaJson;
+        if (!cur.isEmpty()) {
+            parts.add(cur);
+        }
+        return parts;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  청크 하나 보내기
+    // ══════════════════════════════════════════════════════════════════════
+
+    private record Sent(boolean ok, boolean duplicate, int status, String message, long bytes) {}
+
+    /** 유실검증 헤더 — data-collector {@code FeatureSetTransferSink.post} 와 같은 이름 · 같은 뜻. */
+    public Map<String, String> headers(String runId, int seq, boolean last, long targetCnt, int chunkCnt) {
+        Map<String, String> h = new LinkedHashMap<>();
+        h.put("Content-Type", "application/json;charset=UTF-8");
+        h.put("X-Run-Id", runId);
+        h.put("X-Data-Type", props.dataTypeCd());
+        h.put("X-Target-Cnt", Long.toString(targetCnt));
+        h.put("X-Chunk-Cnt", Integer.toString(chunkCnt));
+        h.put("X-Seq", Integer.toString(seq));
+        h.put("X-Is-Last", Boolean.toString(last));
+        return h;
+    }
+
+    /** 요청 본문 — {@code {header, payload}}. data-collector {@code requestBytes} 와 같은 모양. */
+    public byte[] requestBytes(String runId, List<Record> records) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode header = root.putObject("header");
+        header.put("runId", runId);
+        header.put("dataTypeCd", props.dataTypeCd());
+        header.put("collectDtm", nowKst());
+        header.put("setTypeCd", props.setTypeCd());
+        ArrayNode payload = root.putArray("payload");
+        for (Record r : records) {
+            ObjectNode p = payload.addObject();
+            p.put("managementNo", r.managementNo());
+            p.set("rawDataset", r.rawDataset());
+        }
         try {
-            metaJson = objectMapper.writeValueAsString(meta);
+            return objectMapper.writeValueAsBytes(root);
         } catch (JsonProcessingException e) {
-            throw new ZenonSendException("메타데이터 직렬화 실패 — " + e.getMessage(), e);
-        }
-        HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(MediaType.parseMediaType(
-                StringUtils.hasText(d.contentType()) ? d.contentType() : MediaType.APPLICATION_OCTET_STREAM_VALUE));
-        ByteArrayResource file = new ByteArrayResource(d.content()) {
-            @Override
-            public String getFilename() {
-                return d.fileName();
-            }
-        };
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new HttpEntity<>(file, fileHeaders));
-        body.add("metadata", metaJson);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        String url = endpoint();
-        try {
-            ResponseEntity<String> res = rest.postForEntity(url, new HttpEntity<>(body, headers), String.class);
-            JsonNode n = res.getBody() == null ? objectMapper.nullNode() : objectMapper.readTree(res.getBody());
-            String code = n.path("code").asText("");
-            if (!"SUCCESS".equals(code)) {
-                throw new ZenonSendException("제논 응답 code=" + (code.isEmpty() ? "(없음)" : code) + " — " + shorten(res.getBody()));
-            }
-            return new Receipt(code, n.path("exec_id").asText(d.execId()), d.type(), d.inmateNo(),
-                    n.path("file_name").asText(d.fileName()), n.path("file_size_bytes").asLong(d.content().length),
-                    n.path("received_at").asText(LocalDateTime.now().withNano(0).toString()), "REST", url, meta,
-                    d.preview());
-        } catch (RestClientResponseException e) {
-            throw new ZenonSendException("제논 HTTP " + e.getStatusCode().value() + " — " + shorten(e.getResponseBodyAsString()), e);
-        } catch (ZenonSendException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ZenonSendException("제논 호출 실패 — " + e.getClass().getSimpleName() + ": " + shorten(e.getMessage()), e);
+            throw new UncheckedIOException("전송 본문 직렬화 실패", e);
         }
     }
+
+    /** 수집 일시(KST, +09:00) — data-collector 와 같게 UTC 'Z' 를 쓰지 않는다(수신단 -9h 오인 방지). */
+    String nowKst() {
+        return ZonedDateTime.now(clock).withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+    }
+
+    private Sent post(String runId, int seq, boolean last, long targetCnt, List<Record> records) {
+        byte[] body;
+        try {
+            body = requestBytes(runId, records);
+        } catch (RuntimeException e) {
+            return new Sent(false, false, -1, "본문 직렬화 실패 — " + e.getMessage(), 0L);
+        }
+        Map<String, String> headers = headers(runId, seq, last, targetCnt, records.size());
+        if (props.mode() == ZenonProperties.Mode.MOCK) {
+            return mock(headers, body);
+        }
+        return rest(headers, body);
+    }
+
+    /** MOCK — 네트워크 없이 내장 수신기에 같은 바이트 · 같은 헤더를 넘긴다. */
+    private Sent mock(Map<String, String> headers, byte[] body) {
+        byte[] wire = props.gzip() ? gzip(body) : body;
+        Map<String, String> ci = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        ci.putAll(headers);
+        if (props.gzip()) {
+            ci.put("Content-Encoding", "gzip");
+        }
+        ZenonMockReceiver.Ack ack = receiver.receive(ci::get, new ByteArrayInputStream(wire), props.gzip());
+        boolean dup = Boolean.TRUE.equals(ack.body().get("duplicate"));
+        String msg = ack.ok() ? "MOCK " + ack.status() + (dup ? " duplicate" : "")
+                : "제논 HTTP " + ack.status() + " — " + ack.body().get("message");
+        return new Sent(ack.ok(), dup, ack.status(), msg, wire.length);
+    }
+
+    /** REST — 전이중 스트리밍(gzip + chunked)으로 보내고 2xx 를 확인한다. */
+    private Sent rest(Map<String, String> headers, byte[] body) {
+        if (!StringUtils.hasText(props.baseUrl())) {
+            return new Sent(false, false, -1, "제논 주소가 비어 있다 — zenon.base-url(ZENON_BASE_URL)", 0L);
+        }
+        URI u;
+        try {
+            u = URI.create(props.baseUrl().trim());
+        } catch (IllegalArgumentException e) {
+            return new Sent(false, false, -1, "제논 주소 형식 오류 — " + props.baseUrl(), 0L);
+        }
+        String host = u.getHost();
+        int port = u.getPort() > 0 ? u.getPort() : ("https".equalsIgnoreCase(u.getScheme()) ? 443 : 80);
+        String base = u.getRawPath() == null ? "" : u.getRawPath().replaceAll("/+$", "");
+        StreamingHttpClient.Result r = StreamingHttpClient.post(host, port, base + props.transferPath(), headers,
+                props.gzip(), out -> out.write(body), props.connectTimeoutMs(), props.readTimeoutMs(), RESP_TAIL_BYTES);
+        boolean aborted = r.tail() != null && r.tail().contains("\"aborted\"");
+        if (r.ok2xx() && !aborted) {
+            boolean dup = r.tail() != null && r.tail().replace(" ", "").contains("\"duplicate\":true");
+            return new Sent(true, dup, r.status(), "HTTP " + r.status() + (dup ? " duplicate" : ""), body.length);
+        }
+        String why = "제논 HTTP " + r.status()
+                + (r.writeError() != null ? " writeErr=" + r.writeError() : "")
+                + (r.readError() != null ? " readErr=" + r.readError() : "")
+                + (aborted ? " (응답 커밋 후 중단 — summary.aborted)" : "")
+                + tailSnippet(r.tail());
+        return new Sent(false, false, r.status(), why, body.length);
+    }
+
+    static byte[] gzip(byte[] data) {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream(Math.max(64, data.length / 8));
+        try (GZIPOutputStream gz = new GZIPOutputStream(bos)) {
+            gz.write(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException("gzip 압축 실패", e);
+        }
+        return bos.toByteArray();
+    }
+
+    private static String tailSnippet(String tail) {
+        if (tail == null || tail.isBlank()) {
+            return "";
+        }
+        String t = tail.replaceAll("\\s+", " ").strip();
+        return " — " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  수신증
+    // ══════════════════════════════════════════════════════════════════════
 
     private void keep(Receipt r) {
         receipts.addFirst(r);
@@ -213,34 +542,23 @@ public class ZenonClient {
     public List<Receipt> receipts(String execId) {
         List<Receipt> out = new ArrayList<>();
         for (Receipt r : receipts) {
-            if (execId == null || execId.equals(r.execId())) {
+            if (execId == null || execId.equals(r.execId()) || execId.equals(r.runId())) {
                 out.add(r);
             }
         }
         return out;
     }
 
-    /** 시험 배치(EXEC_ID 에 TST)의 수신증을 지운다 — [시뮬레이션 데이터 초기화]. */
+    /**
+     * 시험 배치(EXEC_ID 에 TST)의 수신증 · 전송 런 · 내장 수신기 장부를 지운다 — [시뮬레이션 데이터 초기화].
+     *
+     * @return 지운 수신증 수
+     */
     public int clearTestReceipts() {
         int before = receipts.size();
         receipts.removeIf(r -> r.execId() != null && r.execId().toUpperCase().contains("TST"));
+        runs.clear("TST");
+        receiver.clear("TST");
         return before - receipts.size();
-    }
-
-    /** 상태 — 화면 · 헬스용. */
-    public Map<String, Object> status() {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("mode", mode());
-        m.put("endpoint", endpoint());
-        m.put("receiptsKept", receipts.size());
-        return m;
-    }
-
-    private static String shorten(String s) {
-        if (s == null) {
-            return "(본문 없음)";
-        }
-        String t = s.replaceAll("\\s+", " ").trim();
-        return t.length() <= 200 ? t : t.substring(0, 200) + "…";
     }
 }

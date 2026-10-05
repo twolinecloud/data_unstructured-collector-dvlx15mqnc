@@ -59,10 +59,14 @@ public class ImageMockController {
                     - `mode=RERUN` — 남아 있는 SIM 을 다시 처리(멱등성). `rerunScope=ALL` 전건 UPSERT · `MISSING` 실패·누락분만
                     - `failRatePct` · `failStage` — 대상 × 비율만큼 정확히 의도적으로 실패(MAP 은 커밋 전 롤백)
                     - 검증: 스냅샷·주입 목록으로 계산한 기대값(신규·UPSERT·건너뜀·실패·최종 매핑) 대조 · 롤백 · PK 중복 0 · 풀 반납
+                    - `target=DASHBOARD`(대시보드용 REAL) — DMY 더미를 지우고 DMYIMG 를 만들어 **실제 배치**(test=false · EXEC_ID UNS)로 돈다.
+                      최대 300명 · 의도적 실패 주입은 쓰지 않는다(장애는 키 표식 더미로)
                     """)
     @PostMapping("/perf/runs")
-    public ResponseEntity<Map<String, Object>> start(@RequestBody(required = false) ImagePerfService.ImagePerfRequest req) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req));
+    public ResponseEntity<Map<String, Object>> start(
+            @RequestBody(required = false) ImagePerfService.ImagePerfRequest req,
+            @RequestParam(required = false) egovframework.unstructured.collector.mock.DummyTarget target) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(perf.start(req, target));
     }
 
     @Operation(summary = "진행 중(또는 마지막) 회차", description = "`traceAfter` 뒤에 붙은 단계별 실행 기록(SQL · cURL · 셸 명령과 결과)만 `trace` 로 싣는다 — 화면이 마지막 seq 를 넘기며 폴링한다.")

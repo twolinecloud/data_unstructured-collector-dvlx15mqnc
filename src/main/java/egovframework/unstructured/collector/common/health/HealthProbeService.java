@@ -160,12 +160,12 @@ public class HealthProbeService {
     }
 
     /**
-     * 제논(Zenon) — 파이프라인 3단계 SEND 의 전송 대상. MOCK 이면 수집기 안에서 수신증만 만든다(네트워크 없음).
+     * 제논(Zenon) — 파이프라인 3단계 SEND 의 전송 대상. MOCK 이면 수집기 내장 수신기로 보낸다(네트워크 없음 · 같은 양식).
      * REST 면 {@code {base-url}/health} 를 부른다(제논 목 서버 {@code tools/zenon-mock} 도 이 경로를 연다).
      */
     private Map<String, Object> probeZenon() {
         if (zenonProps.mode() == egovframework.unstructured.collector.common.transfer.ZenonProperties.Mode.MOCK) {
-            return badge("zenon", "제논 전송", State.UP, "MOCK", zenon.endpoint(), "MOCK — 수집기 안에서 수신증만 만든다");
+            return badge("zenon", "제논 전송", State.UP, "MOCK", zenon.endpoint(), "MOCK — 수집기 내장 수신기(data-collector 양식 · 장부 · 장애 흉내)");
         }
         String base = zenonProps.baseUrl();
         if (!StringUtils.hasText(base)) {

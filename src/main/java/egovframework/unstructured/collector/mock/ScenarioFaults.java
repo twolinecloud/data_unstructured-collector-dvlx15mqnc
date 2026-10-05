@@ -35,7 +35,8 @@ import java.util.function.Supplier;
  *   <li>COLLECT — 접견: 브로커 추출 요청 직전(수집기 · 개발계 DUMMY 어댑터는 FILEKEY 가 없어도 무음 WAV 를 만들어 줘 메타만으로는 실패하지 않는다)
  *       · 전화: Mock 전화 파일 연계 · 이미지: 브로커 수신 직전</li>
  *   <li>ANALYZE — Mock STT(HTTP 500 흉내) · 이미지: 복호화 직후(이미지 확인 실패)</li>
- *   <li>SEND — 제논 MOCK(HTTP 503 흉내) · REST 면 {@code tools/zenon-mock} 서버가 같은 표식에 503 · 이미지: Admin DB 매핑(커밋 전 롤백)</li>
+ *   <li>SEND — 제논 전송 런에 쌓기 직전({@code ZenonClient.precheck} — 그 건만 503 흉내, 청크는 멈추지 않는다 · MOCK/REST 공통)
+ *       · 이미지: Admin DB 매핑(커밋 전 롤백)</li>
  * </ul>
  *
  * <p><b>소진 표시는 PV 파일에도 남긴다</b>(2026-10-03) — {@code {ROOT}/mock/scenario_faults.json}.

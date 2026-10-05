@@ -228,6 +228,8 @@ unstructured:
   # ── 더미 데이터(시뮬레이터 SIM / 대시보드 DMY) — 생성 API · 스케줄러는 dev/local 프로필에서만 빈이 생긴다 ──
   #   dashboard.enabled: 대시보드 더미(DMY — 실존하지 않는 가상 교정번호) 생성 허용. dev/local 프로필이 켠다 · prod 는 강제 false
   #   daily: 매일 cron 에 어제 날짜로 DMY 를 추가(append)하고 retain-days 지난 DMY 를 지운다(catch-up 없음). 기본 끔
+  #          enabled 는 처음 값 — 시뮬레이터 상단 [일 단위 자동 생성 스케줄러] 에서 실행 중에 켜고 끈다(PV {ROOT}/mock/auto_generator.json 에 남음 ·
+  #          설정값으로 되돌리면 파일 삭제). 즉시 1회 · N일 경과 시뮬레이션은 /api/v1/mock/auto-generator/* (2026-10-05)
   mock:
     dashboard:
       enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:false}

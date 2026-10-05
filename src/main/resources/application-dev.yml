@@ -160,7 +160,7 @@ unstructured:
   admin:
     base-url: ${ADMIN_API_BASE_URL:http://admin-api-yo38xf9iff.service-core.svc.cluster.local:8080}
   # 대시보드 더미(DMY) — 개발계는 생성을 허용한다. 실제 borami-db 에 쓰는 생성은 사람이 시뮬레이터에서 누른다.
-  #   매일 자동 생성(daily)은 기본 끔 — 켜면 01:30 에 어제 날짜로 추가 · 7일 지난 DMY 정리
+  #   매일 자동 생성(daily)은 기본 끔 — 켜면 01:30 에 어제 날짜로 추가 · 7일 지난 DMY 정리. 켜고 끄기는 시뮬레이터 상단 패널(실행 중 스위치)
   mock:
     dashboard:
       enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}

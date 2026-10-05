@@ -30,14 +30,17 @@ class DummyProfileTest {
         new ApplicationContextRunner()
                 .withPropertyValues("spring.profiles.active=prod", "unstructured.mock.daily.enabled=true",
                         "unstructured.mock.dashboard.enabled=true")
-                .withUserConfiguration(DummyDataService.class, DummyDataController.class, MockDataScheduler.class)
+                .withUserConfiguration(DummyDataService.class, DummyDataController.class, MockDataScheduler.class,
+                        AutoGeneratorController.class)
                 .run(ctx -> {
                     assertThat(ctx).hasNotFailed();
                     assertThat(ctx).doesNotHaveBean(DummyDataService.class);
                     assertThat(ctx).doesNotHaveBean(DummyDataController.class);
                     assertThat(ctx).doesNotHaveBean(MockDataScheduler.class);
+                    assertThat(ctx).doesNotHaveBean(AutoGeneratorController.class);
                 });
-        for (Class<?> c : List.of(DummyDataService.class, DummyDataController.class, MockDataScheduler.class)) {
+        for (Class<?> c : List.of(DummyDataService.class, DummyDataController.class, MockDataScheduler.class,
+                AutoGeneratorController.class)) {
             assertThat(c.getAnnotation(Profile.class).value()).as(c.getSimpleName()).containsExactlyInAnyOrder("dev", "local");
         }
     }

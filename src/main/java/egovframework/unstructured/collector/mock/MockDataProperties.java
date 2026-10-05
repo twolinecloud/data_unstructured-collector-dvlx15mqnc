@@ -14,7 +14,7 @@ import java.util.List;
  *     dashboard:
  *       enabled: true          # 대시보드 더미(DMY) 생성 허용 — dev/local 기본 true, 운영 프로필은 강제 false(빈도 없다)
  *     daily:
- *       enabled: false         # 매일 어제 날짜로 대시보드 더미를 추가(append) — 기본 끔
+ *       enabled: false         # 매일 어제 날짜로 대시보드 더미를 추가(append) — 기본 끔. 처음 값일 뿐 — 시뮬레이터에서 실행 중에 켜고 끈다
  *       cron: "0 30 1 * * *"   # 일배치(관리 화면 02:00) 전
  *       types: [PHONE, MEET, IMAGE]   # 운영 전환 전까지 이미지 더미도 늘 같이 만든다
  *       count: 5               # 유형별 건수
@@ -37,7 +37,7 @@ public record MockDataProperties(
     /**
      * 일 단위 자동 생성.
      *
-     * @param enabled     켜면 cron 마다 어제 날짜로 대시보드 더미를 추가한다
+     * @param enabled     켜면 cron 마다 어제 날짜로 대시보드 더미를 추가한다 — 기동 시 처음 값({@link MockDataScheduler#setEnabled} 로 바뀐다)
      * @param cron        스프링 cron(초 분 시 일 월 요일) — 한국 시각
      * @param types       유형
      * @param count       유형별 건수

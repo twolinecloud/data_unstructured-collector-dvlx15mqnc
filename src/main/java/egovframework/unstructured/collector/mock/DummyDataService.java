@@ -660,6 +660,37 @@ public class DummyDataService {
         return out;
     }
 
+    /**
+     * 대시보드 더미 — 대상일별 건수(키에 박힌 날짜 · 생성자 dmyadm). 일 단위 자동 생성이 보존 기간 정리를 확인할 때 쓴다.
+     *
+     * @return 대상일(yyyy-MM-dd, from ~ to 양끝 포함) → 접견 · 전화 행 수 · 이미지 수용자 수. 세지 못하면 -1
+     */
+    public Map<String, Map<String, Integer>> dashboardDays(LocalDate from, LocalDate to) {
+        DummyTarget t = DummyTarget.DASHBOARD;
+        Map<String, Map<String, Integer>> out = new LinkedHashMap<>();
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            Map<String, Integer> m = new LinkedHashMap<>();
+            m.put("meet", countOf("SELECT COUNT(*) FROM " + tables.rerdTfinDs() + " WHERE TARE_FILE_NO LIKE ? AND CRT_USR_ID = ?",
+                    t.prefix() + "-MEET-" + DummyKeys.ymd8(d) + "-%", t.usr()));
+            m.put("phone", countOf("SELECT COUNT(*) FROM " + tables.imphUcdrDs() + " WHERE VRFC_ESTL_ID LIKE ? AND CRT_USR_ID = ?",
+                    t.prefix() + "-PHONE-" + DummyKeys.ymd8(d) + "-%", t.usr()));
+            m.put("image", countOf("SELECT COUNT(DISTINCT CORR_NO) FROM " + tables.irimBsifDs() + " WHERE CORR_NO LIKE ? AND CRT_USR_ID = ?",
+                    t.imagePrefix() + DummyKeys.ymd6(d) + "%", t.usr()));
+            out.put(d.toString(), m);
+        }
+        return out;
+    }
+
+    private int countOf(String sql, Object... args) {
+        try {
+            Integer n = jdbc.queryForObject(sql, Integer.class, args);
+            return n == null ? 0 : n;
+        } catch (Exception e) {
+            log.warn("[Dummy] 건수 조회 실패 — {}", rootMessage(e));
+            return -1;
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     //  초기화
     // ══════════════════════════════════════════════════════════════════════

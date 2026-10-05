@@ -104,6 +104,8 @@ class DummyDataServiceTest {
     private BoramiTableNames tables;
     @Autowired
     private MockDataProperties mockProps;
+    @Autowired
+    private AutoGeneratorController autoGen;
 
     private static final LocalDate D = LocalDate.now().minusDays(1);
 
@@ -398,6 +400,62 @@ class DummyDataServiceTest {
         assertThat(once).containsKeys("generated", "purged");
         assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(D) + "-%")).isEqualTo(2 + 3);
         assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(D) + "-CF-%")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("일 단위 자동 생성 — N일 경과 시뮬레이션: 첫날 만든 치는 보존 기간을 넘겨 마지막 회차에 지워지고 나머지는 남는다")
+    @SuppressWarnings("unchecked")
+    void autoGeneratorSimulatePurgesOldest() {
+        MockDataProperties p = new MockDataProperties(new MockDataProperties.Dashboard(true),
+                new MockDataProperties.Daily(false, "0 30 1 * * *", List.of(DummyDataType.PHONE, DummyDataType.IMAGE), 2, 0, 0, 0, 3));
+        Map<String, Object> r = new MockDataScheduler(dummy, p).simulate(3);
+
+        assertThat(r).containsEntry("verdict", "PASS").containsEntry("expectedPurgedDays", 1);
+        List<Map<String, Object>> runs = (List<Map<String, Object>>) r.get("runs");
+        assertThat(runs).hasSize(4);   // 0일째 + 3일 경과
+        assertThat(runs).allSatisfy(x -> assertThat(x).containsKeys("generated", "purged").doesNotContainKeys("generateError", "purgeError"));
+        assertThat((Map<String, Integer>) runs.get(3).get("purged")).extractingByKey("dbRows").isNotEqualTo(0);
+
+        List<Map<String, Object>> checks = (List<Map<String, Object>>) r.get("checks");
+        assertThat(checks).hasSize(4);
+        assertThat(checks.get(0)).containsEntry("expect", "PURGED").containsEntry("ok", true)
+                .containsEntry("generatedOnDay", 0).containsEntry("purgedOnDay", 3);   // 0일째에 만들고 마지막(3일째) 정리에서 지움
+        assertThat(checks.subList(1, 4)).allSatisfy(c -> assertThat(c).doesNotContainKey("purgedOnDay"));
+        assertThat((Map<String, Integer>) checks.get(0).get("after")).containsEntry("phone", 0).containsEntry("image", 0);
+        assertThat(checks.subList(1, 4)).allSatisfy(c -> {
+            assertThat(c).containsEntry("expect", "KEPT").containsEntry("ok", true);
+            assertThat((Map<String, Integer>) c.get("after")).containsEntry("phone", 2).containsEntry("image", 2);
+        });
+
+        // DB 로 직접 — 첫 대상일은 0, 어제는 남아 있다
+        LocalDate first = LocalDate.parse((String) r.get("generatedFrom"));
+        LocalDate last = LocalDate.parse((String) r.get("generatedTo"));
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(first) + "-%")).isZero();
+        assertThat(count(tables.irimBsifDs(), "CORR_NO LIKE ?", "DMYIMG" + DummyKeys.ymd6(first) + "%")).isZero();
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(last) + "-%")).isEqualTo(2);
+        assertThat(dirs.xvarmOriginalDir(VoiceKind.PHONE).resolve(DummyKeys.phoneFileName(DummyTarget.DASHBOARD, first, 1, null))).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("일 단위 자동 생성 API — 기본 꺼짐 · ON/OFF 가 PV 파일에 남고 되돌리면 지워짐 · 즉시 실행이 어제 치를 만든다")
+    @SuppressWarnings("unchecked")
+    void autoGeneratorApi() {
+        assertThat(autoGen.status()).containsEntry("enabled", false).containsEntry("source", "CONFIG");
+        Path f = root.resolve(MockDataScheduler.FILE);
+        try {
+            assertThat(autoGen.toggle(true)).containsEntry("enabled", true);
+            assertThat(f).isRegularFile();
+        } finally {
+            autoGen.toggle(false);   // 같은 컨텍스트를 쓰는 다른 테스트에 켜진 채로 남기지 않는다
+        }
+        assertThat(f).doesNotExist();
+
+        Map<String, Object> r = autoGen.trigger(D);
+        assertThat(r).containsEntry("ok", true).containsEntry("targetDate", D.toString()).containsEntry("runDate", D.plusDays(1).toString());
+        Map<String, Map<String, Integer>> days = (Map<String, Map<String, Integer>>) r.get("days");
+        assertThat(days.get(D.toString())).containsEntry("meet", 5).containsEntry("phone", 5).containsEntry("image", 5);
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(D) + "-%")).isEqualTo(5);
+        assertThat((Map<String, Object>) autoGen.status().get("lastRun")).containsEntry("trigger", "MANUAL");
     }
 
     // ── 정형 오염 방지 ────────────────────────────────────────────────────

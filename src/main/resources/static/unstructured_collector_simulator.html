@@ -410,7 +410,8 @@
   /* 성능 테스트가 도는 동안 — 다른 탭의 배치·초기화 버튼을 막는다(같은 원천 데이터를 흔들면 측정이 망가진다) */
   body.pf-running #controls button, body.pf-running #scen-box button,
   body.pf-running #btn-reset, body.pf-running #btn-test-clear, body.pf-running #btn-dmy-clear,
-  body.pf-running #dm-modal button, body.pf-running #dm-open, body.pf-running #ks-box button { pointer-events:none; opacity:.5; }
+  body.pf-running #dm-modal button, body.pf-running #dm-open, body.pf-running #ks-box button,
+  body.pf-running #ag-acc button:not(.acc-tgl), body.pf-running #ag-acc .form-switch { pointer-events:none; opacity:.5; }
   /* 더미 데이터(용도별 생성) 결과 패널 · 3번 탭 ⑤ 키 표식 시나리오 */
   .dm-tbl th, .dm-tbl td { font-size:.75rem; vertical-align:top; }
   .dm-num { width:4.6rem; }
@@ -430,6 +431,11 @@
   .dm-err { color:#dc3545; font-size:.8rem; min-height:1.1rem; }
   .pop-body .dm-sum-tbl td { padding:.15rem .4rem; font-size:.8rem; }
   .ks-ok { color:#198754; font-weight:600; } .ks-ng { color:#dc3545; font-weight:600; }
+  /* 일 단위 자동 생성 스케줄러 — 상단 패널(머리에 상태 배지 · ON/OFF · 즉시 실행 · 경과 시뮬레이션) */
+  #ag-acc > .acc-head { flex-wrap:wrap; row-gap:.3rem; }
+  #ag-acc .ag-date { width:9.2rem; }
+  #ag-acc .form-switch .form-check-input { cursor:pointer; }
+  .ag-tbl th { width:6.5rem; white-space:nowrap; color:#495057; font-weight:600; }
   /* 실행 용도 — 시뮬레이터용(SIM · TST) / 대시보드용 REAL(DMY · UNS) */
   .rm-bar { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; padding:.45rem .7rem; margin:-.6rem 0 .8rem;
             border:1px solid #dee2e6; border-top:0; border-radius:0 0 .4rem .4rem; background:#f8f9fa; }
@@ -525,6 +531,33 @@
         시뮬레이터용(SIM)은 시험 실행 전용, 대시보드·배치용(DMY)은 실제 배치 전용입니다(서로 집지 않음).
         초기화는 상단 [시뮬레이터 데이터 초기화] · [대시보드 테스트 데이터 초기화] — <b>로그 컬렉터 수행 이력(T1~T5)은 남습니다.</b></div>
       <div id="dm-result" class="mt-2"><div class="hint">아직 이 화면에서 만든 데이터가 없습니다.</div></div>
+    </div></div></div>
+  </div>
+
+  <!-- 일 단위 자동 생성 스케줄러 — 대시보드 더미(DMY)를 매일 새벽(기본 01:30) 어제 날짜로 추가하고 보존 일수 지난 DMY 를 지운다.
+       기본 꺼짐(unstructured.mock.daily.enabled=false) · 화면에서 켜고 끈 값은 PV 파일에 남는다 · /api/v1/mock/auto-generator/* (2026-10-05) -->
+  <div class="acc mb-3" id="ag-acc">
+    <div class="acc-head" data-acc="ag-acc">
+      <span class="small fw-bold text-nowrap">일 단위 자동 생성 스케줄러</span>
+      <span class="badge text-bg-light text-secondary" id="ag-badge">조회 중…</span>
+      <div class="form-check form-switch m-0" title="켜면 매일 새벽(기본 01:30 · 한국 시각)에 어제 날짜로 대시보드 더미(DMY)를 추가하고 보존 일수 지난 DMY 를 지웁니다. 켠 값은 PV 파일에 남아 재배포 뒤에도 유지됩니다">
+        <input class="form-check-input" type="checkbox" role="switch" id="ag-switch" disabled>
+        <label class="form-check-label small" for="ag-switch" id="ag-switch-lbl">OFF</label>
+      </div>
+      <span class="grow hint" id="ag-sum"></span>
+      <input type="date" class="form-control form-control-sm ag-date" id="ag-date" title="[즉시 실행] 의 생성 대상일 — 기본 어제(새벽 스케줄과 같음). 이 날의 다음 날을 실행일로 보고 보존 일수 이전을 지웁니다">
+      <button class="btn btn-sm btn-outline-primary py-0" type="button" id="ag-run" disabled
+              title="POST /api/v1/mock/auto-generator/trigger?targetDate= — 새벽을 기다리지 않고 지금 한 번: 대상일 치 DMY 생성 + 보존 일수 지난 DMY 삭제. ON/OFF 와 상관없이 돕니다">즉시 실행 (1일 치 생성)</button>
+      <button class="btn btn-sm btn-outline-dark py-0" type="button" id="ag-sim" disabled
+              title="POST /api/v1/mock/auto-generator/simulate?days= — 가상 실행일을 하루씩 넘기며 N+1번 돌려, 첫날 만든 데이터가 보존 일수를 넘겨 지워지는지 날짜별 건수로 확인합니다">7일 경과 시뮬레이션</button>
+      <button class="acc-tgl" type="button">&#9660;</button>
+    </div>
+    <div class="acc-body"><div class="acc-inner"><div class="pad">
+      <div class="hint">새벽 스케줄은 <b>실행일의 어제</b>를 대상일로 대시보드 더미(DMY · 생성자 dmyadm)를 <b>추가</b>하고, 실행일 기준 보존 일수 이전 대상일의 DMY(행 · 더미 원본 ·
+        저장 사진 · Admin 사진 매핑)를 지웁니다. 놓친 날은 따라잡지 않습니다. <b>기본은 꺼짐</b>이고, 여기서 켜고 끈 값은 PV 파일에 남아 재배포 뒤에도 유지됩니다(설정 기본값으로 되돌리면 파일 삭제).
+        [즉시 실행] · [경과 시뮬레이션] 은 ON/OFF 와 상관없이 돕니다 — 로그 컬렉터 수행 이력(T1~T5)은 지우지 않습니다.</div>
+      <div id="ag-detail" class="mt-2"></div>
+      <div id="ag-result" class="mt-2"><div class="hint">아직 이 화면에서 돌린 결과가 없습니다.</div></div>
     </div></div></div>
   </div>
 
@@ -1672,7 +1705,7 @@ function accToggle(id, open) {
 }
 document.addEventListener('click', (e) => {
   const h = e.target.closest('[data-acc]');
-  if (h && !e.target.closest('a, button:not(.acc-tgl), input, select, pre, .stt-text, [data-copy], [data-expand]')) {
+  if (h && !e.target.closest('a, button:not(.acc-tgl), input, select, label, pre, .stt-text, [data-copy], [data-expand]')) {
     accToggle(h.dataset.acc);
     return;
   }
@@ -3569,7 +3602,7 @@ $('ks-auto').onclick = async () => {
   }
 };
 
-$('btn-refresh').onclick = () => loadStatus(false);
+$('btn-refresh').onclick = () => { agLoad(); return loadStatus(false); };
 $('btn-clear').onclick   = (e) => { e.stopPropagation(); $('log').innerHTML = ''; $('log-unread').classList.remove('on'); };
 
 // 로그 헤더 클릭으로 접기/펼치기 ([로그 지우기]·[크게] 는 전파를 끊는다)
@@ -3625,6 +3658,224 @@ let PF_HIST = [];
 let RP_HIST = [];
 let PF_TIMER = null;
 let PF_SEEN = '';
+// ══════════════════════════════════════════════════════════════════════
+//  일 단위 자동 생성 스케줄러 — 상태 · ON/OFF · 즉시 1회 · N일 경과 시뮬레이션 (/api/v1/mock/auto-generator/*, 2026-10-05)
+//  새벽(기본 01:30)에 어제 날짜로 DMY 를 추가하고 보존 일수 지난 DMY 를 지운다. 기본 꺼짐.
+// ══════════════════════════════════════════════════════════════════════
+let AG = null;        // GET …/status — 없으면(운영 프로필 · 옛 서버) 패널을 잠근다
+let AG_BUSY = false;  // 즉시 실행 · 시뮬레이션이 도는 동안
+
+const AG_TRIGGER_LABEL = { SCHEDULER: '새벽 스케줄', MANUAL: '즉시 실행', SIMULATE: '경과 시뮬레이션' };
+function agCronText(cron) {
+  const m = /^0 (\d{1,2}) (\d{1,2}) \* \* \*$/.exec(String(cron || '').trim());
+  return m ? `매일 ${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}` : `cron ${cron || '?'}`;
+}
+function agTypesText(types) { return (types || []).map(t => DM_TYPE_LABEL[t] || t).join('·'); }
+function agFailText(f) {
+  const e = Object.entries(f || {}).filter(([, n]) => n > 0);
+  return e.length ? e.map(([k, n]) => `${k} ${n}`).join(' · ') : '없음(전부 정상)';
+}
+function agDt(s) { return s ? String(s).replace('T', ' ').slice(0, 16) : '-'; }
+function agSimDays() { return AG && AG.retainDays > 0 ? AG.retainDays : 7; }
+function agCnt(m) { return m ? `${m.meet} / ${m.phone} / ${m.image}` : '-'; }
+
+async function agInit() {
+  const today = ymdLocal(new Date());
+  $('ag-date').max = today;
+  if (!$('ag-date').value) $('ag-date').value = ymdShift(today, -1);
+  await agLoad();
+}
+
+async function agLoad() {
+  AG = await quietGet('/api/v1/mock/auto-generator/status');
+  agRender();
+}
+
+function agRender() {
+  const s = AG, sw = $('ag-switch');
+  if (!s) {
+    $('ag-badge').className = 'badge text-bg-light text-secondary';
+    $('ag-badge').textContent = '기능 없음';
+    sw.disabled = true; $('ag-run').disabled = true; $('ag-sim').disabled = true;
+    $('ag-sum').textContent = '이 서버에는 일 단위 자동 생성 제어 API 가 없습니다(운영 프로필이거나 옛 버전 — 수집기를 최신으로 배포해야 합니다)';
+    $('ag-detail').innerHTML = '';
+    return;
+  }
+  const on = !!s.enabled, dash = !!s.dashboardEnabled, busy = AG_BUSY || !!s.running;
+  $('ag-badge').className = 'badge ' + (s.running ? 'text-bg-warning' : on ? 'text-bg-success' : 'text-bg-secondary');
+  $('ag-badge').textContent = s.running ? `실행 중 — ${s.runningWhat || ''}` : on ? '활성화(ON)' : '비활성화(OFF)';
+  sw.checked = on;
+  sw.disabled = AG_BUSY;
+  $('ag-switch-lbl').textContent = on ? 'ON' : 'OFF';
+  $('ag-run').disabled = busy || !dash;
+  $('ag-sim').disabled = busy || !dash;
+  $('ag-sim').textContent = `${agSimDays()}일 경과 시뮬레이션`;
+  const what = `${agCronText(s.cron)}(한국 시각) 어제 날짜 DMY ${agTypesText(s.types)} 유형별 ${s.count}건`
+    + (s.retainDays > 0 ? ` · ${s.retainDays}일 지난 DMY 삭제` : ' · 삭제 안 함');
+  $('ag-sum').textContent = (on ? `${what} · 다음 실행 ${agDt(s.nextRun)}` : `꺼져 있어 새벽에 돌지 않습니다 — 켜면 ${what}`)
+    + (dash ? '' : ' · 대시보드 더미 생성이 꺼진 서버라 실행할 수 없습니다');
+  const last = s.lastRun;
+  $('ag-detail').innerHTML = `<table class="table table-sm mb-0 dm-tbl ag-tbl"><tbody>
+    <tr><th>상태</th><td>${on ? '<b class="ks-ok">활성화(ON)</b>' : '<b>비활성화(OFF)</b>'} — ${esc(s.sourceLabel)}${s.changedAt ? ` · 바꾼 시각 ${esc(agDt(s.changedAt))}` : ''}
+      <span class="hint">· 설정 기본값 <code>unstructured.mock.daily.enabled=${esc(s.configEnabled)}</code></span></td></tr>
+    <tr><th>일정</th><td><code>${esc(s.cron)}</code> ${esc(s.zone)} · 다음 실행 ${on ? `<b>${esc(agDt(s.nextRun))}</b>` : `<span class="text-secondary">없음(꺼짐 — 켜면 ${esc(agDt(s.nextFire))})</span>`}</td></tr>
+    <tr><th>만드는 것</th><td>대상일 = 실행일의 어제 · ${esc(agTypesText(s.types))} 유형별 ${esc(s.count)}건 · 장애 ${esc(agFailText(s.failures))} · 접두 DMY / 생성자 dmyadm (추가 — 기존 DMY 는 그대로)</td></tr>
+    <tr><th>지우는 것</th><td>${s.retainDays > 0 ? `실행일 기준 <b>${esc(s.retainDays)}일</b> 이전 대상일의 DMY — 행 · 더미 원본 · 저장 사진 · Admin 사진 매핑 (수행 이력 T1~T5 는 남음)` : '지우지 않음(retain-days 0)'}</td></tr>
+    <tr><th>스위치 파일</th><td><span class="font-monospace">${esc(s.stateFile || '-')}</span> <span class="hint">${s.stateFileExists ? '있음 — 화면에서 바꾼 값' : '없음 — 설정 기본값을 따름'}</span></td></tr>
+    <tr><th>마지막 실행</th><td>${last ? `${esc(AG_TRIGGER_LABEL[last.trigger] || last.trigger)} · ${esc(agDt(last.at))} · 실행일 ${esc(last.runDate)} ${agLastText(last.result)}`
+      : '<span class="text-secondary">수집기가 뜬 뒤로 없음</span>'}</td></tr>
+  </tbody></table>`;
+}
+function agLastText(r) {
+  if (!r) return '';
+  if (r.verdict) return `· 판정 <b>${esc(r.verdict)}</b> (대상일 ${esc(r.generatedFrom)} ~ ${esc(r.generatedTo)})`;
+  const err = r.generateError || r.purgeError || r.skipped;
+  return err ? `· <span class="ks-ng">${esc(err)}</span>`
+    : `· 대상일 ${esc(r.targetDate)} 생성 ${esc(r.generated?.rows ?? 0)}건 · 정리 ${esc(r.purged?.dbRows ?? 0)}행`;
+}
+
+/** 오래 걸리는 호출 — 그동안 버튼을 잠그고 상태를 1.5초마다 다시 읽어 진행 회차를 배지에 보인다. */
+async function agExclusive(fn) {
+  AG_BUSY = true; agRender();
+  const timer = setInterval(async () => {
+    const s = await quietGet('/api/v1/mock/auto-generator/status');
+    if (s && AG_BUSY) { AG = s; agRender(); }
+  }, 1500);
+  try { return await fn(); }
+  finally { clearInterval(timer); AG_BUSY = false; await agLoad(); }
+}
+
+$('ag-switch').onchange = async () => {
+  const want = $('ag-switch').checked;
+  if (want) {
+    const ok = await confirmPopup('일 단위 자동 생성 켜기', `<div class="pop-lead">대시보드 더미(DMY) 일 단위 자동 생성을 켭니다.</div>
+      <ul class="pop-list">
+        <li>${esc(agCronText(AG?.cron))}(한국 시각)마다 어제 날짜로 DMY ${esc(agTypesText(AG?.types))} 유형별 ${esc(AG?.count ?? '?')}건을 추가합니다 — 실제 배치가 읽어 이력 · 대시보드에 나옵니다</li>
+        <li>${AG?.retainDays > 0 ? `실행일 기준 ${esc(AG.retainDays)}일 이전 대상일의 DMY 를 지웁니다(행 · 더미 원본 · 저장 사진 · Admin 사진 매핑)` : '지우지는 않습니다'}</li>
+        <li>켠 값은 PV 파일에 남아 재배포 · 재기동 뒤에도 유지됩니다 — 끄면(설정 기본값) 파일이 지워집니다</li>
+      </ul>
+      <div class="pop-note">보존 일수가 지난 DMY 더미 원본(사진 포함)도 지워집니다 — 다른 데이터가 그 파일을 가리키고 있다면 함께 확인하십시오.</div>`, '켜기', '취소');
+    if (!ok) { $('ag-switch').checked = false; return; }
+  }
+  const info = await callFull('POST', `/api/v1/mock/auto-generator/toggle?enabled=${want}`, `일 단위 자동 생성 ${want ? 'ON' : 'OFF'}`);
+  if (info.ok && info.body) {
+    AG = info.body;
+    log(`  └ ${want ? '활성화(ON)' : '비활성화(OFF)'} — ${info.body.sourceLabel}${want ? ' · 다음 실행 ' + agDt(info.body.nextRun) : ''}`
+      + ` · 스위치 파일 ${info.body.stateFileExists ? '있음' : '없음'}`, 'ok');
+  }
+  await agLoad();
+};
+
+/** 날짜별 DMY 건수 표 — 즉시 실행 응답의 days. */
+function agTriggerHtml(r) {
+  const rows = Object.entries(r.days || {}).map(([d, m]) => {
+    const note = d === r.targetDate ? '<span class="vf-b SUCCESS">이번 대상일</span>'
+      : r.purgeBefore && d < r.purgeBefore ? '<span class="vf-b x">보존 기간 지남 — 삭제 대상</span>' : '';
+    return `<tr><td>${esc(d)}</td><td>${esc(agCnt(m))}</td><td>${note}</td></tr>`;
+  }).join('');
+  const g = r.generated || {}, p = r.purged || {};
+  const err = r.generateError || r.purgeError || r.skipped;
+  return `<div class="mb-1"><span class="vf-b ${r.ok ? 'SUCCESS' : 'FAIL'}">${r.ok ? '완료' : '일부 실패'}</span>
+      즉시 실행 — 대상일 <b>${esc(r.targetDate)}</b>(실행일 ${esc(r.runDate)}) · 생성 ${esc(g.rows ?? 0)}건(정상 ${esc(g.normal ?? 0)} · 장애 ${esc(g.fail ?? 0)} · 더미 원본 ${esc(g.files ?? 0)}개)
+      · ${r.purgeBefore ? `${esc(r.purgeBefore)} 이전 정리 — 행 ${esc(p.dbRows ?? 0)} · 파일 ${esc(p.files ?? 0)}` : '정리 없음'}
+      ${err ? `<div class="ks-ng">${esc(err)}</div>` : ''}</div>
+    <div class="hint">대상일별 DMY 건수 (접견 / 전화 / 이미지 수용자) — 실행 뒤</div>
+    <div class="table-responsive"><table class="table table-sm mb-0 dm-tbl" style="max-width:34rem"><thead class="table-light"><tr><th>대상일</th><th>건수</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+
+$('ag-run').onclick = async () => {
+  const today = ymdLocal(new Date());
+  const target = $('ag-date').value || ymdShift(today, -1);
+  if (target > today) { showPopup('즉시 실행', '<div class="pop-lead">대상일은 오늘 이전이어야 합니다.</div>'); return; }
+  const runDate = ymdShift(target, 1), rd = AG?.retainDays ?? 0;
+  const ok = await confirmPopup('일 단위 자동 생성 — 즉시 실행', `<div class="pop-lead">새벽 스케줄이 하는 일을 지금 한 번 합니다.</div>
+    <ul class="pop-list">
+      <li>생성 — 대상일 <b>${esc(target)}</b> · DMY ${esc(agTypesText(AG?.types))} 유형별 ${esc(AG?.count ?? '?')}건 추가</li>
+      <li>정리 — 실행일 ${esc(runDate)} 기준 ${rd > 0 ? `<b>${esc(ymdShift(runDate, -rd))}</b> 이전 대상일의 DMY 삭제` : '없음'}</li>
+      <li>ON/OFF 와 상관없이 돕니다. 실제 배치(스케줄 · 바로 실행 · 긴급 재처리)가 읽어 로그 컬렉터 이력 · 대시보드에 나옵니다</li>
+    </ul>`, '실행', '취소');
+  if (!ok) return;
+  await agExclusive(async () => {
+    const info = await callFull('POST', `/api/v1/mock/auto-generator/trigger?targetDate=${encodeURIComponent(target)}`,
+      `일 단위 자동 생성 — 즉시 실행 (대상일 ${target})`);
+    if (!info.ok || !info.body) return;
+    const r = info.body, g = r.generated || {};
+    log(`  └ 대상일 ${r.targetDate} 생성 ${g.rows ?? 0}건(정상 ${g.normal ?? 0} · 장애 ${g.fail ?? 0} · 파일 ${g.files ?? 0}) · `
+      + (r.purgeBefore ? `${r.purgeBefore} 이전 정리 — 행 ${r.purged?.dbRows ?? 0} · 파일 ${r.purged?.files ?? 0}` : '정리 없음'), r.ok ? 'ok' : 'er');
+    if (r.generateError || r.purgeError) log(`  └ ${r.generateError || r.purgeError}`, 'er');
+    $('ag-result').innerHTML = agTriggerHtml(r);
+    accToggle('ag-acc', true);
+    await dmLoadStatus();
+    showPopup(r.ok ? '즉시 실행 완료' : '즉시 실행 — 일부 실패', `<div class="pop-lead">대상일 ${esc(r.targetDate)} 치를 만들었습니다.</div>
+      <ul class="pop-list">
+        <li>생성: <span class="n">${esc(g.rows ?? 0)}</span>건 <div class="sub">정상 ${esc(g.normal ?? 0)} · 장애 ${esc(g.fail ?? 0)} · 더미 원본 ${esc(g.files ?? 0)}개</div></li>
+        <li>정리(${esc(r.purgeBefore || '-')} 이전): DB <span class="n">${esc(r.purged?.dbRows ?? 0)}</span>행 · 파일 ${esc(r.purged?.files ?? 0)}개</li>
+        ${r.generateError || r.purgeError ? `<li class="ks-ng">${esc(r.generateError || r.purgeError)}</li>` : ''}
+      </ul>
+      <div class="pop-note">날짜별 건수는 상단 [일 단위 자동 생성 스케줄러] 패널에 있습니다.</div>`);
+  });
+};
+
+/** 경과 시뮬레이션 결과 — 회차별 생성 · 정리 + 대상일별 전 → 후 건수와 판정. */
+function agSimHtml(r) {
+  const vb = r.verdict === 'PASS' ? 'SUCCESS' : r.verdict === 'FAIL' ? 'FAIL' : 'x';
+  const runs = (r.runs || []).map(x => `<tr><td>${esc(x.day)}일째</td><td>${esc(x.runDate)}</td><td>${esc(x.targetDate)}</td>
+      <td>${esc(x.generated?.rows ?? '-')}</td><td>${esc(x.purgeBefore || '-')}</td>
+      <td>${x.purged ? `${esc(x.purged.dbRows)}행 · 파일 ${esc(x.purged.files)}` : '-'}</td>
+      <td class="ks-ng">${esc(x.generateError || x.purgeError || x.skipped || '')}</td></tr>`).join('');
+  const checks = (r.checks || []).map(c => `<tr class="${c.ok ? '' : 'table-danger'}"><td>${esc(c.targetDate)}</td>
+      <td>${esc(agCnt(c.before))}</td><td><b>${esc(agCnt(c.after))}</b></td>
+      <td>${c.generatedOnDay != null ? `${esc(c.generatedOnDay)}일째 ${esc(c.generated?.rows ?? 0)}건` : '-'}${c.purgedOnDay != null ? ` → ${esc(c.purgedOnDay)}일째 삭제` : ''}</td>
+      <td>${c.expect === 'PURGED' ? '<span class="vf-b x">지워져야 함</span>' : '<span class="vf-b SUCCESS">남아야 함</span>'}</td>
+      <td>${c.ok ? '<span class="ks-ok">✔ 맞음</span>' : '<span class="ks-ng">✖ 다름</span>'}</td></tr>`).join('');
+  return `<div class="mb-1"><span class="vf-b ${vb}">${esc(r.verdict)}</span> ${esc(r.message)}</div>
+    <div class="row g-2">
+      <div class="col-xl-6"><div class="hint">회차별 — 가상 실행일 · 그날 만든 대상일 · 정리 기준(이 날짜 이전 삭제)</div>
+        <div class="table-responsive"><table class="table table-sm mb-1 dm-tbl"><thead class="table-light"><tr>
+          <th>회차</th><th>가상 실행일</th><th>생성 대상일</th><th>생성</th><th>정리 기준</th><th>지운 것</th><th></th></tr></thead><tbody>${runs}</tbody></table></div></div>
+      <div class="col-xl-6"><div class="hint">대상일별 DMY 건수 (접견 / 전화 / 이미지 수용자) — 시뮬레이션 전 → 후 · 보존 시작 ${esc(r.keepFrom || '-')}</div>
+        <div class="table-responsive"><table class="table table-sm mb-1 dm-tbl"><thead class="table-light"><tr>
+          <th>대상일</th><th>전</th><th>후</th><th>만든 · 지운 회차</th><th>기대</th><th>판정</th></tr></thead><tbody>${checks}</tbody></table></div></div>
+    </div>`;
+}
+
+$('ag-sim').onclick = async () => {
+  const n = agSimDays(), today = ymdLocal(new Date()), rd = AG?.retainDays ?? 0;
+  const total = (n + 1) * (AG?.count ?? 0) * (AG?.types?.length ?? 0);
+  const ok = await confirmPopup(`${n}일 경과 시뮬레이션`, `<div class="pop-lead">새벽 스케줄을 ${n + 1}번(0일째 + ${n}일 경과) 가상으로 이어 돌려, 보존 기간이 지난 데이터가 지워지는지 확인합니다.</div>
+    <ul class="pop-list">
+      <li>가상 실행일 ${esc(ymdShift(today, -n))} → ${esc(today)} 하루씩 — 대상일 <b>${esc(ymdShift(today, -n - 1))} ~ ${esc(ymdShift(today, -1))}</b> 의 DMY 를
+        ${esc(agTypesText(AG?.types))} 유형별 ${esc(AG?.count ?? '?')}건씩 만듭니다(모두 약 ${total}건)</li>
+      <li>${rd > 0 ? `매 회차 실행일 기준 ${esc(rd)}일 이전을 지웁니다 — 첫날 만든 <b>${esc(ymdShift(today, -n - 1))}</b> 치는 마지막 회차에서 지워지고, <b>${esc(ymdShift(today, -rd))}</b> 이후 치는 남아야 합니다`
+        : '보존 일수가 0 이라 지우지 않습니다 — 만들기만 합니다'}</li>
+      <li>${rd > 0 ? `${esc(ymdShift(today, -rd))} 이전 대상일의 기존 DMY 도 함께 지워집니다(새벽 스케줄과 같음). ` : ''}만든 DMY 는 남습니다 — 지우려면 [대시보드 테스트 데이터 초기화]</li>
+    </ul>
+    <div class="pop-note">ON/OFF 와 상관없이 돕니다. 회차마다 생성 · 정리를 하므로 수십 초 걸릴 수 있습니다 — 진행 회차는 패널 배지에 보입니다.</div>`, '시작', '취소');
+  if (!ok) return;
+  await agExclusive(async () => {
+    const info = await callFull('POST', `/api/v1/mock/auto-generator/simulate?days=${n}`, `일 단위 자동 생성 — ${n}일 경과 시뮬레이션`);
+    if (!info.ok || !info.body) return;
+    const r = info.body;
+    (r.runs || []).forEach(x => log(`  └ ${x.day}일째 — 가상 실행일 ${x.runDate} · 대상일 ${x.targetDate} 생성 ${x.generated?.rows ?? 0}건`
+      + (x.purgeBefore ? ` · ${x.purgeBefore} 이전 정리 ${x.purged?.dbRows ?? 0}행` : '')
+      + (x.generateError || x.purgeError ? ` · ${x.generateError || x.purgeError}` : ''), x.generateError || x.purgeError ? 'er' : 'ok'));
+    (r.checks || []).forEach(c => log(`    · ${c.targetDate} ${agCnt(c.before)} → ${agCnt(c.after)} (기대 ${c.expect === 'PURGED' ? '삭제' : '보존'}) ${c.ok ? '✔' : '✖'}`, c.ok ? 'ok' : 'er'));
+    log(`  └ 판정 ${r.verdict} — ${r.message}`, r.verdict === 'FAIL' ? 'er' : 'hd');
+    $('ag-result').innerHTML = agSimHtml(r);
+    accToggle('ag-acc', true);
+    await dmLoadStatus();
+    const purged = (r.checks || []).filter(c => c.expect === 'PURGED'), kept = (r.checks || []).filter(c => c.expect === 'KEPT');
+    showPopup(`${n}일 경과 시뮬레이션 — ${r.verdict}`, `<div class="pop-lead">${esc(r.message)}</div>
+      <ul class="pop-list">
+        <li>회차: <span class="n">${esc((r.runs || []).length)}</span>번 <div class="sub">가상 실행일 ${esc(r.runFrom)} ~ ${esc(r.runTo)}</div></li>
+        <li>지워져야 할 대상일 ${purged.length}일: ${purged.map(c => `${esc(c.targetDate)} ${c.ok ? '<span class="ks-ok">✔ 0건</span>' : '<span class="ks-ng">✖ 남음</span>'}`).join(' · ') || '없음'}</li>
+        <li>남아야 할 대상일 ${kept.length}일: ${kept.every(c => c.ok) ? '<span class="ks-ok">✔ 모두 남음</span>' : '<span class="ks-ng">✖ 빠진 날 있음</span>'}</li>
+      </ul>
+      <div class="pop-note">날짜별 전 → 후 건수는 상단 [일 단위 자동 생성 스케줄러] 패널에 있습니다.</div>`);
+  });
+};
+
 let PF_PROG = null;
 let PF_FINISHING = false;
 
@@ -5661,6 +5912,7 @@ log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 X
   pfInit();
   imInit();
   await dmInit();
+  await agInit();
   rmApply(false);
   if (isReal()) log('실행 용도 — 대시보드용(REAL): DMY 더미 · 실제 배치(test=false) · EXEC_ID UNS (상단 [실행 용도]에서 바꿉니다)', 'hd');
   await loadStatus(false);

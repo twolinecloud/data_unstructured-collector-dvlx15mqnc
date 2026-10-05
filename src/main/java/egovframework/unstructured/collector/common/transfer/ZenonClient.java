@@ -445,10 +445,15 @@ public class ZenonClient {
         }
     }
 
-    /** 수집 일시(KST, +09:00) — data-collector 와 같게 UTC 'Z' 를 쓰지 않는다(수신단 -9h 오인 방지). */
+    /**
+     * 수집 일시(KST, +09:00) — data-collector 와 같게 UTC 'Z' 를 쓰지 않는다(수신단 -9h 오인 방지).
+     * JVM 기본 시간대에 기대지 않고 서울로 못 박는다 — Jenkins(UTC)에서 돈 테스트 · 다른 진입점에서도 같은 값.
+     */
     String nowKst() {
-        return ZonedDateTime.now(clock).withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+        return ZonedDateTime.now(clock).withZoneSameInstant(KST).withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
     }
+
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
 
     private Sent post(String runId, int seq, boolean last, long targetCnt, List<Record> records) {
         byte[] body;

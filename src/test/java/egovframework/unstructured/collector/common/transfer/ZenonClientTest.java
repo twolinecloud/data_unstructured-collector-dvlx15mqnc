@@ -271,6 +271,7 @@ class ZenonClientTest {
 
         assertThat(a.status()).isEqualTo(413);
         assertThat(bos.size()).isLessThan(64 * 1024);   // 보낸 것은 작다(압축비)
+        assertThat(recv.ledger("R3")).as("거절한 요청은 장부를 만들지 않는다").isNull();
     }
 
     // ── REST(실제 소켓) ──────────────────────────────────────────────────

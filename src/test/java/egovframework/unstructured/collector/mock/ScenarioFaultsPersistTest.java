@@ -48,10 +48,28 @@ class ScenarioFaultsPersistTest {
         a.failOnce(FailureScenario.SEND_FAIL, SF);
         a.failOnce(FailureScenario.COLLECT_FAIL, CF_IMG);
         assertThat(a.forget(DummyTarget.DASHBOARD::ownsScenarioKey)).isEqualTo(2);
+        assertThat(file()).as("하나도 남지 않으면 파일을 지운다").doesNotExist();
 
         ScenarioFaults b = ScenarioFaults.activeForTest(file());
         assertThat(b.snapshot()).containsEntry("consumed", 0);
         assertThat(b.failOnce(FailureScenario.SEND_FAIL, SF)).isTrue();
+    }
+
+    @Test
+    @DisplayName("한 용도만 초기화 — 그 용도의 표시만 지우고 다른 용도의 표시는 파일에 남는다")
+    void partialResetKeepsOtherTarget() throws Exception {
+        String simSf = "SIM-MEET-20261002-SF-0001";
+        ScenarioFaults a = ScenarioFaults.activeForTest(file());
+        a.failOnce(FailureScenario.SEND_FAIL, SF);
+        a.failOnce(FailureScenario.SEND_FAIL, simSf);
+
+        assertThat(a.forget(DummyTarget.SIMULATOR::ownsScenarioKey)).isEqualTo(1);
+
+        assertThat(file()).isRegularFile();
+        assertThat(Files.readString(file())).contains(SF).doesNotContain(simSf);
+        ScenarioFaults b = ScenarioFaults.activeForTest(file());   // 재기동
+        assertThat(b.isConsumed(FailureScenario.SEND_FAIL, SF)).as("대시보드 표시는 그대로").isTrue();
+        assertThat(b.failOnce(FailureScenario.SEND_FAIL, simSf)).as("초기화한 시뮬레이터 키는 다시 한 번 실패").isTrue();
     }
 
     @Test

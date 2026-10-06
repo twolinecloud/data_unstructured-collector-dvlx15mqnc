@@ -30,12 +30,12 @@ import java.util.function.Supplier;
  * <p><b>왜 한 번만인가</b>: 시나리오의 요점은 "실패 → 해당 모드 재처리 → 성공" 이다. 데이터 성질(파일 누락·손상)로 실패시키면
  * 재처리도 똑같이 실패한다. 그래서 처음 닿을 때만 실패시키고 소진 표시를 남긴다 — 재처리(같은 키)는 통과한다.</p>
  *
- * <p><b>어디서 부르나</b> — 개발계 실제 경로(브로커 REST·DUMMY · 전화 MOCK · STT MOCK · 제논 MOCK)에서 정말 실패하는 자리.</p>
+ * <p><b>어디서 부르나</b> — 개발계 실제 경로(브로커 REST·DUMMY · 전화 MOCK · STT MOCK · 에이전트 커넥터 MOCK)에서 정말 실패하는 자리.</p>
  * <ul>
  *   <li>COLLECT — 접견: 브로커 추출 요청 직전(수집기 · 개발계 DUMMY 어댑터는 FILEKEY 가 없어도 무음 WAV 를 만들어 줘 메타만으로는 실패하지 않는다)
  *       · 전화: Mock 전화 파일 연계 · 이미지: 브로커 수신 직전</li>
  *   <li>ANALYZE — Mock STT(HTTP 500 흉내) · 이미지: 복호화 직후(이미지 확인 실패)</li>
- *   <li>SEND — 제논 전송 런에 쌓기 직전({@code ZenonClient.precheck} — 그 건만 503 흉내, 청크는 멈추지 않는다 · MOCK/REST 공통)
+ *   <li>SEND — 에이전트 커넥터 전송 런에 쌓기 직전({@code AgentConnectorClient.precheck} — 그 건만 503 흉내, 청크는 멈추지 않는다 · MOCK/REST 공통)
  *       · 이미지: Admin DB 매핑(커밋 전 롤백)</li>
  * </ul>
  *

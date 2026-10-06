@@ -1,9 +1,9 @@
 package egovframework.unstructured.collector.mock;
 
 import egovframework.unstructured.collector.batch.UnstructuredJobRunner;
-import egovframework.unstructured.collector.common.transfer.ZenonClient;
-import egovframework.unstructured.collector.common.transfer.ZenonMockReceiver;
-import egovframework.unstructured.collector.common.transfer.ZenonTransferRuns;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorMockReceiver;
+import egovframework.unstructured.collector.common.transfer.TransferRuns;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,42 +28,44 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 제논 전송 — 내장 수신기(MOCK) · 전송 시뮬레이션 · 전송 재처리 시나리오. dev · local 전용.
+ * 에이전트 커넥터 전송 — 내장 수신기(MOCK) · 전송 시뮬레이션 · 전송 재처리 시나리오. dev · local 전용.
  *
- * <p>시뮬레이터 7번 탭 '제논 전송 시뮬레이션' 이 쓴다. 에이전트 커넥터 시뮬레이터의 '대용량 gzip 연동 시험'(표준 양식 · A/B/C ·
+ * <p>시뮬레이터 7번 탭 '에이전트 커넥터 전송 시뮬레이션' 이 쓴다. 에이전트 커넥터 시뮬레이터의 '대용량 gzip 연동 시험'(표준 양식 · A/B/C ·
  * 수신 헤더 시나리오)과 '긴급 재처리(PPP 전송)'(전 청크 실패 · 부분 전송 실패 → 정상화 → 재처리 이어달리기)를 같은 순서로 옮겼다.</p>
  */
 @Log4j2
-@Tag(name = "9. 제논 전송 시뮬레이션 (dev·local)",
+@Tag(name = "9. 에이전트 커넥터 전송 시뮬레이션 (dev·local)",
         description = "data-collector 와 같은 전송 양식(gzip · chunked · X-Run-Id/X-Seq/X-Is-Last/X-Target-Cnt/X-Chunk-Cnt/X-Data-Type) — "
                 + "내장 수신기 · 부하 시험 · 헤더 시나리오 · 전송 재처리")
 @RestController
-@RequestMapping(value = "/api/v1/mock/zenon", produces = MediaType.APPLICATION_JSON_VALUE)
+// 옛 경로(/api/v1/mock/zenon — 2026-10-05 ~ 10-06)는 배포 사이 시뮬레이터 사본(admin-fe)과 어긋나지 않게 별칭으로 둔다
+@RequestMapping(value = {"/api/v1/mock/agent-connector", "/api/v1/mock/zenon"}, produces = MediaType.APPLICATION_JSON_VALUE)
 @Profile({"dev", "local"})
 @RequiredArgsConstructor
-public class ZenonMockController {
+public class TransferMockController {
 
-    private final ZenonMockReceiver receiver;
-    private final ZenonClient zenon;
-    private final ZenonTransferRuns runs;
-    private final ZenonSimService sim;
-    private final ZenonReprocessSimService reprocessSim;
+    private final AgentConnectorMockReceiver receiver;
+    private final AgentConnectorClient connector;
+    private final TransferRuns runs;
+    private final TransferSimService sim;
+    private final TransferReprocessSimService reprocessSim;
 
     // ── 내장 수신기 ──────────────────────────────────────────────────────
 
-    @Operation(summary = "제논 수신(흉내) — 청크 1건",
+    @Operation(summary = "에이전트 커넥터 bypass 수신(흉내) — 청크 1건",
             description = """
-                    에이전트 커넥터 `POST /api/v1/learn/transfer` 와 같은 수신단. 본문(gzip 이면 Content-Encoding: gzip)을 흘려 읽고 장부에 남긴다.
+                    에이전트 커넥터 bypass API `POST /api/v1/learn/transfer` 와 같은 수신단. 본문(gzip 이면 Content-Encoding: gzip)을 흘려 읽고 장부에 남긴다.
+                    실제 커넥터는 헤더 누락(400) · 멱등(200 duplicate)만 보고 본문을 풀지 않는다 — 아래 400(본문 대조) · 413 은 이 흉내의 추가 검사다.
 
                     - 200 `{code:SUCCESS, runId, seq, duplicate, receivedChunks, receivedRecords, state, missingSeqs, bytes, rawBytes}`
                     - 400 헤더 누락(X-Run-Id · X-Seq) · header.runId ≠ X-Run-Id · payload 건수 ≠ X-Chunk-Cnt · managementNo 없음
                     - 413 해제 상한 초과 · 503 장애 흉내(`POST /fault`)
-                    - 수집기를 `ZENON_MODE=REST ZENON_BASE_URL=http://127.0.0.1:{port} ZENON_TRANSFER_PATH=/api/v1/mock/zenon/transfer` 로 띄우면 실제 소켓으로 자기 자신에게 보낸다
+                    - 수집기를 `AGENT_CONNECTOR_MODE=REST AGENT_CONNECTOR_BASE_URL=http://127.0.0.1:{port} AGENT_CONNECTOR_TRANSFER_PATH=/api/v1/mock/agent-connector/transfer` 로 띄우면 실제 소켓으로 자기 자신에게 보낸다
                     """)
     @PostMapping(value = "/transfer", consumes = MediaType.ALL_VALUE)
     public ResponseEntity<Map<String, Object>> transfer(HttpServletRequest request) throws IOException {
         String enc = request.getHeader("Content-Encoding");
-        ZenonMockReceiver.Ack ack = receiver.receive(request::getHeader, request.getInputStream(),
+        AgentConnectorMockReceiver.Ack ack = receiver.receive(request::getHeader, request.getInputStream(),
                 enc != null && enc.toLowerCase().contains("gzip"));
         return ResponseEntity.status(ack.status()).body(ack.body());
     }
@@ -71,9 +73,9 @@ public class ZenonMockController {
     @Operation(summary = "전송 상태 — 모드 · 주소 · 청크 · 수신기 장애 · 최근 런")
     @GetMapping("/status")
     public Map<String, Object> status() {
-        Map<String, Object> m = new LinkedHashMap<>(zenon.status());
+        Map<String, Object> m = new LinkedHashMap<>(connector.status());
         m.put("receiver", receiver.status());
-        m.put("recentRuns", runs.recent(10).stream().map(ZenonReprocessSimService::runView).toList());
+        m.put("recentRuns", runs.recent(10).stream().map(TransferReprocessSimService::runView).toList());
         return m;
     }
 
@@ -98,7 +100,7 @@ public class ZenonMockController {
 
     @Operation(summary = "수신기 장애 흉내 — UP(정상화) · DOWN(전부 503) · FAIL_FROM_SEQ(fromSeq 부터 503)")
     @PostMapping("/fault")
-    public Map<String, Object> fault(@RequestParam(defaultValue = "UP") ZenonMockReceiver.FaultMode mode,
+    public Map<String, Object> fault(@RequestParam(defaultValue = "UP") AgentConnectorMockReceiver.FaultMode mode,
                                      @RequestParam(defaultValue = "3") int fromSeq) {
         return receiver.setFault(mode, fromSeq);
     }
@@ -108,11 +110,11 @@ public class ZenonMockController {
         return receiver.fault();
     }
 
-    @Operation(summary = "청크 레코드 수 덮어쓰기(시연) — 비우면 설정값(zenon.chunk-records)")
+    @Operation(summary = "청크 레코드 수 덮어쓰기(시연) — 비우면 설정값(agent-connector.chunk-records)")
     @PostMapping("/chunk-records")
     public Map<String, Object> chunkRecords(@RequestParam(required = false) Integer records) {
-        zenon.overrideChunkRecords(records);
-        return Map.of("chunkRecords", zenon.chunkRecords());
+        connector.overrideChunkRecords(records);
+        return Map.of("chunkRecords", connector.chunkRecords());
     }
 
     // ── 전송 시뮬레이션(커넥터 '대용량 gzip 연동 시험') ─────────────────────
@@ -146,11 +148,11 @@ public class ZenonMockController {
 
     // ── 전송 재처리(커넥터 '긴급 재처리 — PPP 전송') ───────────────────────
 
-    @Operation(summary = "① 오류 상황 재현 — 더미 생성 → 제논 장애 · 청크 작게 → 배치 실행",
+    @Operation(summary = "① 오류 상황 재현 — 더미 생성 → 에이전트 커넥터 장애 · 청크 작게 → 배치 실행",
             description = "scenario ALL_FAIL(1번 청크부터 503 → FAIL) · PARTIAL(3번 청크부터 503 → PARTIAL). "
                     + "target SIMULATOR(SIM · TST) · DASHBOARD(DMY · 실제 배치 UNS)")
     @PostMapping("/sim/reprocess/arm")
-    public Map<String, Object> arm(@RequestParam(defaultValue = "ALL_FAIL") ZenonReprocessSimService.Scenario scenario,
+    public Map<String, Object> arm(@RequestParam(defaultValue = "ALL_FAIL") TransferReprocessSimService.Scenario scenario,
                                    @RequestParam(defaultValue = "SIMULATOR") DummyTarget target,
                                    @RequestParam(required = false) Integer perType,
                                    @RequestParam(required = false) Integer chunkRecords,
@@ -158,7 +160,7 @@ public class ZenonMockController {
         return reprocessSim.arm(scenario, target, perType, chunkRecords, targetDate);
     }
 
-    @Operation(summary = "② 제논 정상화 — 수신기 200")
+    @Operation(summary = "② 에이전트 커넥터 정상화 — 수신기 200")
     @PostMapping("/sim/reprocess/fix")
     public Map<String, Object> fix() {
         return reprocessSim.fix();

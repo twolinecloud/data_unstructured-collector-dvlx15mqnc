@@ -18,8 +18,8 @@ public enum PerfStage {
     STT("STT"),
     /** 중간 산출물 — {@code stt_temp/{execId}/*.json}. */
     TEMP("중간"),
-    /** 적재/전송 — 제논(Zenon) 수신 API 호출(개발계 MOCK). 결과를 PV 에 남기지 않는다. */
-    SEND("제논 전송");
+    /** 적재/전송 — 에이전트 커넥터 bypass API 호출(개발계 MOCK). 결과를 PV 에 남기지 않는다. */
+    SEND("에이전트 커넥터 전송");
 
     private final String label;
 

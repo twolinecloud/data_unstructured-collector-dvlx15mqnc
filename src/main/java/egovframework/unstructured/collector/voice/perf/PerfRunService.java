@@ -116,7 +116,7 @@ public class PerfRunService {
     private final egovframework.unstructured.collector.batch.UnstructuredJobRunner scheduler;
     private final SimulationDataService sim;
     private final MockDatasetState dataset;
-    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private final egovframework.unstructured.collector.common.transfer.AgentConnectorClient connector;
     private final VerificationService verification;
     private final MockSttLatency latency;
     private final PerfStageMeter meter;
@@ -608,8 +608,8 @@ public class PerfRunService {
         long p0 = System.currentTimeMillis();
         run.to(Phase.PREPARING, tag + "로컬 산출물 정리" + (deleteOutputs ? " · 지난 시험 출력 삭제" : ""));
         Map<String, Object> cleared = mock.clearLocalFiles();
-        // 결과는 PV 에 남기지 않는다(제논 전송) — 지난 시험의 제논 수신증(메모리)만 비운다
-        int oldOutputs = deleteOutputs ? zenon.clearTestReceipts() : 0;
+        // 결과는 PV 에 남기지 않는다(에이전트 커넥터 전송) — 지난 시험의 전송 수신증(메모리)만 비운다
+        int oldOutputs = deleteOutputs ? connector.clearTestReceipts() : 0;
         if (run.real()) {
             run.to(Phase.PREPARING, "%s대시보드용(REAL) — DMY 더미를 지우고 %d건 새로 생성 (접견 %d · 전화 %d · 어제) — %s"
                     .formatted(tag, meet + phone, meet, phone, dbKind.label()));
@@ -954,10 +954,10 @@ public class PerfRunService {
         Map<?, ?> byStatus = t4.get("byStatus") instanceof Map<?, ?> b ? b : Map.of();
         long t4Success = num(byStatus.get("SUCCESS"));
         long t1Success = num(t1 == null ? null : t1.get("successCnt"));
-        // 제논 — 성공한 건마다 수신증 하나(전송 실패 건은 없다). T5(비식별·전송 로그)는 3단계 복원(2026-10-01)으로 남지 않는다.
+        // 전송 — 성공한 건마다 수신증 하나(전송 실패 건은 없다). T5(비식별·전송 로그)는 3단계 복원(2026-10-01)으로 남지 않는다.
         //   수신증은 수집기 메모리에 최근 keep-receipts 개만 있어, 성공이 그보다 많으면 건수 대조를 건너뛴다
-        long zenonSent = zenon.receipts(r.execId()).size();
-        boolean zenonComparable = r.successCnt() <= zenon.keepLimit();
+        long transferSent = connector.receipts(r.execId()).size();
+        boolean transferComparable = r.successCnt() <= connector.keepLimit();
 
         c.put("t1Status", t1 == null ? null : t1.get("execStsCd"));
         c.put("t2Steps", t2.size());
@@ -967,11 +967,11 @@ public class PerfRunService {
         c.put("t4Expected", expected);
         c.put("t1Success", t1Success);
         c.put("t4Success", t4Success);
-        c.put("zenonMode", zenon.mode());
-        c.put("zenonSent", zenonSent);
-        c.put("zenonExpected", zenonComparable ? (long) r.successCnt() : null);
+        c.put("transferMode", connector.mode());
+        c.put("transferSent", transferSent);
+        c.put("transferExpected", transferComparable ? (long) r.successCnt() : null);
         c.put("ok", running == 0 && dup.isEmpty() && t4Rows == expected && t1Success == t4Success
-                && (!zenonComparable || zenonSent == r.successCnt()));
+                && (!transferComparable || transferSent == r.successCnt()));
         return c;
     }
 

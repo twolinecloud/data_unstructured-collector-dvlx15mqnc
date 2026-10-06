@@ -160,11 +160,11 @@ class ResilienceE2ETest {
         assertThat(residue())
                 .as("실패 경로에서도 복호화 원본이 지워져야 한다")
                 .isZero();
-        // 실패한 건은 제논에 보내지 않는다 — 성공 1건(기존 STT)만 전송 위치가 있다
+        // 실패한 건은 에이전트 커넥터에 보내지 않는다 — 성공 1건(기존 STT)만 전송 위치가 있다
         assertThat(r.outcomes()).filteredOn(o -> o.status() == ProcStatus.FAIL)
                 .allSatisfy(o -> assertThat(o.sttPath()).isNull());
         assertThat(r.outcomes()).filteredOn(FileProcOutcome::isSuccess)
-                .allSatisfy(o -> assertThat(o.sttPath()).startsWith("zenon:"));
+                .allSatisfy(o -> assertThat(o.sttPath()).startsWith("agent-connector:"));
     }
 
     @Test
@@ -174,9 +174,9 @@ class ResilienceE2ETest {
 
         assertThat(r.successCnt()).isEqualTo(TOTAL);
         assertThat(residue()).isZero();
-        // STT 결과는 제논으로 보냈다 — PV 에는 남지 않는다(Purge 뒤 전사 보존물도 없다)
-        assertThat(r.zenon()).containsEntry("sent", String.valueOf(TOTAL));
-        assertThat(r.outcomes()).allSatisfy(o -> assertThat(o.sttPath()).startsWith("zenon:"));
+        // STT 결과는 에이전트 커넥터로 보냈다 — PV 에는 남지 않는다(Purge 뒤 전사 보존물도 없다)
+        assertThat(r.transfer()).containsEntry("sent", String.valueOf(TOTAL));
+        assertThat(r.outcomes()).allSatisfy(o -> assertThat(o.sttPath()).startsWith("agent-connector:"));
         assertThat(tmp.resolve("xenon")).doesNotExist();
     }
 

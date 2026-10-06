@@ -445,7 +445,7 @@
   .rm-bar .hint { flex:1 1 20rem; }
   body.mode-real .rm-bar { background:#fff5f5; border-color:#f1aeb5; }
   body.mode-real #sim-tabs { border-bottom-color:#f1aeb5; }
-  /* 7번 탭 — 제논 전송 시뮬레이션 */
+  /* 7번 탭 — 에이전트 커넥터 전송 시뮬레이션 */
   .zt-pre { background:#0f172a; color:#a7f3d0; border-radius:.4rem; padding:.7rem .8rem; font-size:.74rem; line-height:1.5;
             max-height:360px; overflow:auto; white-space:pre; margin:0; }
   .zt-curl { color:#fde68a; background:#1e293b; max-height:220px; white-space:pre-wrap; word-break:break-all; }
@@ -490,7 +490,7 @@
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
     <div>
       <h4 class="mb-0">비정형 데이터 수집기 (Unstructured Collector) 시뮬레이터</h4>
-      <div class="text-secondary small">음성(접견·통화) → [수집 COLLECT: 조회·확보·복호화] → [정제/분석 ANALYZE: STT] → [적재/전송 SEND: 제논] · 로그 컬렉터 T1·T2·T4
+      <div class="text-secondary small">음성(접견·통화) → [수집 COLLECT: 조회·확보·복호화] → [정제/분석 ANALYZE: STT] → [적재/전송 SEND: 에이전트 커넥터 → 제논] · 로그 컬렉터 T1·T2·T4
         &nbsp;|&nbsp; 수용자 사진 → FILEKEY 추출 → 복호화 → 저장 → Admin DB 매핑</div>
       <div id="health-bar" class="mt-1">
         <span class="hb wait"><span class="dot"></span>조회 중…</span>
@@ -569,7 +569,7 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-perf">4. 기본 부하 검증</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-ramp">5. 임계 성능 테스트</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-image">6. 수용자 이미지 수집 검증</button></li>
-    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-zenon">7. 제논 전송 시뮬레이션</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-transfer">7. 에이전트 커넥터 전송 시뮬레이션</button></li>
   </ul>
   <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
   <div class="rm-bar" id="rm-bar">
@@ -590,7 +590,7 @@
   <div class="acc mb-3" id="arch-acc">
     <div class="acc-head" data-acc="arch-acc">
       <span class="grow small"><b>시스템 아키텍처 및 데이터 흐름 개요</b>
-        <span class="text-secondary">— 원본 음성이 제논(Zenon)으로 넘어가기까지 · 수집 → 정제/분석 → 적재/전송 3단계와 실제 폴더</span></span>
+        <span class="text-secondary">— 원본 음성이 에이전트 커넥터를 거쳐 제논으로 넘어가기까지 · 수집 → 정제/분석 → 적재/전송 3단계와 실제 폴더</span></span>
       <button class="acc-tgl" type="button">&#9660;</button>
     </div>
     <div class="acc-body"><div class="acc-inner"><div class="pad">
@@ -637,7 +637,7 @@
       <div class="hint mt-2">
         ROOT_DIR 은 OS 로 자동 감지 — Windows <code>C:/k8s/unstructured_collector</code>, Linux/K8s <code>/k8s/unstructured_collector</code>. 표준 배치:
         <code>xvram/original_voice_files</code> · <code>esb/meet</code> · <code>esb/phone</code> · <code>xvram/decoding</code> (없으면 자동 생성).
-        STT 결과는 PV 에 남기지 않고 제논(Zenon)으로 보냅니다 — 옛 <code>xenon/</code> 폴더는 쓰지 않습니다(2026-10-01).
+        STT 결과는 PV 에 남기지 않고 에이전트 커넥터(bypass → 제논)로 보냅니다 — 옛 <code>xenon/</code> 폴더는 쓰지 않습니다(2026-10-01).
         ESB 수신(접견) 폴더는 <b>로컬 브로커의 <code>BROKER_OUTPUT_DIR</code> 과 같아야</b> 합니다 — [브로커 연결 확인] 으로 대조.
       </div>
     </div></div></div>
@@ -678,10 +678,10 @@
     <div class="card-body py-2" id="controls">
       <div class="mb-2 hint">배치 — 실제 REST API 를 호출하고 응답을 ③ 요약 바에 남깁니다. 시뮬레이션 데이터는 접견 7·전화 7 = 14건(트랙별 일배치 5 · 10분 주기 2)</div>
       <!-- 비정형 3단계 — 로그 컬렉터 T2 의 STEP_TYPE_CD(COLLECT 1 · ANALYZE 2 · SEND 3). 마지막 배치 결과로 칠한다 -->
-      <div class="im-flow" id="pipe-flow" title="클라우드 전송·비식별화는 제외(2026-10-01 3단계 복원) — 결과는 온프레미스 제논으로 넘기고 PV 에 남기지 않습니다">
+      <div class="im-flow" id="pipe-flow" title="비식별화는 하지 않음(2026-10-01 3단계 복원) — 결과는 에이전트 커넥터 bypass API 를 거쳐 온프레미스 제논으로 넘기고 PV 에 남기지 않습니다">
         <span class="st" data-step="COLLECT"><b>1</b>수집 <span class="hint">COLLECT · 대상 조회 · 브로커 추출 / ESB 수신 · 복호화</span><span class="sts"></span></span><span class="ar">→</span>
         <span class="st" data-step="ANALYZE"><b>2</b>정제/분석 <span class="hint">ANALYZE · STT(기존 STT 가 있으면 건너뜀)</span><span class="sts"></span></span><span class="ar">→</span>
-        <span class="st" data-step="SEND"><b>3</b>적재/전송 <span class="hint">SEND · 제논(Zenon) <span id="pipe-zenon">MOCK</span></span><span class="sts"></span></span>
+        <span class="st" data-step="SEND"><b>3</b>적재/전송 <span class="hint">SEND · 에이전트 커넥터 → 제논 <span id="pipe-transfer">MOCK</span></span><span class="sts"></span></span>
       </div>
       <!-- 1줄 — 전체 실행 3종 -->
       <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
@@ -698,7 +698,7 @@
         <button class="btn btn-sm" id="btn-phone" style="color:#6f42c1;border-color:#6f42c1;background:#fff" title="POST /api/v1/voice/batches/periodic?kinds=PHONE&test=true">전화만 실행 <span class="opacity-75">(periodic · PHONE)</span></button>
         <button class="btn btn-outline-secondary btn-sm" id="btn-targets">처리 대상 미리 보기</button>
         <button class="btn btn-outline-secondary btn-sm" id="btn-files">수신 파일 확인</button>
-        <button class="btn btn-outline-secondary btn-sm" id="btn-outputs" title="GET /api/v1/mock/zenon/receipts — 최근 배치가 제논(Zenon)에 보낸 수신증(메타데이터 · 전사 미리보기)을 읽습니다. 결과는 PV 에 남기지 않습니다">제논 전송 확인</button>
+        <button class="btn btn-outline-secondary btn-sm" id="btn-outputs" title="GET /api/v1/mock/agent-connector/receipts — 최근 배치가 에이전트 커넥터에 보낸 수신증(메타데이터 · 전사 미리보기)을 읽습니다. 결과는 PV 에 남기지 않습니다">에이전트 커넥터 전송 확인</button>
       </div>
 
       <!-- 진행률 — 배치가 도는 동안만 보인다. 배치 REST 는 동기라 서버 진행 상태를 따로 폴링한다. -->
@@ -846,7 +846,7 @@
   <!-- ① 성능 테스트 설정 -->
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>① 기본 부하 검증 설정 <span class="hint fw-normal">— 일일 한도 300건 안에서 실제 파이프라인([수집] 조회 → 확보 → 복호화 · [정제/분석] STT · [적재/전송] 제논 → T1·T2·T4)을 태웁니다. STT 만 MOCK</span></strong>
+      <strong>① 기본 부하 검증 설정 <span class="hint fw-normal">— 일일 한도 300건 안에서 실제 파이프라인([수집] 조회 → 확보 → 복호화 · [정제/분석] STT · [적재/전송] 에이전트 커넥터 → T1·T2·T4)을 태웁니다. STT 만 MOCK</span></strong>
       <span class="d-flex align-items-center gap-3 flex-wrap ms-auto">
         <span class="form-check form-switch m-0" title="끄면(기본) 고속 모드 — STT 를 기다리지 않고 즉시 통과시키고, 실제로 돈 확보 시각에 건당 처리 시간을 얹어 STT 워커에 다시 배정한 시간(파이프라인 모의)으로 리포트를 냅니다">
           <input class="form-check-input" type="checkbox" role="switch" id="pf-real">
@@ -873,7 +873,7 @@
           <input type="number" class="form-control form-control-sm" id="pf-sttpct" value="3" min="0" max="100" step="1"></div>
         <div class="col-6 col-md-2"><label class="hint" for="pf-acq-w" title="파일 확보(접견: 브로커 추출 → 수신 폴더 도착 / 전화: 파일 연계 수신)를 맡는 워커 — 원천 부하를 줄이려면 1">XVARM 확보 워커</label>
           <input type="number" class="form-control form-control-sm" id="pf-acq-w" value="1" min="1" max="64" step="1"></div>
-        <div class="col-6 col-md-2"><label class="hint" for="pf-stt-w" title="확보된 파일을 곧바로 받아 복호화 · STT · 제논 전송을 하는 워커">STT 처리 워커</label>
+        <div class="col-6 col-md-2"><label class="hint" for="pf-stt-w" title="확보된 파일을 곧바로 받아 복호화 · STT · 에이전트 커넥터 전송을 하는 워커">STT 처리 워커</label>
           <input type="number" class="form-control form-control-sm" id="pf-stt-w" value="31" min="1" max="64" step="1"></div>
       </div>
       <div class="row mb-2"><div class="col-12 col-md-6 offset-md-6">
@@ -1135,13 +1135,13 @@
   </div>
   </div>
 
-  <div class="tabp" id="tab-zenon">
-  <!-- 7번 탭 — 제논 전송 시뮬레이션. 에이전트 커넥터 시뮬레이터의 '대용량 gzip 연동 시험'(표준 양식 · A/B/C · 수신 헤더 시나리오)과
+  <div class="tabp" id="tab-transfer">
+  <!-- 7번 탭 — 에이전트 커넥터 전송 시뮬레이션. 에이전트 커넥터 시뮬레이터의 '대용량 gzip 연동 시험'(표준 양식 · A/B/C · 수신 헤더 시나리오)과
        '긴급 재처리(PPP 전송)'(전 청크 실패 · 부분 전송 실패 → 정상화 → 재처리 이어달리기)를 같은 순서로 옮겼다(2026-10-05).
-       전송 양식은 data-collector 와 같다 — 에이전트 커넥터 없이 제논으로 직접. -->
+       전송 양식 · 수신 API 는 data-collector 와 같다 — 에이전트 커넥터 bypass API(비식별 없이 제논으로 중계). -->
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>① 송신 페이로드 표준 양식 <span class="hint fw-normal">— data-collector 와 같은 양식 · 에이전트 커넥터 없이 제논으로 직접(2026-10-05) · 이 구조 그대로 보냅니다</span></strong>
+      <strong>① 송신 페이로드 표준 양식 <span class="hint fw-normal">— data-collector 와 같은 양식 · 에이전트 커넥터 bypass API(<code>/api/v1/learn/transfer</code> — 비식별 없이 제논으로 중계) · 이 구조 그대로 보냅니다</span></strong>
       <span class="d-flex gap-2">
         <button class="btn btn-sm btn-primary" id="zt-copy" type="button">양식 복사</button>
         <button class="btn btn-sm btn-outline-secondary" id="zt-reload" type="button">다시 읽기</button>
@@ -1168,7 +1168,7 @@
 
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>② 점진적 용량 시험 <span class="hint fw-normal">— 수집기가 자기 자신(내장 제논 수신기)에게 실제 소켓으로 쏩니다 · 같은 JVM 이라 힙까지 함께 봅니다</span></strong>
+      <strong>② 점진적 용량 시험 <span class="hint fw-normal">— 수집기가 자기 자신(내장 에이전트 커넥터 수신기)에게 실제 소켓으로 쏩니다 · 같은 JVM 이라 힙까지 함께 봅니다</span></strong>
       <span class="d-flex align-items-end gap-2 flex-wrap">
         <label class="hint">회차 크기(MB)<input id="zt-size" type="number" class="form-control form-control-sm dm-num" value="50" min="1" max="512"></label>
         <label class="hint">C 반복<input id="zt-rounds" type="number" class="form-control form-control-sm dm-num" value="20" min="1" max="100"></label>
@@ -1191,7 +1191,7 @@
 
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white py-2">
-      <strong>③ 수신 헤더 6종 · 네트워크 예외 시나리오 <span class="hint fw-normal">— 수집기 ↔ 제논 구간. X-Run-Id · X-Seq · X-Is-Last · X-Target-Cnt · X-Chunk-Cnt · X-Data-Type 동작 확인</span></strong>
+      <strong>③ 수신 헤더 6종 · 네트워크 예외 시나리오 <span class="hint fw-normal">— 수집기 ↔ 에이전트 커넥터 구간. X-Run-Id · X-Seq · X-Is-Last · X-Target-Cnt · X-Chunk-Cnt · X-Data-Type 동작 확인</span></strong>
     </div>
     <div class="card-body py-2">
       <div class="row g-2 small">
@@ -1214,7 +1214,7 @@
 
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>④ 전송 재처리 시나리오 <span class="hint fw-normal">— 제논 전송 장애 → 정상화 → 긴급 재처리(전사 보존물로 수집 · STT 를 건너뛰고 원배치 런을 이어서 전송)</span></strong>
+      <strong>④ 전송 재처리 시나리오 <span class="hint fw-normal">— 에이전트 커넥터 전송 장애 → 정상화 → 긴급 재처리(전사 보존물로 수집 · STT 를 건너뛰고 원배치 런을 이어서 전송)</span></strong>
       <span class="d-flex gap-2 flex-wrap" id="zr-scn"></span>
     </div>
     <div class="card-body py-2">
@@ -1229,29 +1229,29 @@
         <span id="zr-badges" class="d-flex flex-wrap gap-1"></span>
         <button class="btn btn-link btn-sm ms-auto" type="button" id="zr-reset">상태 초기화</button>
       </div>
-      <div class="zt-note mb-2">💡 화면의 '청크' 는 <b>제논 전송 청크</b>(요청 1건 = X-Seq 하나)입니다. 운영은 50건 단위(<code>zenon.chunk-records</code>) · 50MB 상한으로 나누고,
+      <div class="zt-note mb-2">💡 화면의 '청크' 는 <b>에이전트 커넥터 전송 청크</b>(요청 1건 = X-Seq 하나)입니다. 운영은 50건 단위(<code>agent-connector.chunk-records</code>) · 50MB 상한으로 나누고,
         여기서는 접견 · 전화 6건을 <b>2건씩 3청크</b>로 나눠 구조만 그대로 재현합니다. 실패한 청크와 그 뒤 청크의 건은 전사 보존물(<code>stt_temp</code>)이 남아
         재처리가 수집 · STT 없이 <b>원배치 런(X-Run-Id = 원 EXEC_ID)을 다음 순번부터</b> 이어 보냅니다.</div>
       <div class="d-grid gap-2 mb-2" style="grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))">
         <button class="btn btn-danger" type="button" id="zr-arm"><span id="zr-arm-txt">① 오류 상황 재현</span></button>
-        <button class="btn btn-warning" type="button" id="zr-fix">② 제논 정상화 시뮬레이션 (200 OK 전환)</button>
+        <button class="btn btn-warning" type="button" id="zr-fix">② 에이전트 커넥터 정상화 시뮬레이션 (200 OK 전환)</button>
         <button class="btn btn-primary" type="button" id="zr-go">③ 긴급 재처리 (단계 SEND · admin 과 같은 경로)</button>
       </div>
       <div class="zr-flow mb-1" id="zr-flow"></div>
       <div class="small mb-2" id="zr-resume"></div>
       <div class="mb-2" id="zr-chunks"></div>
       <div class="row g-2">
-        <div class="col-12 col-lg-6"><div class="hint mb-1">실행 로그</div><div class="zr-log" id="zr-log"><div class="hint">① 오류 상황 재현을 누르면 더미를 만들고 제논 장애를 건 뒤 실제 배치(용도에 따라 TST/UNS)를 돌립니다.</div></div></div>
-        <div class="col-12 col-lg-6"><div class="hint mb-1">제논 수신 장부 · 건별 결과</div><div id="zr-ledger"></div><div id="zr-items" class="mt-2"></div></div>
+        <div class="col-12 col-lg-6"><div class="hint mb-1">실행 로그</div><div class="zr-log" id="zr-log"><div class="hint">① 오류 상황 재현을 누르면 더미를 만들고 에이전트 커넥터 장애를 건 뒤 실제 배치(용도에 따라 TST/UNS)를 돌립니다.</div></div></div>
+        <div class="col-12 col-lg-6"><div class="hint mb-1">에이전트 커넥터 수신 장부 · 건별 결과</div><div id="zr-ledger"></div><div id="zr-items" class="mt-2"></div></div>
       </div>
     </div>
   </div>
 
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-      <strong>⑤ 제논 수신 장부 · 송신 런 <span class="hint fw-normal">— 내장 수신기가 받은 런(순번 · 건수 · 상태)과 수집기가 기억하는 이어달리기 지점</span></strong>
+      <strong>⑤ 에이전트 커넥터 수신 장부 · 송신 런 <span class="hint fw-normal">— 내장 수신기가 받은 런(순번 · 건수 · 상태)과 수집기가 기억하는 이어달리기 지점</span></strong>
       <span class="d-flex gap-2">
-        <button class="btn btn-sm btn-outline-danger" type="button" id="zt-sweep" title="POST /api/v1/mock/zenon/sweep?idleSec=0 — 빈 순번이 있거나 마지막 청크가 안 온 런을 지금 유실(INGEST-GAP) 판정">유실 판정 스윕(즉시)</button>
+        <button class="btn btn-sm btn-outline-danger" type="button" id="zt-sweep" title="POST /api/v1/mock/agent-connector/sweep?idleSec=0 — 빈 순번이 있거나 마지막 청크가 안 온 런을 지금 유실(INGEST-GAP) 판정">유실 판정 스윕(즉시)</button>
         <button class="btn btn-sm btn-outline-primary" type="button" id="zt-led-refresh">새로고침</button>
       </span>
     </div>
@@ -1469,7 +1469,7 @@ const SWITCH_OPTS = {
 };
 const MOCKISH = ['MOCK','SKIP'];
 // 디렉터리 4종 — 라벨·순서는 서버(/status 의 dirs.labels)가 내려준다. 없을 때의 기본값.
-//   최종 결과 폴더(xenon/meet|phone)는 없앴다 — STT 결과는 제논(Zenon)으로 보내고 PV 에 남기지 않는다(2026-10-01).
+//   최종 결과 폴더(xenon/meet|phone)는 없앴다 — STT 결과는 에이전트 커넥터(bypass → 제논)로 보내고 PV 에 남기지 않는다(2026-10-01).
 let DIR_KEYS = [
   ['xvarmOriginal', 'XVARM 접견 원본', '더미 음성 파일이 놓이는 곳'],
   ['receiveMeet',   'ESB 수신 (접견)', '브로커·ESB 가 떨구는 곳'],
@@ -1631,7 +1631,7 @@ function cleanPopupHtml(d) {
           · ESB 수신·작업 파일 ${localFiles}</div></li>
       ${logRowsHtml(d.logCollector)}
       ${imageSimLi(d.imageSim)}
-      <li>그 외: 멱등 표식 ${l.idempotencyMarkers ?? 0}건 · 재처리 보존물(전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}) · 제논 수신증 ${l.zenonReceipts ?? 0}건</li>
+      <li>그 외: 멱등 표식 ${l.idempotencyMarkers ?? 0}건 · 재처리 보존물(전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}) · 전송 수신증 ${l.transferReceipts ?? 0}건</li>
     </ul>
     <div class="sub mt-2">대상 DB — ${esc(sim.db || '')}</div>`;
 }
@@ -1679,7 +1679,7 @@ function showTab(id) {
   $('log-card').classList.toggle('d-none', id === 'tab-env');
   if (id === 'tab-perf' || id === 'tab-ramp') pfOnShow();
   if (id === 'tab-image') imOnShow();
-  if (id === 'tab-zenon') ztOnShow();
+  if (id === 'tab-transfer') ztOnShow();
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('#sim-tabs [data-tab]');
@@ -1788,7 +1788,7 @@ function jsonBox(obj, opts={}) {
       <pre class="json ${opts.compact ? 'compact' : ''}" id="${id}">${hlJson(obj, opts.hl || [])}</pre>
     </div>`;
 }
-const HL_BATCH = ['execId','execStsCd','successCnt','failCnt','errMsg','zenon','steps','sttPath','failedStep'];
+const HL_BATCH = ['execId','execStsCd','successCnt','failCnt','errMsg','transfer','steps','sttPath','failedStep'];
 
 // 요약 바 — [메서드] [URL] [HTTP 상태] [결과 요약] [소요]
 function statusCls(info) { return info.error ? 'st-err' : info.status >= 500 ? 'st-5xx' : info.status >= 400 ? 'st-4xx' : 'st-2xx'; }
@@ -1933,13 +1933,13 @@ function flagCard(label, on, detail) {
 }
 
 let STATUS = null;
-/** 제논 전송 단계 — /status 의 접견 트랙 마지막 단계(모드 · 주소). */
-function zenonStep() {
-  const st = (STATUS?.tracks?.meet?.steps || []).find(x => /제논/.test(x.label || ''));
+/** 에이전트 커넥터 전송 단계 — /status 의 접견 트랙 마지막 단계(모드 · 주소). */
+function transferStep() {
+  const st = (STATUS?.tracks?.meet?.steps || []).find(x => /에이전트 커넥터|제논/.test(x.label || ''));
   return { mode: st?.mode || 'MOCK', endpoint: st?.endpoint || '' };
 }
 /** 비정형 3단계(2026-10-01 복원) — T2 STEP_TYPE_CD 와 화면 이름. */
-const PIPE_STEPS = [['COLLECT', '수집'], ['ANALYZE', '정제/분석'], ['SEND', '적재/전송 (제논)']];
+const PIPE_STEPS = [['COLLECT', '수집'], ['ANALYZE', '정제/분석'], ['SEND', '적재/전송 (에이전트 커넥터)']];
 const PIPE_LABEL = Object.fromEntries(PIPE_STEPS);
 /** 2번 탭 3단계 띠 — 마지막 배치의 T2 상태로 칠한다(없으면 회색). */
 function pipePaint(steps) {
@@ -1952,7 +1952,7 @@ function pipePaint(steps) {
     const sts = el.querySelector('.sts');
     if (sts) sts.textContent = x ? `${x.stepStsCd} · in ${x.inCnt ?? 0} / out ${x.outCnt ?? 0} / err ${x.errCnt ?? 0}` : '';
   });
-  const z = zenonStep(), zt = $('pipe-zenon');
+  const z = transferStep(), zt = $('pipe-transfer');
   if (zt) zt.textContent = z.mode === 'REST' ? `REST ${z.endpoint}` : 'MOCK (수집기 내장)';
 }
 /**
@@ -2032,7 +2032,7 @@ function shortPath(p) { return (p||'').length > 34 ? '…' + p.slice(-33) : (p||
 function renderArchFlow(d) {
   const box = $('arch-flow'); if (!box || !d) return;
   const pair = (meet, phone) => `<span class="k">접견</span> ${esc(meet||'—')}<br><span class="k">전화</span> ${esc(phone||'—')}`;
-  const z = zenonStep();
+  const z = transferStep();
   const steps = [
     ['①', '[수집 COLLECT] XVARM 원본 음성', esc(d.xvarmOriginal||'—'), '암호화된 음성 파일', ''],
     ['②', '[수집 COLLECT] XVARM 브로커 추출 · ESB 수신', pair(d.receiveMeet, d.receivePhone),
@@ -2040,8 +2040,8 @@ function renderArchFlow(d) {
     ['③', '[수집 COLLECT] 복호화 작업', esc(d.work||'—'), 'R플레이어 / ARIA 모듈로 복호화된 순수 오디오 파일 — STT 가 실패하면 보존(FROM_ANALYZE 재처리)', ''],
     ['④', '[정제/분석 ANALYZE] 수집기 내부 STT 엔진 호출', '(내부 처리 — 디스크에 남지 않습니다)',
      '복호화된 오디오를 텍스트로 변환 · 보라미에 기존 STT 가 있으면 이 단계를 건너뜁니다', 'internal'],
-    ['⑤', '[적재/전송 SEND] 제논(Zenon) AI 전송', z.mode === 'REST' ? `<span class="k">REST</span> ${esc(z.endpoint)}` : esc(z.endpoint || 'MOCK(수집기 내장)'),
-     'data-collector 와 같은 양식(gzip · chunked · X-Run-Id/X-Seq 청크)으로 온프레미스 제논에 직접 넘깁니다 — PV 에 결과를 남기지 않습니다(전송 실패 시에만 전사를 보존해 원배치 런을 이어 재전송 · 7번 탭)', ''],
+    ['⑤', '[적재/전송 SEND] 에이전트 커넥터 전송(bypass → 제논)', z.mode === 'REST' ? `<span class="k">REST</span> ${esc(z.endpoint)}` : esc(z.endpoint || 'MOCK(수집기 내장)'),
+     'data-collector 와 같은 양식(gzip · chunked · X-Run-Id/X-Seq 청크)으로 에이전트 커넥터 bypass API 로 넘기고(커넥터가 비식별 없이 온프레미스 제논으로 중계) PV 에 결과를 남기지 않습니다(전송 실패 시에만 전사를 보존해 원배치 런을 이어 재전송 · 7번 탭)', ''],
   ];
   box.innerHTML = steps.map(([no, ttl, pth, out, cls], i) => `
     <div class="flow-node ${cls}">
@@ -2144,7 +2144,7 @@ function renderResult(info, r, kind) {
             ? '— 로그 컬렉터가 채번 (T1 적재됨)' : '— <span class="text-danger">로컬 임시 ID (컬렉터 미연동 · T1/T2/T4 적재 안 됨)</span>'}
           ${r.errMsg ? ` · 대표 오류 <span class="text-danger">${esc(r.errMsg)}</span>` : ''}</div>
         <div class="mt-1">${stepBadges(r.steps)}</div>
-        ${r.zenon ? `<div class="hint">제논 전송 <code>${esc(r.zenon.mode || '')}</code> ${esc(r.zenon.endpoint || '')} · 보낸 건수 ${r.zenon.sent ?? 0}</div>` : ''}
+        ${r.transfer ? `<div class="hint">에이전트 커넥터 전송 <code>${esc(r.transfer.mode || '')}</code> ${esc(r.transfer.endpoint || '')} · 보낸 건수 ${r.transfer.sent ?? 0}</div>` : ''}
         <div class="mt-2 small fw-semibold">Response JSON</div>
         ${jsonBox(r, { hl: HL_BATCH })}
       </div></div></div>
@@ -2163,12 +2163,12 @@ function renderResult(info, r, kind) {
     if (failed.length > 5) log(`      · … 외 ${failed.length-5}건`, 'er');
   }
   renderFilesTable(r, null);
-  loadOutputs(r);   // 전사 미리보기는 제논 수신증으로 따로 읽는다(배치 응답에는 싣지 않는다)
+  loadOutputs(r);   // 전사 미리보기는 전송 수신증으로 따로 읽는다(배치 응답에는 싣지 않는다)
 }
-/** 제논 수신증 — 이 배치가 제논에 보낸 것(메모리에 최근 keep-receipts 개). STT 결과는 PV 에 남기지 않는다. */
+/** 전송 수신증 — 이 배치가 에이전트 커넥터에 보낸 것(메모리에 최근 keep-receipts 개). STT 결과는 PV 에 남기지 않는다. */
 async function loadOutputs(r) {
   if (!r || !r.execId) return;
-  const d = await call('GET', `/api/v1/mock/zenon/receipts?execId=${encodeURIComponent(r.execId)}`, `제논 전송 확인 (${r.execId})`, true);
+  const d = await call('GET', `/api/v1/mock/agent-connector/receipts?execId=${encodeURIComponent(r.execId)}`, `에이전트 커넥터 전송 확인 (${r.execId})`, true);
   if (!d) return;
   const byKey = {};
   (d.receipts || []).forEach(x => {
@@ -2178,7 +2178,7 @@ async function loadOutputs(r) {
   renderFilesTable(r, byKey);
   const byKind = {};
   (d.receipts || []).forEach(x => { const k = x.metadata?.kind || '?'; byKind[k] = (byKind[k] || 0) + 1; });
-  log(`  └ 제논 수신증 ${d.total}건 (${d.mode === 'REST' ? 'REST · ' + d.endpoint : d.endpoint}) — ${Object.entries(byKind).map(([k, n]) => `${k === 'MEET' ? '접견' : k === 'PHONE' ? '전화' : k} ${n}건`).join(' · ') || '없음'}`,
+  log(`  └ 전송 수신증 ${d.total}건 (${d.mode === 'REST' ? 'REST · ' + d.endpoint : d.endpoint}) — ${Object.entries(byKind).map(([k, n]) => `${k === 'MEET' ? '접견' : k === 'PHONE' ? '전화' : k} ${n}건`).join(' · ') || '없음'}`,
       d.total > 0 ? 'ok' : 'wr');
 }
 function renderFilesTable(r, byKey) {
@@ -2190,7 +2190,7 @@ function renderFilesTable(r, byKey) {
              : o.status === 'SKIPPED' ? '<span class="badge text-bg-secondary">SKIPPED</span>'
              : `<span class="badge text-bg-danger">FAIL</span> <span class="badge text-bg-light text-danger border">${esc(o.failedStep||'')}</span>`;
     const f = byKey ? byKey[(o.target?.kind||'') + '|' + (o.target?.idempotencyKey||'')] : null;
-    const text = f ? `<div class="stt-text" title="클릭하면 펼칩니다 — 제논 수신증의 전사 미리보기(앞 200자)">${esc(f.text||'')}</div>`
+    const text = f ? `<div class="stt-text" title="클릭하면 펼칩니다 — 전송 수신증의 전사 미리보기(앞 200자)">${esc(f.text||'')}</div>`
                : o.status === 'SUCCESS' ? (byKey ? '<span class="hint">수신증 없음 (재기동 · 보관 상한 초과)</span>' : '<span class="hint">읽는 중…</span>')
                : `<span class="hint text-danger">${esc(o.errMsg||'')}</span>`;
     return `<tr>
@@ -2206,13 +2206,13 @@ function renderFilesTable(r, byKey) {
   const wasOpen = $('files-acc')?.classList.contains('open');
   $('files-acc-wrap').innerHTML = `<div class="acc ${wasOpen ? 'open' : ''}" id="files-acc">
       <div class="acc-head" data-acc="files-acc">
-        <span class="grow small"><b>처리 파일 · 제논 전송</b> <span class="text-secondary">${rows.length}건 — 성공 ${ok} · 실패 ${ng}${sk ? ' · 건너뜀 ' + sk : ''}</span></span>
+        <span class="grow small"><b>처리 파일 · 에이전트 커넥터 전송</b> <span class="text-secondary">${rows.length}건 — 성공 ${ok} · 실패 ${ng}${sk ? ' · 건너뜀 ' + sk : ''}</span></span>
         <button class="acc-tgl" type="button">▼</button>
       </div>
       <div class="acc-body"><div class="acc-inner"><div class="table-responsive" style="max-height:380px">
         <table class="table table-sm table-hover tgt-table mb-0">
           <thead class="table-light sticky-top"><tr>
-            <th>종류</th><th>원본 파일명 / 키</th><th>상태</th><th class="text-end">크기</th><th class="text-end">글자수</th><th>제논 전송 위치</th><th>전사 미리보기 (수신증)</th>
+            <th>종류</th><th>원본 파일명 / 키</th><th>상태</th><th class="text-end">크기</th><th class="text-end">글자수</th><th>에이전트 커넥터 전송 위치</th><th>전사 미리보기 (수신증)</th>
           </tr></thead><tbody>${tr}</tbody></table>
       </div></div></div>
     </div>`;
@@ -2530,10 +2530,10 @@ const SCEN = [
     kinds:'MEET', modes:true,
   },
   {
-    key:'SEND', no:'3', short:'전송 장애', title:'SEND — 제논(Zenon) 전송 장애',
-    how:'제논 전송을 500/Timeout 으로 떨어뜨립니다 — 수신증이 남지 않습니다',
-    expect:'전사 결과 보존(stt_temp/{execId}) · T4 SEND=FAIL / PARTIAL · T2 SEND FAIL · 제논 수신증 없음',
-    resume:'FROM_SEND', resumeText:'수집·복호화·STT 스킵 → 보존된 전사 결과로 제논 재전송 → 보낸 뒤 보존물 정리(PV 에는 결과를 남기지 않음)',
+    key:'SEND', no:'3', short:'전송 장애', title:'SEND — 에이전트 커넥터 전송 장애',
+    how:'에이전트 커넥터 전송을 500/Timeout 으로 떨어뜨립니다 — 수신증이 남지 않습니다',
+    expect:'전사 결과 보존(stt_temp/{execId}) · T4 SEND=FAIL / PARTIAL · T2 SEND FAIL · 전송 수신증 없음',
+    resume:'FROM_SEND', resumeText:'수집·복호화·STT 스킵 → 보존된 전사 결과로 에이전트 커넥터 재전송 → 보낸 뒤 보존물 정리(PV 에는 결과를 남기지 않음)',
     kinds:'', modes:true,
   },
 ];
@@ -2620,12 +2620,12 @@ function vfCounts(m) {
   const e = Object.entries(m || {});
   return e.length ? e.map(([k, n]) => `${vfBadge(k)} ${n}`).join(' &nbsp;') : '<span class="text-secondary">0건</span>';
 }
-/** 제논 전송 — 이 배치의 수신증(수집기 메모리). T5(비식별·전송 로그)는 3단계 복원(2026-10-01)으로 남지 않는다. */
-function zenonVfHtml(z) {
+/** 에이전트 커넥터 전송 — 이 배치의 수신증(수집기 메모리). T5(비식별·전송 로그)는 3단계 복원(2026-10-01)으로 남지 않는다. */
+function transferVfHtml(z) {
   if (!z) return '';
   const kinds = Object.entries(z.byKind || {}).map(([k, n]) => `${k === 'MEET' ? '접견' : k === 'PHONE' ? '전화' : esc(k)} ${n}`).join(' · ');
   const sample = (z.sample || []).map(x => `${esc(x.fileName)} · ${esc(String(x.receivedAt || '').replace('T', ' '))}`).join('<br>');
-  return `<div class="vf-row"><span>제논 전송 <span class="vf-b x">${esc(z.mode || '')}</span></span><span><b>${z.count ?? 0}</b>건</span></div>
+  return `<div class="vf-row"><span>에이전트 커넥터 전송 <span class="vf-b x">${esc(z.mode || '')}</span></span><span><b>${z.count ?? 0}</b>건</span></div>
       <div class="vf-sub">${kinds || '<span class="text-secondary">이 배치의 수신증 없음</span>'} · 수집기 메모리 보관 ${z.receiptsKept ?? 0}건</div>
       <div class="vf-path">${esc(z.endpoint || '')}${sample ? '<br>' + sample : ''}</div>`;
 }
@@ -2665,7 +2665,7 @@ function verifyBody(v, id) {
   }
   const filesHtml = vfFile('복호화 보존물 decrypted_*', fl.decoding)
       + vfFile('전사 보존물 stt_temp/{execId} (전송 실패 시만)', fl.sttTemp)
-      + zenonVfHtml(v.zenon)
+      + transferVfHtml(v.transfer)
       + '<div class="vf-sub text-secondary">STT 결과는 PV 에 남기지 않습니다 — 옛 xenon/ 폴더 없음</div>';
   const cmds = (arr, kind) => (arr || []).map((c, i) => {
     const pid = `${id}-${kind}-${i}`;
@@ -2676,7 +2676,7 @@ function verifyBody(v, id) {
   return `<div class="hint mb-1">EXEC_ID <code>${esc(v.execId || '—')}</code> · ${v.env === 'K8S' ? '배포(K8s)' : '로컬'}</div>
     <div class="vf-grid">
       <div class="vf-card"><h6>DB 테이블 상태</h6>${dbHtml}</div>
-      <div class="vf-card"><h6>K8s PV 파일 · 제논 전송</h6>${filesHtml}</div>
+      <div class="vf-card"><h6>K8s PV 파일 · 에이전트 커넥터 전송</h6>${filesHtml}</div>
     </div>
     <div class="fw-semibold small mt-2 mb-1">수동 검증 명령 — 복사해 DB 툴·터미널에서 그대로 실행</div>
     <div class="vf-grid">
@@ -2894,7 +2894,7 @@ $('scen-auto').onclick = async () => {
   SCEN_AUTO = true;
   scenLock(true);
   healthPause();
-  log('🚀 단계별 장애 시나리오 자동 실행 — 1(수집) → 2(정제/분석) → 3(적재/전송 · 제논)', 'hd');
+  log('🚀 단계별 장애 시나리오 자동 실행 — 1(수집) → 2(정제/분석) → 3(적재/전송 · 에이전트 커넥터)', 'hd');
   try {
     for (const s of SCEN) {
       // 시나리오마다 처음부터 — 앞 시나리오의 멱등 표식·보존물이 남으면 다음이 '건너뜀' 으로 샌다.
@@ -3048,7 +3048,7 @@ document.querySelectorAll('.preset').forEach(b => {
 
 
 $('btn-outputs').onclick = () => {
-  if (!LAST?.result) { log('먼저 배치를 실행하십시오 — 최근 배치가 제논에 보낸 수신증을 읽습니다', 'wr'); return; }
+  if (!LAST?.result) { log('먼저 배치를 실행하십시오 — 최근 배치가 에이전트 커넥터에 보낸 수신증을 읽습니다', 'wr'); return; }
   loadOutputs(LAST.result); accToggle('files-acc', true);
 };
 $('btn-targets').onclick = showTargets;
@@ -3076,7 +3076,7 @@ $('btn-test-clear').onclick = async () => {
       <li>대시보드 더미(DMY)와 실제 수용자 행은 건드리지 않습니다</li>
     </ul>
     <div class="pop-note">로그 컬렉터 수행 이력(T1~T5)은 남습니다.</div>
-    <label class="d-block mt-2 small"><input type="checkbox" id="pop-with-hist"> 시험 이력(TST · 로그 컬렉터 T1~T5 · 제논 수신증)도 함께 지우기
+    <label class="d-block mt-2 small"><input type="checkbox" id="pop-with-hist"> 시험 이력(TST · 로그 컬렉터 T1~T5 · 전송 수신증)도 함께 지우기
       <span class="text-secondary">— 예전 [시뮬레이션 데이터 초기화] 와 같음</span></label>`, '초기화', '취소');
   if (!ok) return;
   const withHist = !!document.getElementById('pop-with-hist')?.checked;
@@ -3150,7 +3150,7 @@ async function simClearWithHistory() {
   else log(`  └ 로그 이력 — ${lc}`, 'wr');
   const l = d.local || {};
   log(`  └ 로컬 — 표식 ${l.idempotencyMarkers} · 접견파일 ${l.meetFiles} · 전화파일 ${l.phoneFiles} · 작업파일 ${l.workFiles}`
-    + ` · 보존물 전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0} · 제논 수신증 ${l.zenonReceipts ?? 0}`, 'ok');
+    + ` · 보존물 전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0} · 전송 수신증 ${l.transferReceipts ?? 0}`, 'ok');
   const sim = d.sim || {};
   log(`  └ DB 메타 삭제 — ${Object.entries(sim.cleaned||{}).map(([k,v]) => `${k} ${v}`).join(' · ')} · 더미 파일 접견 ${sim.filesDeleted?.MEET ?? 0} · 전화 ${sim.filesDeleted?.PHONE ?? 0}`, 'ok');
   logSqls(sim);
@@ -3934,10 +3934,10 @@ function hikariAfter(k) {
   return { returned: a.returned !== false, active: sum('active'), idle: sum('idle'), waiting: sum('waiting'),
            max: pools.length ? pools[0].max : null };
 }
-/** 제논 전송 한 줄 — 확인 팝업용. */
-function zenonLine() {
-  const z = zenonStep();
-  return `<b>제논(Zenon) ${esc(z.mode)}</b> — ${z.mode === 'REST' ? esc(z.endpoint) : '수집기 내장(네트워크 없음)'} · 성공 건마다 수신증 1건 · PV 에 결과를 남기지 않음`;
+/** 에이전트 커넥터 전송 한 줄 — 확인 팝업용. */
+function transferLine() {
+  const z = transferStep();
+  return `<b>에이전트 커넥터 ${esc(z.mode)}</b> — ${z.mode === 'REST' ? esc(z.endpoint) : '수집기 내장(네트워크 없음)'} · 성공 건마다 수신증 1건 · PV 에 결과를 남기지 않음`;
 }
 /** 건당 STT 처리 시간만으로 걸리는 대략의 시간(초) — 건별 시간의 합 ÷ 워커. 확보·복호화·저장은 따로다. */
 function sttEstimateSec(meet, phone, pct, workers, mode, meetMs, phoneMs, jitter, to) {
@@ -4041,7 +4041,7 @@ function pfEstimate() {
   const by = bypassCount(q.phoneCount || 0, q.sttPercent);
   const basis = `${n}건 ÷ STT 워커 ${q.sttWorkers ?? '?'} · 확보 워커 ${q.acquireWorkers ?? '?'}개가 차례로 확보(STT 와 겹침)${by ? ` · 기 STT ${by}건은 건너뜀` : ''}`;
   $('pf-est').textContent = q.realSleep
-    ? `실제 대기 모드 — STT 를 실제로 약 ${fmtSec(sec)} 기다립니다 (${basis}) · 확보·복호화·제논 전송 시간은 별도`
+    ? `실제 대기 모드 — STT 를 실제로 약 ${fmtSec(sec)} 기다립니다 (${basis}) · 확보·복호화·에이전트 커넥터 전송 시간은 별도`
     : `고속 모드 — STT 를 기다리지 않고 즉시 통과합니다. 리포트는 가상 STT 시간(약 ${fmtSec(sec)})을 STT 워커에 배정해 확보와 겹쳐 계산합니다 (${basis})`;
 }
 
@@ -4074,10 +4074,10 @@ async function pfStart() {
           ? ' — 건당 처리 시간은 쓰지 않고 <b>실제 NPU</b> 로 요청이 갑니다'
           : ` · ${esc(latText({ mode:req.latencyMode, meetMs:req.meetLatencyMs, phoneMs:req.phoneLatencyMs, jitterPercent:req.jitterPercent }))}`
             + ` · 타임아웃 ${req.sttTimeoutMs ? fmtMs(req.sttTimeoutMs) : '없음'} · <b>${req.realSleep ? '실제 대기 모드' : '고속 모드'}</b>`}</li>
-      <li><span class="lbl">전송:</span> ${zenonLine()}</li>
+      <li><span class="lbl">전송:</span> ${transferLine()}</li>
       <li><span class="lbl">준비:</span> 로컬 산출물·지난 시험 출력 삭제 → SIM ${req.meetCount + req.phoneCount}건 생성 (기 STT ${by}건) · ${esc(i.db || '')}</li>
       <li><span class="lbl">예상:</span> ${esc($('pf-est').textContent.replace('예상 — ', ''))}</li>
-      <li><span class="lbl">끝나면:</span> SIM 행·원본 더미 파일 자동 삭제 · 로그(TST)와 제논 수신증(수집기 메모리)은 남습니다</li>
+      <li><span class="lbl">끝나면:</span> SIM 행·원본 더미 파일 자동 삭제 · 로그(TST)와 전송 수신증(수집기 메모리)은 남습니다</li>
     </ul>
     ${realNote('perf')}
     ${sharedDb() ? '<div class="pop-note">⚠ 공용 DB 입니다 — 다른 작업자와 시간이 겹치지 않게 하십시오.</div>' : ''}`, '시작', '취소');
@@ -4240,7 +4240,7 @@ function pfRenderReport(r) {
       : r.virtualSec !== undefined
         ? `실제 ${esc(fmtSec(r.realSec))} + 가상 ${esc(fmtSec(r.virtualSec))}${r.pipeline ? ` · 확보 구간 ${esc(fmtSec(r.acquireSpanSec))}와 겹쳐 계산` : ''}`
         : `실제 ${esc(fmtSec(r.realSec))} + 가상 STT ${esc(fmtSec(r.virtualSttSec))}`),
-    tile('평균 처리 시간', esc(fmtMs(r.avgMs)), r.fastForward ? '건당 확보 ~ 제논 전송 (STT 가상 · 대기열 대기 제외)' : '건당 확보 ~ 제논 전송 (대기열 대기 제외)'),
+    tile('평균 처리 시간', esc(fmtMs(r.avgMs)), r.fastForward ? '건당 확보 ~ 에이전트 커넥터 전송 (STT 가상 · 대기열 대기 제외)' : '건당 확보 ~ 에이전트 커넥터 전송 (대기열 대기 제외)'),
     tile('TPS', fmtTps(r.tps), r.fastForward === undefined ? '성공 건수 ÷ 총 소요' : '처리 건수 ÷ 총 소요'),
     tile('전체 / 성공 / 실패 / 타임아웃',
       `${r.total} / <span class="ok-t">${r.success}</span> / <span class="ng-t">${r.fail}</span> / <span class="to-t">${r.timeout}</span>`,
@@ -4275,9 +4275,9 @@ function pfRenderReport(r) {
       b(!dup.length, `T2 단계 중복 ${dup.length ? esc(dup.join(',')) : '없음'}`),
       b(c.t4Rows === c.t4Expected, `T4 ${c.t4Rows}행 = 처리 ${c.t4Expected}건`),
       b(c.t1Success === c.t4Success, `T1 성공 ${c.t1Success} = T4 SUCCESS ${c.t4Success}`),
-      c.zenonSent === undefined ? '' : c.zenonExpected == null
-        ? `<span class="vf-b x">제논 수신증 ${c.zenonSent}건 (보관 상한 초과 — 대조 생략)</span>`
-        : b(c.zenonSent === c.zenonExpected, `제논 전송 ${c.zenonSent}건 = 성공 ${c.zenonExpected}건 (${esc(c.zenonMode || '')})`),
+      c.transferSent === undefined ? '' : c.transferExpected == null
+        ? `<span class="vf-b x">전송 수신증 ${c.transferSent}건 (보관 상한 초과 — 대조 생략)</span>`
+        : b(c.transferSent === c.transferExpected, `에이전트 커넥터 전송 ${c.transferSent}건 = 성공 ${c.transferExpected}건 (${esc(c.transferMode || '')})`),
     ].join(' ') + hikariBadge;
   }
   const data = r.meetCount !== undefined
@@ -4373,7 +4373,7 @@ function pfCsv() {
   const stageKeys = ['ACQUIRE', 'DECRYPT', 'FORMAT', 'STT', 'TEMP', 'SEND'];
   const head = ['실행ID', '시각', '시나리오', '접견', '전화', '기STT%', '기STT건', '확보워커', 'STT워커', '지연방식', '접견지연ms', '전화지연ms', '변동폭%',
     '타임아웃ms', 'STT', '모드', '실제초', '가상합산초', '가상STT초', '확보구간초', '총소요초', '평균ms', 'TPS', '전체', '성공', '실패', '타임아웃', '건너뜀', '배치상태',
-    '확보ms', '복호화ms', '포맷ms', 'STTms', '중간ms', '제논전송ms',
+    '확보ms', '복호화ms', '포맷ms', 'STTms', '중간ms', '전송ms',
     '힙시작MB', '힙종료MB', '힙PeakMB', '힙최대MB', 'HikariPeak', 'Hikari반납', 'T2 RUNNING', 'T4행', '정합성',
     'EXEC_ID', '조회', '브로커', '복호화', 'DB'];
   const rows = PF_HIST.slice().reverse().map(x => {
@@ -4487,7 +4487,7 @@ async function rpStart() {
       <li><span class="lbl">STT:</span> <b>${esc(i.sttMode || '?')}</b>${i.sttMode === 'NPU' ? ' — 실제 NPU 로 요청이 갑니다'
           : ` · ${esc(latText({ mode:req.latencyMode, meetMs:req.meetLatencyMs, phoneMs:req.phoneLatencyMs, jitterPercent:req.jitterPercent }))}`
             + ` · 타임아웃 ${req.sttTimeoutMs ? fmtMs(req.sttTimeoutMs) : '없음'} · <b>${req.realSleep ? '실제 대기 모드' : '고속 모드'}</b>`}</li>
-      <li><span class="lbl">전송:</span> ${zenonLine()}</li>
+      <li><span class="lbl">전송:</span> ${transferLine()}</li>
       <li><span class="lbl">조기 종료:</span> 최저 응답 뒤 ${req.patience}회 연속 개선 없음 · XVARM 확보 대기
         ${req.acquireLimitSec ? req.acquireLimitSec + '초 초과' : '(보지 않음)'} · STT 에러·타임아웃 ${req.stopOnSttError ? '즉시 중단' : '무시'}</li>
       <li><span class="lbl">단계마다:</span> 로컬 산출물 정리 → SIM ${req.meetCount + req.phoneCount}건 생성 → 측정 → 검증. 끝나면 SIM 자동 삭제</li>
@@ -5583,9 +5583,9 @@ async function realSeed(showDone) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  7번 탭 — 제논 전송 시뮬레이션
+//  7번 탭 — 에이전트 커넥터 전송 시뮬레이션
 // ═══════════════════════════════════════════════════════════════════════
-//  서버: GET /api/v1/mock/zenon/sim/template · POST /sim/load(A·B·C) + GET /sim/load/status · POST /sim/headers/{1..4}
+//  서버: GET /api/v1/mock/agent-connector/sim/template · POST /sim/load(A·B·C) + GET /sim/load/status · POST /sim/headers/{1..4}
 //        POST /sim/reprocess/arm|fix|run|reset · GET /status · GET /ledger · POST /sweep
 let ZT_TPL = null, ZT_TIMER = null, ZT_NEXT = 0, ZT_HEAP = [];
 async function ztOnShow() {
@@ -5594,9 +5594,9 @@ async function ztOnShow() {
   ztLedgers();
 }
 async function ztLoadTemplate() {
-  const t = await call('GET', '/api/v1/mock/zenon/sim/template', '', true);
+  const t = await call('GET', '/api/v1/mock/agent-connector/sim/template', '', true);
   if (!t) {
-    $('zt-template').textContent = '양식을 불러오지 못했습니다 — 이 수집기에 전송 시뮬레이션 API(/api/v1/mock/zenon/sim/template)가 없습니다. 수집기를 최신으로 배포하십시오.';
+    $('zt-template').textContent = '양식을 불러오지 못했습니다 — 이 수집기에 전송 시뮬레이션 API(/api/v1/mock/agent-connector/sim/template)가 없습니다. 수집기를 최신으로 배포하십시오.';
     $('zt-endpoint').textContent = '';
     return;
   }
@@ -5633,13 +5633,13 @@ async function ztLoad(s) {
   $('zt-cards').innerHTML = '';
   ZT_HEAP = [];
   ztHeap();
-  const info = await callFull('POST', `/api/v1/mock/zenon/sim/load?scenario=${s}&sizeMb=${size}&rounds=${rounds}&bombMb=${bomb}`, `제논 전송 시험 ${s}`);
+  const info = await callFull('POST', `/api/v1/mock/agent-connector/sim/load?scenario=${s}&sizeMb=${size}&rounds=${rounds}&bombMb=${bomb}`, `에이전트 커넥터 전송 시험 ${s}`);
   if (!info.ok) { ztLog('시작하지 못했습니다 — ' + (info.body?.message || info.error || ('HTTP ' + info.status)), 'er'); return; }
   ZT_NEXT = 0;
   ztPoll();
 }
 async function ztPoll() {
-  const d = await quietGet(`/api/v1/mock/zenon/sim/load/status?after=${ZT_NEXT}`);
+  const d = await quietGet(`/api/v1/mock/agent-connector/sim/load/status?after=${ZT_NEXT}`);
   if (d) {
     ZT_NEXT = d.next ?? ZT_NEXT;
     (d.events || []).forEach(ztEvent);
@@ -5686,7 +5686,7 @@ function ztHeap() {
 async function ztHdr(n) {
   const el = $('zt-hdr-log');
   el.textContent = '실행 중…';
-  const info = await callFull('POST', `/api/v1/mock/zenon/sim/headers/${n}`, `수신 헤더 시나리오 ${n}`);
+  const info = await callFull('POST', `/api/v1/mock/agent-connector/sim/headers/${n}`, `수신 헤더 시나리오 ${n}`);
   el.textContent = '';
   if (!info.ok) { el.textContent = '실패 — ' + (info.body?.message || info.error || ('HTTP ' + info.status)); return; }
   (info.body.lines || []).forEach(l => {
@@ -5703,7 +5703,7 @@ function ztStateBadge(s) {
 }
 async function ztLedgers() {
   const box = $('zt-ledgers'); if (!box) return;
-  const [st, led] = await Promise.all([quietGet('/api/v1/mock/zenon/status'), quietGet('/api/v1/mock/zenon/ledger?limit=15')]);
+  const [st, led] = await Promise.all([quietGet('/api/v1/mock/agent-connector/status'), quietGet('/api/v1/mock/agent-connector/ledger?limit=15')]);
   if (!st) { box.innerHTML = '<div class="hint">전송 상태 API 가 없습니다 — 수집기를 최신으로 배포하십시오.</div>'; return; }
   const f = st.receiver?.fault || {};
   const runs = st.recentRuns || [];
@@ -5734,17 +5734,17 @@ function fmtBytes(n) {
 // ── ④ 전송 재처리 — 에이전트 커넥터 '긴급 재처리(PPP 전송)' 탭과 같은 구성 ───────────────
 const ZR_CFG = [
   { api: 'ALL_FAIL', tag: '시나리오 1 · 전 청크 실패',
-    title: '시나리오 1 — 제논 전 청크 전송 실패 (배치 FAIL)',
-    desc: '수집 · STT 까지는 성공했으나 제논이 <b>1번 청크부터 503</b>(수신 서버 장애)을 돌려줘 <b>한 청크도 받아들여지지 않은</b> 상황입니다. '
+    title: '시나리오 1 — 에이전트 커넥터 전 청크 전송 실패 (배치 FAIL)',
+    desc: '수집 · STT 까지는 성공했으나 에이전트 커넥터가 <b>1번 청크부터 503</b>(수신 서버 장애)을 돌려줘 <b>한 청크도 받아들여지지 않은</b> 상황입니다. '
         + '받아들여진 청크가 없으므로 배치는 <b>FAIL</b> 입니다. 전사 보존물(<code>stt_temp</code>)이 남아 있어 재처리는 수집 · STT 를 건너뛰고 '
         + '<b>같은 런을 처음(1번 청크)부터 다시</b> 보냅니다.',
-    arm: '① 오류 상황 재현 (제논 다운 + 1번 청크부터 실패)' },
+    arm: '① 오류 상황 재현 (에이전트 커넥터 다운 + 1번 청크부터 실패)' },
   { api: 'PARTIAL', tag: '시나리오 2 · 부분 전송 실패',
-    title: '시나리오 2 — 제논 전송 이어달리기(Resume) 복구 (배치 PARTIAL)',
+    title: '시나리오 2 — 에이전트 커넥터 전송 이어달리기(Resume) 복구 (배치 PARTIAL)',
     desc: '청크 전송 도중 <b>3번째 청크에서 503</b>이 나 전송이 멈춘 상황입니다. 앞 2청크는 받아들여졌으므로 배치는 <b>PARTIAL</b> 입니다. '
         + '재처리는 무거운 수집 · STT 를 건너뛰고 <b>원배치 런(X-Run-Id = 원 EXEC_ID)을 3번 청크부터 이어서</b> 보낸 뒤 마지막 청크로 마감합니다 — '
         + '수신 장부에서 그 런이 빈 순번 없이 닫힙니다.',
-    arm: '① 오류 상황 재현 (제논 3번 청크에서 중단)' }];
+    arm: '① 오류 상황 재현 (커넥터 3번 청크에서 중단)' }];
 let ZR_SEL = 0, ZR_EXEC = null;
 function zrPaintScn() {
   $('zr-scn').innerHTML = ZR_CFG.map((s, i) => `<button type="button" class="btn btn-sm ${ZR_SEL === i ? 'btn-dark' : 'btn-outline-secondary'}" data-zr-scn="${i}">${esc(s.tag)}</button>`).join('');
@@ -5764,7 +5764,7 @@ function zrLog(sts, title, detail) {
   el.scrollTop = el.scrollHeight;
 }
 function zrBusy(on) { ['zr-arm', 'zr-fix', 'zr-go'].forEach(id => { $(id).disabled = on; }); }
-/** 파이프라인 노드 — 수집 → 정제/분석(STT) → 전사 보존 → 제논 전송(청크) → 정리. */
+/** 파이프라인 노드 — 수집 → 정제/분석(STT) → 전사 보존 → 에이전트 커넥터 전송(청크) → 정리. */
 function zrFlow(d, phase) {
   const st = (k) => {
     if (!d) return ['', '대기'];
@@ -5781,7 +5781,7 @@ function zrFlow(d, phase) {
     return t.delivered ? ['part', `${t.delivered}건 정리`] : ['', '없음'];
   };
   const nodes = [['COLLECT', '수집', 'COLLECT'], ['ANALYZE', '정제/분석', 'ANALYZE · STT'], ['KEEP', '전사 보존', 'stt_temp'],
-                 ['SEND', '제논 전송', 'SEND · 청크'], ['PURGE', '정리', 'Purge']];
+                 ['SEND', '에이전트 커넥터 전송', 'SEND · 청크'], ['PURGE', '정리', 'Purge']];
   $('zr-flow').innerHTML = nodes.map(([k, t, s], i) => {
     const [c, txt] = st(k);
     return `${i ? '<span class="ar">→</span>' : ''}<span class="zr-node ${c}"><b>${esc(t)}</b><span class="hint">${esc(s)}</span><span class="sts">${esc(txt)}</span></span>`;
@@ -5818,7 +5818,7 @@ function zrItems(items) {
 function zrBadges(d) {
   const b = [];
   if (d.execStsCd) b.push(`<span class="badge ${d.execStsCd === 'SUCCESS' ? 'text-bg-success' : d.execStsCd === 'FAIL' ? 'text-bg-danger' : 'text-bg-warning'}">T1 ${esc(d.execStsCd)}</span>`);
-  if (d.fault) b.push(`<span class="badge ${d.fault.mode === 'UP' ? 'text-bg-success' : 'text-bg-danger'}">제논 ${esc(d.fault.label)}</span>`);
+  if (d.fault) b.push(`<span class="badge ${d.fault.mode === 'UP' ? 'text-bg-success' : 'text-bg-danger'}">에이전트 커넥터 ${esc(d.fault.label)}</span>`);
   $('zr-badges').innerHTML = b.join('');
 }
 async function zrArm() {
@@ -5828,9 +5828,9 @@ async function zrArm() {
   const date = $('zr-date').value;
   $('zr-log').innerHTML = '';
   zrBusy(true);
-  zrLog('RUN', s.arm, `더미 생성(${isReal() ? 'DMY · 대시보드용' : 'SIM · 시뮬레이터용'} · 접견 ${per} · 전화 ${per}) → 제논 장애 → 청크 ${chunk}건 → 배치 실행(test=${testParam()})`);
+  zrLog('RUN', s.arm, `더미 생성(${isReal() ? 'DMY · 대시보드용' : 'SIM · 시뮬레이터용'} · 접견 ${per} · 전화 ${per}) → 에이전트 커넥터 장애 → 청크 ${chunk}건 → 배치 실행(test=${testParam()})`);
   try {
-    const info = await callFull('POST', `/api/v1/mock/zenon/sim/reprocess/arm?scenario=${s.api}&target=${runTarget()}&perType=${per}&chunkRecords=${chunk}`
+    const info = await callFull('POST', `/api/v1/mock/agent-connector/sim/reprocess/arm?scenario=${s.api}&target=${runTarget()}&perType=${per}&chunkRecords=${chunk}`
         + (date ? `&targetDate=${date}` : ''), `[⑦ 전송 재처리] ${s.arm}`);
     $('zr-log').innerHTML = '';
     if (!info.ok) { zrLog('FAIL', '오류 상황 재현 실패', esc(info.body?.message || info.error || ('HTTP ' + info.status))); return; }
@@ -5840,7 +5840,7 @@ async function zrArm() {
     zrLog('OK', 'EXEC_ID 채번', `로그 컬렉터가 배치를 채번했습니다 → <code>${esc(d.execId)}</code> (${/UNS/.test(d.execId || '') ? '실제 배치 UNS — 대시보드에 나옵니다' : '시험 실행 TST'})`);
     zrLog(d.execStsCd === 'SUCCESS' ? 'OK' : 'FAIL', `1차 실행 — T1 ${d.execStsCd || '?'}`, esc(d.summary || ''));
     const t = d.transfer || {};
-    zrLog(t.failed ? 'FAIL' : 'OK', `제논 전송 — 청크 ${t.chunkCount ?? 0}개 · ${t.delivered ?? 0}건 받아들여짐 · ${t.failed ?? 0}건 실패`,
+    zrLog(t.failed ? 'FAIL' : 'OK', `에이전트 커넥터 전송 — 청크 ${t.chunkCount ?? 0}개 · ${t.delivered ?? 0}건 받아들여짐 · ${t.failed ?? 0}건 실패`,
       esc((t.chunks || []).map(c => `seq ${c.seq} ${c.result}${c.status ? '(' + c.status + ')' : ''}`).join(' · ')));
     zrLog('INFO', '다음', esc(d.next || ''));
     zrBadges(d); zrFlow(d, 'arm'); zrChunks(d, 'arm'); zrLedger(d.ledger, '수신 장부'); zrItems(d.items);
@@ -5853,9 +5853,9 @@ async function zrArm() {
 async function zrFix() {
   zrBusy(true);
   try {
-    const info = await callFull('POST', '/api/v1/mock/zenon/sim/reprocess/fix', '[⑦ 전송 재처리] ② 제논 정상화');
+    const info = await callFull('POST', '/api/v1/mock/agent-connector/sim/reprocess/fix', '[⑦ 전송 재처리] ② 에이전트 커넥터 정상화');
     if (!info.ok) { zrLog('FAIL', '정상화 실패', esc(info.body?.message || info.error || '')); return; }
-    zrLog('OK', '② 제논 정상화 — 수신기 200 OK', esc(info.body.message || ''));
+    zrLog('OK', '② 에이전트 커넥터 정상화 — 수신기 200 OK', esc(info.body.message || ''));
     zrBadges({ execStsCd: null, fault: info.body.fault });
   } finally { zrBusy(false); ztLedgers(); }
 }
@@ -5864,12 +5864,12 @@ async function zrGo() {
   zrBusy(true);
   zrLog('RUN', '③ 긴급 재처리', `admin 과 같은 경로 — POST /internal/batch/reprocess {execId:${esc(ZR_EXEC)}, dataTypeCd:UNSTRUCTURED, stepTypeCd:SEND, stepSeq:3} · 끝날 때까지 기다립니다`);
   try {
-    const info = await callFull('POST', `/api/v1/mock/zenon/sim/reprocess/run?execId=${encodeURIComponent(ZR_EXEC)}&stepTypeCd=SEND`, '[⑦ 전송 재처리] ③ 긴급 재처리');
+    const info = await callFull('POST', `/api/v1/mock/agent-connector/sim/reprocess/run?execId=${encodeURIComponent(ZR_EXEC)}&stepTypeCd=SEND`, '[⑦ 전송 재처리] ③ 긴급 재처리');
     if (!info.ok) { zrLog('FAIL', '긴급 재처리 실패', esc(info.body?.message || info.error || ('HTTP ' + info.status))); return; }
     const d = info.body;
     const t = d.transfer || {};
     zrLog(d.execStsCd === 'SUCCESS' || (!t.failed && t.delivered) ? 'OK' : 'FAIL', `재처리 실행 ${d.execId} — T1 ${d.execStsCd || '?'} · resume ${d.resume}`, esc(d.path || ''));
-    zrLog(t.failed ? 'FAIL' : 'OK', `제논 전송 — 런 ${t.runId || '-'}${t.continued ? ' (원배치 런 이어달리기)' : ''} · seq ${t.fromSeq ?? '-'}부터 ${t.chunkCount ?? 0}청크 · ${t.delivered ?? 0}건 전송`,
+    zrLog(t.failed ? 'FAIL' : 'OK', `에이전트 커넥터 전송 — 런 ${t.runId || '-'}${t.continued ? ' (원배치 런 이어달리기)' : ''} · seq ${t.fromSeq ?? '-'}부터 ${t.chunkCount ?? 0}청크 · ${t.delivered ?? 0}건 전송`,
       esc((t.chunks || []).map(c => `seq ${c.seq} ${c.result}`).join(' · ')));
     const led = d.originLedger || d.ledger;
     if (led) zrLog(led.complete ? 'OK' : 'FAIL', `수신 장부 — ${led.state}`, esc(led.message || ''));
@@ -5879,11 +5879,11 @@ async function zrGo() {
   } finally { zrBusy(false); ztLedgers(); }
 }
 async function zrReset(quiet) {
-  await call('POST', '/api/v1/mock/zenon/sim/reprocess/reset', quiet ? '' : '[⑦ 전송 재처리] 상태 초기화', quiet);
+  await call('POST', '/api/v1/mock/agent-connector/sim/reprocess/reset', quiet ? '' : '[⑦ 전송 재처리] 상태 초기화', quiet);
   ZR_EXEC = null;
   $('zr-exec').value = '';
   ['zr-badges', 'zr-chunks', 'zr-ledger', 'zr-items', 'zr-resume'].forEach(id => { $(id).innerHTML = ''; });
-  $('zr-log').innerHTML = '<div class="hint">초기화했습니다 — 제논 정상 · 청크 레코드 수 설정값. ① 오류 상황 재현을 누르면 새 EXEC_ID 로 시작합니다.</div>';
+  $('zr-log').innerHTML = '<div class="hint">초기화했습니다 — 에이전트 커넥터 정상 · 청크 레코드 수 설정값. ① 오류 상황 재현을 누르면 새 EXEC_ID 로 시작합니다.</div>';
   zrFlow(null, null);
   ztLedgers();
 }
@@ -5897,7 +5897,7 @@ $('zt-copy').onclick = () => navigator.clipboard?.writeText($('zt-template').tex
   $('zt-copy').textContent = '복사됨'; setTimeout(() => { $('zt-copy').textContent = '양식 복사'; }, 1200);
 });
 $('zt-reload').onclick = () => { ZT_TPL = null; ztLoadTemplate(); };
-$('zt-sweep').onclick = async () => { await call('POST', '/api/v1/mock/zenon/sweep?idleSec=0', '유실 판정 스윕(즉시)'); ztLedgers(); };
+$('zt-sweep').onclick = async () => { await call('POST', '/api/v1/mock/agent-connector/sweep?idleSec=0', '유실 판정 스윕(즉시)'); ztLedgers(); };
 $('zt-led-refresh').onclick = ztLedgers;
 $('zr-arm').onclick = zrArm;
 $('zr-fix').onclick = zrFix;
@@ -5905,7 +5905,7 @@ $('zr-go').onclick = zrGo;
 $('zr-reset').onclick = () => zrReset(false);
 
 log('시뮬레이터 준비 완료. [시뮬레이션 데이터 생성] 창에서 용도(SIM/DMY) · 유형 · 건수 · 장애를 골라 만들거나, 2번 탭 고정 14건(접견 7·전화 7)은 창 아래 [예전 Clean & Seed] → [처리 대상 미리보기] → [전체 실행] 순서를 권합니다.', 'hd');
-log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 XVARM·브로커를 타지 않습니다. 파이프라인은 [수집] → [정제/분석] → [적재/전송(제논)] 3단계이고, STT 결과는 PV 에 남기지 않고 제논(Zenon)으로 보냅니다 — [제논 전송 확인] 으로 수신증을 봅니다.', 'hd');
+log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 XVARM·브로커를 타지 않습니다. 파이프라인은 [수집] → [정제/분석] → [적재/전송(에이전트 커넥터)] 3단계이고, STT 결과는 PV 에 남기지 않고 에이전트 커넥터(bypass → 제논)로 보냅니다 — [에이전트 커넥터 전송 확인] 으로 수신증을 봅니다.', 'hd');
 (async () => {
   await detectApiBase();
   await loadConfig();

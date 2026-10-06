@@ -25,14 +25,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.GZIPInputStream;
 
 /**
- * <b>제논 수신기 흉내(MOCK)</b> — 실제 제논이 붙기 전까지 전송 규약을 끝까지 검증하는 수신단.
+ * <b>에이전트 커넥터 bypass 수신기 흉내(MOCK)</b> — 커넥터 없이도(로컬 · 시연) 전송 규약을 끝까지 검증하는 수신단.
  *
  * <p>에이전트 커넥터 {@code LearnTransferController}(학습셋 수신 → 제논 bypass)의 동작을 그대로 옮기고, 커넥터 시뮬레이터
- * '수신 헤더 6종 · 네트워크 예외 시나리오' 의 장부(유실 판정)를 붙였다.</p>
+ * '수신 헤더 6종 · 네트워크 예외 시나리오' 의 장부(유실 판정)를 붙였다. 실제 bypass API 가 하는 검사는 헤더 누락(400) · 멱등(200 duplicate)
+ * 둘이다 — 본문을 풀지도 저장하지도 않는다. 아래의 해제 상한 · 본문 대조 · 마감 · 유실 판정은 송신단을 더 엄하게 확인하려고 이 흉내에만 있다.</p>
  * <ul>
  *   <li><b>멱등</b> — (X-Run-Id + X-Seq) 이미 받은 청크는 본문을 소비만 하고 200 + {@code duplicate:true}</li>
  *   <li><b>헤더 누락</b> — {@code X-Run-Id} · {@code X-Seq} 가 없으면 400</li>
- *   <li><b>해제 상한</b> — gzip 을 풀며 {@code zenon.mock-max-decompressed-bytes} 를 넘으면 413(압축 폭탄 방어)</li>
+ *   <li><b>해제 상한</b> — gzip 을 풀며 {@code agent-connector.mock-max-decompressed-bytes} 를 넘으면 413(압축 폭탄 방어)</li>
  *   <li><b>본문 검증</b> — JSON 을 흘려 읽으며(통째로 올리지 않는다) {@code header.runId} = X-Run-Id ·
  *       {@code payload} 건수 = X-Chunk-Cnt(이 청크의 레코드 수 — data-collector 규약) 를 대조, 어긋나면 400</li>
  *   <li><b>마감</b> — {@code X-Is-Last} 를 받았고 1 ~ 마지막 순번이 다 있고 레코드 합이 {@code X-Target-Cnt} 와 같으면 COMPLETE</li>
@@ -40,13 +41,13 @@ import java.util.zip.GZIPInputStream;
  *   <li><b>장애 흉내</b> — {@link #setFault}: DOWN(전부 503) · FAIL_FROM_SEQ(그 순번부터 503). 전송 재처리 시나리오가 쓴다</li>
  * </ul>
  *
- * <p>MOCK 모드에서는 {@link ZenonClient} 가 네트워크 없이 이 객체를 직접 부르고(본문 바이트 · 헤더는 REST 와 같다),
- * dev · local 에서는 {@code POST /api/v1/mock/zenon/transfer} 로도 열려 있어 REST 모드 · curl · 전송 시뮬레이션이 같은 수신단을 쓴다.
+ * <p>MOCK 모드에서는 {@link AgentConnectorClient} 가 네트워크 없이 이 객체를 직접 부르고(본문 바이트 · 헤더는 REST 와 같다),
+ * dev · local 에서는 {@code POST /api/v1/mock/agent-connector/transfer} 로도 열려 있어 REST 모드 · curl · 전송 시뮬레이션이 같은 수신단을 쓴다.
  * 본문은 저장하지 않는다 — 장부(순번 · 건수 · 바이트)와 앞 몇 건의 요약만 남는다.</p>
  */
 @Log4j2
 @Component
-public class ZenonMockReceiver {
+public class AgentConnectorMockReceiver {
 
     /** 장애 흉내. */
     public enum FaultMode { UP, DOWN, FAIL_FROM_SEQ }
@@ -63,7 +64,7 @@ public class ZenonMockReceiver {
     /** 장부에 남기는 런 수 — 넘으면 오래된 것부터 버린다. */
     private static final int MAX_RUNS = 300;
 
-    private final ZenonProperties props;
+    private final AgentConnectorProperties props;
     private final ObjectMapper objectMapper;
     private final JsonFactory jsonFactory;
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
@@ -74,7 +75,7 @@ public class ZenonMockReceiver {
     private final AtomicLong faultRejected = new AtomicLong();
     private final AtomicLong totalChunks = new AtomicLong();
 
-    public ZenonMockReceiver(ZenonProperties props, ObjectMapper objectMapper) {
+    public AgentConnectorMockReceiver(AgentConnectorProperties props, ObjectMapper objectMapper) {
         this.props = props;
         this.objectMapper = objectMapper;
         this.jsonFactory = objectMapper.getFactory();
@@ -124,8 +125,8 @@ public class ZenonMockReceiver {
                 r.rejected.add(seq);
                 r.lastSeenAt = LocalDateTime.now().withNano(0);
             }
-            log.warn("[ZenonMock] 장애 흉내 503 — runId={} seq={} ({})", runId, seq, faultLabel());
-            return reject(503, "UNAVAILABLE", "(MOCK) 제논 수신 장애 — " + faultLabel() + " · seq " + seq);
+            log.warn("[TransferMock] 장애 흉내 503 — runId={} seq={} ({})", runId, seq, faultLabel());
+            return reject(503, "UNAVAILABLE", "(MOCK) 에이전트 커넥터 수신 장애 — " + faultLabel() + " · seq " + seq);
         }
 
         // 중복 확인은 있는 장부로만 — 거절(400 · 413)로 끝날 요청이 빈 장부를 만들지 않게 장부는 받아들일 때 연다
@@ -136,7 +137,7 @@ public class ZenonMockReceiver {
                     long bytes = drainQuietly(body);
                     seen.duplicates++;
                     seen.lastSeenAt = LocalDateTime.now().withNano(0);
-                    log.info("[ZenonMock] 중복 청크(멱등) runId={} seq={} bytes={}", runId, seq, bytes);
+                    log.info("[TransferMock] 중복 청크(멱등) runId={} seq={} bytes={}", runId, seq, bytes);
                     return new Ack(200, ackBody(seen, seq, last, true, bytes, 0L, 0));
                 }
             }
@@ -155,7 +156,7 @@ public class ZenonMockReceiver {
                 drainQuietly(body);
                 return reject(400, "BAD_BODY", "본문을 읽지 못함 — " + e.getClass().getSimpleName() + ": " + e.getMessage());
             }
-            log.warn("[ZenonMock] 해제 상한 초과 413 — runId={} seq={} 상한 {}MB", runId, seq,
+            log.warn("[TransferMock] 해제 상한 초과 413 — runId={} seq={} 상한 {}MB", runId, seq,
                     props.mockMaxDecompressedBytes() / (1024 * 1024));
             return reject(413, "PAYLOAD_TOO_LARGE", "해제 상한 " + props.mockMaxDecompressedBytes() / (1024 * 1024)
                     + "MB 초과 — 청크를 더 잘게 나눠 보내세요(권장 50MB)");
@@ -201,7 +202,7 @@ public class ZenonMockReceiver {
             } else {
                 r.duplicates++;
             }
-            log.info("[ZenonMock] 청크 수신 runId={} seq={} last={} 레코드 {} · 압축 {}B → 해제 {}B · {}", runId, seq, last,
+            log.info("[TransferMock] 청크 수신 runId={} seq={} last={} 레코드 {} · 압축 {}B → 해제 {}B · {}", runId, seq, last,
                     p.records, wire.count, p.rawBytes, r.state);
             return new Ack(200, ackBody(r, seq, last, duplicate, wire.count, p.rawBytes, p.records));
         }
@@ -437,7 +438,7 @@ public class ZenonMockReceiver {
                     r.state = "INGEST-GAP";
                     r.gapAt = LocalDateTime.now().withNano(0).toString();
                     swept.add(r.runId);
-                    log.warn("[ZenonMock] 유실 판정 INGEST-GAP — runId={} 빈 순번 {} · 마지막 {}", r.runId, r.missingSeqs(),
+                    log.warn("[TransferMock] 유실 판정 INGEST-GAP — runId={} 빈 순번 {} · 마지막 {}", r.runId, r.missingSeqs(),
                             r.lastSeq < 0 ? "미수신" : r.lastSeq);
                 }
             }
@@ -450,9 +451,9 @@ public class ZenonMockReceiver {
         return m;
     }
 
-    @Scheduled(fixedDelayString = "${zenon.mock-sweep-ms:30000}", initialDelayString = "${zenon.mock-sweep-ms:30000}")
+    @Scheduled(fixedDelayString = "${agent-connector.mock-sweep-ms:30000}", initialDelayString = "${agent-connector.mock-sweep-ms:30000}")
     void scheduledSweep() {
-        if (props.mode() == ZenonProperties.Mode.MOCK && !runs.isEmpty()) {
+        if (props.mode() == AgentConnectorProperties.Mode.MOCK && !runs.isEmpty()) {
             sweep(props.mockGapTimeoutSec());
         }
     }
@@ -477,7 +478,7 @@ public class ZenonMockReceiver {
         this.faultMode = mode == null ? FaultMode.UP : mode;
         this.failFromSeq = this.faultMode == FaultMode.FAIL_FROM_SEQ ? Math.max(1, fromSeq) : 0;
         this.faultSetAt = LocalDateTime.now().withNano(0).toString();
-        log.warn("[ZenonMock] 장애 설정 — {}", faultLabel());
+        log.warn("[TransferMock] 장애 설정 — {}", faultLabel());
         return fault();
     }
 

@@ -1,5 +1,5 @@
 # 테스트 전용 — 운영 설정(src/main/resources/application.yml)에 겹쳐 얹힌다(classpath:/config/ 가 우선).
 #
-# 제논 전송은 MOCK — 테스트에서 네트워크로 나가지 않는다(수집기 안에서 수신증만 만든다).
-zenon:
+# 에이전트 커넥터 전송은 MOCK — 테스트에서 네트워크로 나가지 않는다(수집기 안에서 수신증만 만든다).
+agent-connector:
   mode: MOCK

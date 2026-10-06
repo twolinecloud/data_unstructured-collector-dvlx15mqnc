@@ -685,7 +685,7 @@ public class SimulationDataService {
      * 경로를 컬럼 길이에 맞춘다 — 넘치면 <b>뒤쪽</b>(폴더 이름이 보이는 쪽)만 남기고 앞에 {@code …} 를 붙인다.
      *
      * <p>데이터 루트가 깊으면(예: 사용자 임시 폴더 아래) 접견 원본 폴더 경로가 100자를 넘어 시딩 INSERT 가 통째로 실패했다
-     * (2026-10-02 로컬 검증). 이 컬럼은 이력(T4 FILE_PATH) · 제논 메타에 적히는 표시용이고, 파이프라인은 파일을
+     * (2026-10-02 로컬 검증). 이 컬럼은 이력(T4 FILE_PATH) · 전송 메타에 적히는 표시용이고, 파이프라인은 파일을
      * XVARM {@code FILEKEY}(1000자)와 수신 폴더로 찾으므로 잘라도 동작은 같다.</p>
      */
     public static String fitPath(String path, int max) {

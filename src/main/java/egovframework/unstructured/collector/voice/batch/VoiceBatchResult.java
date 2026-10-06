@@ -13,11 +13,11 @@ import java.util.Map;
  * @param execIdFromCollector EXEC_ID 를 컬렉터가 채번했는가(T1 이 실제로 열렸는가). false 면 이력이 남지 않은 것이다
  * @param window              처리한 시간창
  * @param targetCnt           조회된 대상 수
- * @param successCnt          STT·제논 전송까지 성공한 수
+ * @param successCnt          STT·에이전트 커넥터 전송까지 성공한 수
  * @param failCnt             실패 수
  * @param skippedCnt          이미 처리되어 건너뛴 수(멱등)
  * @param elapsedMs           소요 시간
- * @param zenon               STT 결과를 보낸 곳 — {@code mode}(MOCK·REST) · {@code endpoint} · {@code sent}(보낸 건수).
+ * @param transfer               STT 결과를 보낸 곳 — {@code mode}(MOCK·REST) · {@code endpoint} · {@code sent}(보낸 건수).
  *                            결과는 PV 에 남기지 않는다(2026-10-01, 예전 {@code outputDirs} 자리)
  * @param steps               로그 컬렉터에 남긴 T2 단계 기록(COLLECT · ANALYZE · SEND)
  * @param outcomes            파일별 결과(= T4 행)
@@ -32,7 +32,7 @@ public record VoiceBatchResult(
         int failCnt,
         int skippedCnt,
         long elapsedMs,
-        Map<String, String> zenon,
+        Map<String, String> transfer,
         List<StepLog> steps,
         List<FileProcOutcome> outcomes,
         boolean canceled
@@ -41,10 +41,10 @@ public record VoiceBatchResult(
     /** 중단이 아닌 보통의 배치 — 기존 호출부를 그대로 둔다. */
     public VoiceBatchResult(String execId, boolean execIdFromCollector, String window,
                             int targetCnt, int successCnt, int failCnt, int skippedCnt,
-                            long elapsedMs, Map<String, String> zenon,
+                            long elapsedMs, Map<String, String> transfer,
                             List<StepLog> steps, List<FileProcOutcome> outcomes) {
         this(execId, execIdFromCollector, window, targetCnt, successCnt, failCnt, skippedCnt,
-                elapsedMs, zenon, steps, outcomes, false);
+                elapsedMs, transfer, steps, outcomes, false);
     }
 
     /**
@@ -111,8 +111,8 @@ public record VoiceBatchResult(
     }
 
     public String summary() {
-        return "execId=%s %s 대상%d 성공%d 실패%d 건너뜀%d (%.1f초) · 제논 %s"
+        return "execId=%s %s 대상%d 성공%d 실패%d 건너뜀%d (%.1f초) · 전송 %s"
                 .formatted(execId, window, targetCnt, successCnt, failCnt, skippedCnt,
-                        elapsedMs / 1000.0, zenon == null ? "-" : zenon);
+                        elapsedMs / 1000.0, transfer == null ? "-" : transfer);
     }
 }

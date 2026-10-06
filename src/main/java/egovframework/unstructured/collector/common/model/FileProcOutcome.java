@@ -9,11 +9,11 @@ package egovframework.unstructured.collector.common.model;
  * @param target     대상
  * @param status     결과
  * @param errMsg     실패 사유(성공 시 null). PII 가 섞이지 않도록 원문을 넣지 않는다.
- * @param failedStep 실패한 단계(C05) — {@code COLLECT}(파일 확보·복호화) / {@code ANALYZE}(STT) / {@code SEND}(제논 전송). 성공·건너뜀이면 null.
+ * @param failedStep 실패한 단계(C05) — {@code COLLECT}(파일 확보·복호화) / {@code ANALYZE}(STT) / {@code SEND}(에이전트 커넥터 전송). 성공·건너뜀이면 null.
  *                   T2 단계별 건수(in/out/err)를 나누는 근거다.
  * @param fileSize   처리한 파일 크기(byte)
  * @param sttChars   STT 결과 글자 수
- * @param sttPath    STT 결과를 보낸 곳({@code zenon:…/{건ID}.json}). 성공 건만 값이 있다 — PV 에는 남기지 않는다.
+ * @param sttPath    STT 결과를 보낸 곳({@code agent-connector:…/{건ID}.json}). 성공 건만 값이 있다 — PV 에는 남기지 않는다.
  * @param elapsedMs  소요 시간
  */
 public record FileProcOutcome(
@@ -32,7 +32,7 @@ public record FileProcOutcome(
     /** 정제/분석(STT) — {@link StepType#ANALYZE}. */
     public static final String STEP_ANALYZE = "ANALYZE";
     /**
-     * 적재/전송 — STT 결과를 제논(Zenon) 수신 API 로 보내고 그 건의 임시 파일을 지운다. {@link StepType#SEND}.
+     * 적재/전송 — STT 결과를 에이전트 커넥터 bypass API 로 보내고 그 건의 임시 파일을 지운다. {@link StepType#SEND}.
      *
      * <p>비정형 T2 체인(COLLECT 1 · ANALYZE 2 · SEND 3)의 마지막 칸이다. PV 에는 결과를 남기지 않는다.</p>
      */

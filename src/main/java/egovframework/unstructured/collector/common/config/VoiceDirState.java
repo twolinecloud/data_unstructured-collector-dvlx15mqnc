@@ -24,8 +24,8 @@ import java.util.Map;
  *   work               {ROOT}/xvram/decoding               XVARM 접견 복호화 (작업 · 멱등 표식)
  * </pre>
  *
- * <p>최종 결과 폴더({@code xenon/meet|phone})는 2026-10-01 없앴다 — STT 결과는 PV 에 남기지 않고 제논(Zenon)
- * 수신 API 로 바로 보낸다({@code SEND}).</p>
+ * <p>최종 결과 폴더({@code xenon/meet|phone})는 2026-10-01 없앴다 — STT 결과는 PV 에 남기지 않고 에이전트 커넥터
+ * bypass API 로 보낸다({@code SEND} — 커넥터가 제논으로 중계).</p>
  *
  * <p>{@link VoiceModeState} 와 같은 이유로 런타임에 둔다. 로컬에서는 브로커가 떨구는 폴더에,
  * 개발계에서는 PV 마운트 지점에 맞춰야 하는데, 경로가 어긋나면 배치는 "추출 완료" 뒤 빈 폴더를 보며
@@ -68,7 +68,7 @@ public class VoiceDirState {
         this.receiveMeet = c.get("receiveMeet");
         this.receivePhone = c.get("receivePhone");
         this.work = c.get("work");
-        log.info("[Dirs] ROOT_DIR={} · XVARM원본={} · 수신(접견={} 전화={}) · 복호화={} · 결과는 PV 에 남기지 않음(제논 전송)",
+        log.info("[Dirs] ROOT_DIR={} · XVARM원본={} · 수신(접견={} 전화={}) · 복호화={} · 결과는 PV 에 남기지 않음(에이전트 커넥터 전송)",
                 baseDir, xvarmOriginal, receiveMeet, receivePhone, work);
         ensureDirs();
     }

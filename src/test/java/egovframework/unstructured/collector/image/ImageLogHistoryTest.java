@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 수용자 이미지 처리 이력 — 로그 컬렉터 <b>T1 · T2 · T4</b> 적재(비정형 3단계 C05: COLLECT · ANALYZE · SEND).
  *
  * <p>진짜 로그 컬렉터는 PostgreSQL 전용이라 {@link FakeLogCollector}(실제 HTTP · H2 표)를 띄워 수집기가 보낸 그대로 받는다.
- * 로컬 H2(보라미 · Admin) · 브로커/전화/STT/제논 MOCK · 복호화 REAL(테스트 키). 외부 주소는 테스트 속성으로 못 박는다
+ * 로컬 H2(보라미 · Admin) · 브로커/전화/STT/에이전트 커넥터 MOCK · 복호화 REAL(테스트 키). 외부 주소는 테스트 속성으로 못 박는다
  * (Jenkins 는 dev 프로파일로 테스트한다).</p>
  */
 @SpringBootTest(properties = {
@@ -52,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "voice.phone.mode=MOCK",
         "voice.stt.mode=MOCK",
         "voice.decrypt.mode=REAL",
-        "zenon.mode=MOCK",
+        "agent-connector.mode=MOCK",
         "log-collector.enabled=true",
         "unstructured.admin.base-url=",
         "voice.batch.schedule-enabled=false",

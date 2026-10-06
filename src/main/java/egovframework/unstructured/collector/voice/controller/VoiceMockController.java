@@ -64,7 +64,7 @@ public class VoiceMockController {
     private final MockDatasetState dataset;
     private final FaultInjector faultInjector;
     private final VoiceDirState dirs;
-    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private final egovframework.unstructured.collector.common.transfer.AgentConnectorClient connector;
     /**
      * 수용자 이미지 SIM 정리 — [시뮬레이션 데이터 초기화] 가 6번 탭 [SIM 데이터 정리] 와 같은 API 를 부른다.
      * 늦게 꺼낸다: 이미지 검증 → 음성 성능 시험 → 이 컨트롤러로 이어지는 순환을 끊는다.
@@ -198,7 +198,7 @@ public class VoiceMockController {
                        연쇄 삭제합니다. 삭제 SQL 에 작업코드 조건이 박혀 있어 운영 배치는
                        어떤 경우에도 걸리지 않습니다.
                     2. **로컬 산출물** — 멱등 표식·수신 파일·작업 파일·**재처리 보존물**(`{ROOT}/stt_temp/**` 전사 · `{ROOT}/xvram/decoding/decrypted_*` 복호화 오디오)
-                    3. **제논 수신증** — 시험 배치(EXEC_ID 에 `TST`)가 제논에 보낸 수신증(수집기 메모리). STT 결과는 PV 에 남기지 않는다
+                    3. **전송 수신증** — 시험 배치(EXEC_ID 에 `TST`)가 에이전트 커넥터에 보낸 수신증(수집기 메모리). STT 결과는 PV 에 남기지 않는다
                     4. **시뮬레이션 데이터** — 음성: DB 의 SIM 접두 메타 행 일괄 DELETE + XVARM 원본 더미 파일 삭제 (= `DELETE /sim-data`)
                        · 수용자 이미지: 6번 탭 [SIM 데이터 정리] 와 같은 정리 (= `DELETE /api/v1/mock/image/sim` — 보라미 SIMIMG… 행 ·
                        Admin 매핑 `tb_src_inmate_photo` · 더미 원본 · `/k8s/unstructured_collector/image` 저장 사진). 응답의 `imageSim`
@@ -219,9 +219,9 @@ public class VoiceMockController {
             out.put("logCollector", logs);
         }
 
-        // ② 로컬 산출물 — 결과는 PV 에 남기지 않으므로(제논 전송) 시험 배치의 제논 수신증(메모리)만 비운다
+        // ② 로컬 산출물 — 결과는 PV 에 남기지 않으므로(에이전트 커넥터 전송) 시험 배치의 전송 수신증(메모리)만 비운다
         Map<String, Object> local = clearLocalFiles();
-        local.put("zenonReceipts", zenon.clearTestReceipts());
+        local.put("transferReceipts", connector.clearTestReceipts());
         out.put("local", local);
         dataset.reset();
         // ③ 음성 시뮬레이션 데이터 (DB 메타 SIM 행 + 더미 파일) — 만들지는 않는다
@@ -232,7 +232,7 @@ public class VoiceMockController {
                 egovframework.unstructured.collector.mock.DummyTarget.SIMULATOR::ownsScenarioKey));
 
         out.put("testJobId", props.batch().testJobId());
-        out.put("message", "시뮬레이션 데이터 초기화 완료 — 테스트(TST) 이력·제논 수신증·음성/이미지 SIM(DB 행·더미·저장 사진)을 지웠습니다. 운영 배치(UNS/STR/PUB/LAW)는 건드리지 않았습니다");
+        out.put("message", "시뮬레이션 데이터 초기화 완료 — 테스트(TST) 이력·전송 수신증·음성/이미지 SIM(DB 행·더미·저장 사진)을 지웠습니다. 운영 배치(UNS/STR/PUB/LAW)는 건드리지 않았습니다");
         log.info("[Mock] 테스트 데이터 초기화 — 컬렉터={} 로컬={}", out.get("logCollector"), local);
         return out;
     }
@@ -282,22 +282,22 @@ public class VoiceMockController {
         return out;
     }
 
-    @Operation(summary = "제논 전송 확인 (수신증)",
+    @Operation(summary = "에이전트 커넥터 전송 확인 (수신증)",
             description = """
-                    한 배치가 제논(Zenon)에 보낸 수신증을 돌려줍니다 — 메타데이터와 전사 미리보기(앞 200자).
+                    한 배치가 에이전트 커넥터에 보낸 수신증을 돌려줍니다 — 메타데이터와 전사 미리보기(앞 200자).
 
-                    STT 결과는 PV 에 남기지 않습니다(2026-10-01). 수신증은 수집기 메모리에 최근 `zenon.keep-receipts` 개만
-                    남으므로 재기동하면 비어 있습니다. REST 모드에서 실제로 받은 파일은 제논(목 서버면 `./mock_received_files/`)에 있습니다.
+                    STT 결과는 PV 에 남기지 않습니다(2026-10-01). 수신증은 수집기 메모리에 최근 `agent-connector.keep-receipts` 개만
+                    남으므로 재기동하면 비어 있습니다. REST 모드에서 실제로 받은 쪽은 에이전트 커넥터(목 서버면 `./mock_received_files/`)에 있습니다.
                     """)
-    @GetMapping("/zenon/receipts")
-    public Map<String, Object> zenonReceipts(@RequestParam(required = false) String execId,
+    @GetMapping({"/agent-connector/receipts", "/zenon/receipts"})   // 옛 경로는 시뮬레이터 사본 호환 별칭
+    public Map<String, Object> transferReceipts(@RequestParam(required = false) String execId,
                                              @RequestParam(required = false) List<VoiceKind> kinds) {
-        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> all = zenon.receipts(execId);
-        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> rows = all.stream()
+        List<egovframework.unstructured.collector.common.transfer.AgentConnectorClient.Receipt> all = connector.receipts(execId);
+        List<egovframework.unstructured.collector.common.transfer.AgentConnectorClient.Receipt> rows = all.stream()
                 .filter(r -> kinds == null || kinds.isEmpty() || r.metadata() == null
                         || kinds.stream().anyMatch(k -> k.name().equals(String.valueOf(r.metadata().get("kind")))))
                 .toList();
-        Map<String, Object> out = new LinkedHashMap<>(zenon.status());
+        Map<String, Object> out = new LinkedHashMap<>(connector.status());
         out.put("execId", execId);
         out.put("total", rows.size());
         out.put("receipts", rows);
@@ -320,7 +320,7 @@ public class VoiceMockController {
     // ══════════════════════════════════════════════════════════════════════
 
     @Operation(summary = "디렉터리 경로 조회",
-            description = "현재 경로 4종(XVARM 원본 / 수신 접견·전화 / 작업)과 기동 설정값, 프리셋을 돌려줍니다. 최종 결과 폴더(xenon)는 없습니다 — 제논 전송.")
+            description = "현재 경로 4종(XVARM 원본 / 수신 접견·전화 / 작업)과 기동 설정값, 프리셋을 돌려줍니다. 최종 결과 폴더(xenon)는 없습니다 — 에이전트 커넥터 전송.")
     @GetMapping("/dirs")
     public Map<String, Object> getDirs() {
         return dirsView();
@@ -336,7 +336,7 @@ public class VoiceMockController {
                       "work": "C:/k8s/voice_work" }
                     ```
 
-                    STT 결과는 PV 에 남기지 않고 제논(Zenon)으로 보냅니다.
+                    STT 결과는 PV 에 남기지 않고 에이전트 커넥터(bypass → 제논)로 보냅니다.
                     수신 폴더(`receiveMeet`)를 바꾸면 **로컬 브로커의 `BROKER_OUTPUT_DIR` 도 같은 곳**이어야
                     접견 배치가 파일을 찾습니다 — [브로커 연결 확인] 으로 대조하십시오.
                     변경은 이 프로세스에만 남고 재기동하면 설정값으로 돌아갑니다.
@@ -628,7 +628,7 @@ public class VoiceMockController {
      * 수신·작업 폴더 · 멱등 표식 · 재처리 보존물을 비우고 <b>지우지 못한 것까지</b> 결과에 담는다 — {@code stuckFiles} 가 비어 있지 않으면 초기화가 끝난 것이 아니다.
      *
      * <p><b>대시보드 더미(DMY)의 것은 남긴다</b> — 실제 배치가 처리한 건의 멱등 표식을 지우면 다음 실제 배치가 같은 건을 다시
-     * 처리해 제논 · 로그 이력이 중복된다. 이름 조건과 정리 본체는 {@link egovframework.unstructured.collector.mock.LocalArtifacts}.</p>
+     * 처리해 전송 · 로그 이력이 중복된다. 이름 조건과 정리 본체는 {@link egovframework.unstructured.collector.mock.LocalArtifacts}.</p>
      *
      * <p>성능 테스트가 매 회차 준비 단계에서도 부른다({@code PerfRunService}).</p>
      */

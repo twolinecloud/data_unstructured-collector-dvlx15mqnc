@@ -33,8 +33,8 @@ import java.util.stream.Stream;
  *       {@code …/file-procs} 로 <b>T4 단계별 이력</b>(파일마다 끝난 단계 {@code STEP_TYPE_CD}).
  *       이 서비스는 로그 DB 에 직접 붙지 않는다(적재도 조회도 컬렉터 API 로만). 클라우드 전송·비식별화가 빠져
  *       (2026-10-01) T5(비식별·전송 로그)는 더 남지 않는다.</li>
- *   <li><b>PV 파일</b> — 복호화 보존물·전사 보존물. 성공한 건은 제논 전송 뒤 지워지므로(Purge) 실패한 건만 남는다.</li>
- *   <li><b>제논</b> — 이 배치가 보낸 수신증(메모리).</li>
+ *   <li><b>PV 파일</b> — 복호화 보존물·전사 보존물. 성공한 건은 에이전트 커넥터 전송 뒤 지워지므로(Purge) 실패한 건만 남는다.</li>
+ *   <li><b>에이전트 커넥터</b> — 이 배치가 보낸 수신증(메모리).</li>
  *   <li><b>손으로 확인할 명령</b> — 위를 조회한 것과 같은 SQL 과 {@code ls}/{@code cat} 명령.
  *       화면 숫자를 믿지 못하겠으면 그대로 복사해 DB 툴·터미널에서 돌려 보면 된다.</li>
  * </ol>
@@ -58,7 +58,7 @@ public class VerificationService {
     private final LogCollectorClient logCollector;
     private final DeployEnvPreset deployEnv;
     private final SttTempStore sttTemp;
-    private final egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private final egovframework.unstructured.collector.common.transfer.AgentConnectorClient connector;
 
     public Map<String, Object> verify(String execId) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -66,7 +66,7 @@ public class VerificationService {
         out.put("env", deployEnv.kind().name());
         out.put("db", db(execId));
         out.put("files", files(execId));
-        out.put("zenon", zenon(execId));
+        out.put("transfer", connector(execId));
         out.put("sql", sql(execId));
         out.put("cli", cli(execId));
         return out;
@@ -243,16 +243,16 @@ public class VerificationService {
         Map<String, Object> m = new LinkedHashMap<>();
         // 복호화 보존물 — 실패한 건의 STT 직전 오디오(ANALYZE 재처리용). 같은 폴더의 다른 파일은 세지 않는다
         m.put("decoding", listing(Path.of(dirs.work()), "decrypted_"));
-        // 전사 보존물 — SEND(제논 전송) 재처리용. 배치 폴더 단위로 남는다
+        // 전사 보존물 — SEND(에이전트 커넥터 전송) 재처리용. 배치 폴더 단위로 남는다
         m.put("sttTemp", listing(sttTemp.dir(execId), null));
         m.put("sttTempAll", sttTemp.status());
         return m;
     }
 
-    /** 제논 수신증 — 이 배치가 보낸 것(메모리에 남은 만큼). 결과는 PV 에 남기지 않는다. */
-    private Map<String, Object> zenon(String execId) {
-        Map<String, Object> m = new LinkedHashMap<>(zenon.status());
-        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> r = zenon.receipts(execId);
+    /** 전송 수신증 — 이 배치가 보낸 것(메모리에 남은 만큼). 결과는 PV 에 남기지 않는다. */
+    private Map<String, Object> connector(String execId) {
+        Map<String, Object> m = new LinkedHashMap<>(connector.status());
+        List<egovframework.unstructured.collector.common.transfer.AgentConnectorClient.Receipt> r = connector.receipts(execId);
         Map<String, Long> byKind = new LinkedHashMap<>();
         for (var one : r) {
             Object k = one.metadata() == null ? null : one.metadata().get("kind");
@@ -352,13 +352,13 @@ public class VerificationService {
         List<Map<String, String>> l = new ArrayList<>();
         l.add(cmd("복호화 보존물 (ANALYZE 재처리용)", pre + "ls -la " + q(work, k8s)));
         l.add(cmd("전사 보존물 (SEND 재처리용 — 성공한 건은 전송 뒤 지워진다)", pre + "ls -la " + q(temp, k8s)));
-        l.add(cmd("제논 전송 수신증 (이 배치)",
+        l.add(cmd("에이전트 커넥터 전송 수신증 (이 배치)",
                 "curl -s '" + (k8s ? "https://<admin-fe>/voice" : "http://localhost:8085")
-                        + "/api/v1/mock/zenon/receipts?execId=" + id + "'"));
-        l.add(cmd("제논 수신 장부 (이 배치 런 — 순번 · 빈 순번 · 상태)",
+                        + "/api/v1/mock/agent-connector/receipts?execId=" + id + "'"));
+        l.add(cmd("에이전트 커넥터 수신 장부 (이 배치 런 — 순번 · 빈 순번 · 상태)",
                 "curl -s '" + (k8s ? "https://<admin-fe>/voice" : "http://localhost:8085")
-                        + "/api/v1/mock/zenon/ledger?runId=" + id + "'"));
-        l.add(cmd("제논 목 서버가 받은 청크 (REST 모드 · tools/zenon-mock)", "ls -la ./mock_received_files/" + id));
+                        + "/api/v1/mock/agent-connector/ledger?runId=" + id + "'"));
+        l.add(cmd("에이전트 커넥터 목 서버가 받은 청크 (REST 모드 · tools/agent-connector-mock)", "ls -la ./mock_received_files/" + id));
         return l;
     }
 

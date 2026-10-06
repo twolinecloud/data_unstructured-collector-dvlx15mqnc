@@ -18,8 +18,8 @@ import egovframework.unstructured.collector.voice.perf.PerfStage;
 import egovframework.unstructured.collector.voice.perf.PerfStageMeter;
 import egovframework.unstructured.collector.voice.source.BoramiSourceClient;
 import egovframework.unstructured.collector.voice.stt.SttClient;
-import egovframework.unstructured.collector.common.transfer.ZenonClient;
-import egovframework.unstructured.collector.voice.transfer.ZenonVoiceDocument;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
+import egovframework.unstructured.collector.voice.transfer.VoiceTransferDocument;
 import egovframework.unstructured.collector.common.sync.FileArrivalWatcher;
 import egovframework.unstructured.collector.common.util.InmatePidGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,18 +48,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 음성 수집 배치의 본체 — <b>[수집] 대상 선별 → 파일 확보 → 복호화 → [정제/분석] STT → [적재/전송] 제논 전송 → 임시 파일 정리</b>.
+ * 음성 수집 배치의 본체 — <b>[수집] 대상 선별 → 파일 확보 → 복호화 → [정제/분석] STT → [적재/전송] 에이전트 커넥터 전송 → 임시 파일 정리</b>.
  *
  * <p>로그 테이블 INSERT 는 로그 컬렉터 API 로만 한다 — 이 서비스는 로그 DB 커넥션을 잡지 않는다.
  * 원천(보라미) DB 는 대상 조회에서만 쓴다.</p>
  *
  * <p><b>T2 단계 — 3단계 체인</b>(2026-10-01 복원): {@code COLLECT 1}(파일 확보·복호화) → {@code ANALYZE 2}(STT) →
- * {@code SEND 3}(제논 전송) — {@link StepType}. 결과는 온프레미스 제논(Zenon)으로
- * 넘긴다. {@code COLLECT} 는 배치 시작에 열고, {@code ANALYZE} 는 첫 STT 가 시작될 때, {@code SEND} 는 첫 전송
+ * {@code SEND 3}(에이전트 커넥터 전송) — {@link StepType}. 결과는 에이전트 커넥터 bypass API 를 거쳐 온프레미스 제논으로
+ * 넘어간다(비식별 단계는 없다 — 그래서 T2 는 3단계다). {@code COLLECT} 는 배치 시작에 열고, {@code ANALYZE} 는 첫 STT 가 시작될 때, {@code SEND} 는 첫 전송
  * 직전에 연다. 모두 배치 끝에서 한 번에 마감한다.</p>
  *
  * <p><b>결과를 PV 에 남기지 않는다</b>: 예전에는 STT 결과를 {@code xenon/{meet|phone}/{execId}/} 에 쓰고 하류가
- * 집어 갔다. 이제 SEND 가 제논 수신 API 로 바로 보낸다({@link ZenonClient}). 2026-10-05 부터 전송 양식은 data-collector 와
+ * 집어 갔다. 이제 SEND 가 에이전트 커넥터 bypass API 로 보낸다({@link AgentConnectorClient}). 전송 양식 · 수신 API 는 data-collector 와
  * 같다 — 건마다 레코드를 전송 런에 쌓고 배치 끝에 청크(gzip · chunked · X-Run-Id/X-Seq/X-Is-Last …)로 나눠 순서대로 보낸다.
  * 받아들여진 건은 그 건의 임시 파일(받은 원본 · 복호화 오디오 · 전사 보존물)을 지운다(Purge). 실패한 청크와 그 뒤 청크의 건은
  * 전사 보존물이 남아 {@code FROM_SEND} 재처리가 STT 없이 <b>원배치 런을 다음 순번부터 이어</b> 보낸다.</p>
@@ -77,7 +77,7 @@ public class VoiceCollectService {
 
     /** 로컬 임시 EXEC_ID — 컬렉터 규칙(yyyyMMdd + 작업코드3 + 회차3)의 자리를 맞춘다. */
     private static final DateTimeFormatter LOCAL_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
-    // 밀리초까지 — 초 단위면 같은 초에 돈 두 배치가 같은 ID 가 되어 제논 수신증·보존물이 섞인다(작업코드 자리 9~11 은 그대로)
+    // 밀리초까지 — 초 단위면 같은 초에 돈 두 배치가 같은 ID 가 되어 전송 수신증·보존물이 섞인다(작업코드 자리 9~11 은 그대로)
     private static final DateTimeFormatter LOCAL_TIME = DateTimeFormatter.ofPattern("HHmmssSSS");
 
     private final VoiceProperties props;
@@ -88,7 +88,7 @@ public class VoiceCollectService {
     private final FileArrivalWatcher watcher;
     private final DecryptService decryptService;
     private final SttClient sttClient;
-    private final ZenonClient zenon;
+    private final AgentConnectorClient connector;
     private final ObjectMapper objectMapper;
     private final LogCollectorClient logCollector;
     private final IdempotencyGuard idempotency;
@@ -214,20 +214,20 @@ public class VoiceCollectService {
         // 트랙별로 따로 찍는다. 두 시나리오는 연동 주체가 달라서 한 줄에 섞으면
         // 어느 모드가 어느 경로에 걸린 것인지 읽히지 않는다.
         if (targets.contains(VoiceKind.MEET)) {
-            log.info("[Batch]   접견 트랙 — 조회={} → 브로커={} → 복호화={} → STT={} → 전송=제논 {}",
-                    source.mode(), broker.mode(), decryptService.mode(), sttClient.mode(), zenon.mode());
+            log.info("[Batch]   접견 트랙 — 조회={} → 브로커={} → 복호화={} → STT={} → 전송=에이전트 커넥터 {}",
+                    source.mode(), broker.mode(), decryptService.mode(), sttClient.mode(), connector.mode());
         }
         if (targets.contains(VoiceKind.PHONE)) {
-            log.info("[Batch]   전화 트랙 — 조회={} → 파일연계={} → 복호화={} → STT={} → 전송=제논 {}  (XVARM 경유 없음)",
-                    source.mode(), phoneFileProvider.mode(), decryptService.mode(), sttClient.mode(), zenon.mode());
+            log.info("[Batch]   전화 트랙 — 조회={} → 파일연계={} → 복호화={} → STT={} → 전송=에이전트 커넥터 {}  (XVARM 경유 없음)",
+                    source.mode(), phoneFileProvider.mode(), decryptService.mode(), sttClient.mode(), connector.mode());
         }
 
         // ── T2 ① COLLECT — 파일 확보·복호화. 배치 시작에 연다 ────────────────────
         RunContext ctx = new RunContext(execId);
         ctx.fromExecId = fromExecId;
         // 전송 런 — 건마다 레코드를 쌓고 배치 끝에 청크로 나눠 보낸다(data-collector 양식). 재처리면 원배치 런을 이어 받는다
-        ctx.transfer = zenon.openSession(execId, fromExecId);
-        log.info("[Batch]   전송 — 제논 {} · {} · 청크 {}건", zenon.mode(), zenon.endpoint(), zenon.chunkRecords());
+        ctx.transfer = connector.openSession(execId, fromExecId);
+        log.info("[Batch]   전송 — 에이전트 커넥터 {} · {} · 청크 {}건", connector.mode(), connector.endpoint(), connector.chunkRecords());
         ctx.collectStepId = logCollector.createStep(execId, StepType.COLLECT.seq(), StepType.COLLECT.name());
 
         List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
@@ -276,7 +276,7 @@ public class VoiceCollectService {
         }
 
         // ── SEND 마무리 — 쌓아 둔 레코드를 청크로 나눠 순서대로 보낸다. 실패한 청크(와 그 뒤)의 건은 SEND 실패로 바꾼다
-        ZenonClient.Report transfer = flushTransfer(ctx, outcomes);
+        AgentConnectorClient.Report transfer = flushTransfer(ctx, outcomes);
 
         int success = (int) outcomes.stream().filter(FileProcOutcome::isSuccess).count();
         int skipped = (int) outcomes.stream().filter(o -> o.status() == ProcStatus.SKIPPED).count();
@@ -297,7 +297,7 @@ public class VoiceCollectService {
             steps.add(finishStep(ctx.analyzeStepId, FileProcOutcome.STEP_ANALYZE,
                     collectOut, collectOut - analyzeErr, analyzeErr, ctx.analyzeMs));
         }
-        // SEND — STT 를 통과한 건이 한 번이라도 제논 전송을 시도했을 때만 행이 있다.
+        // SEND — STT 를 통과한 건이 한 번이라도 에이전트 커넥터 전송을 시도했을 때만 행이 있다.
         if (ctx.sendStarted) {
             long sendIn = collectOut - analyzeErr;
             long sendErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_SEND)).count();
@@ -309,8 +309,8 @@ public class VoiceCollectService {
 
         // 결과를 PV 에 남기지 않는다 — 어디로 보냈는지만 싣는다
         Map<String, String> sent = new LinkedHashMap<>();
-        sent.put("mode", zenon.mode());
-        sent.put("endpoint", zenon.endpoint());
+        sent.put("mode", connector.mode());
+        sent.put("endpoint", connector.endpoint());
         sent.put("sent", String.valueOf(success));
         if (!transfer.isEmpty()) {
             sent.put("runId", transfer.runId());
@@ -340,33 +340,33 @@ public class VoiceCollectService {
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
 
     /** SEND 에 쌓아 둔 건의 임시 위치 — flushTransfer 가 수신증 위치로 바꾼다. */
-    private static final String PENDING_SEND = "zenon:pending";
+    private static final String PENDING_SEND = "agent-connector:pending";
 
     /**
-     * 쌓아 둔 레코드를 보낸다 — 청크로 나눠 순서대로, 한 청크가 실패하면 멈춘다({@link ZenonClient.Session#flush}).
+     * 쌓아 둔 레코드를 보낸다 — 청크로 나눠 순서대로, 한 청크가 실패하면 멈춘다({@link AgentConnectorClient.Session#flush}).
      *
      * <p>받아들여진 건은 수신증 위치로, 실패한 청크 · 그 뒤 청크의 건은 SEND 실패로 결과를 고친다. 정합성 대사
      * (T1.SUCCESS_CNT == Σ T4 SUCCESS)는 고친 뒤의 결과로 맞춘다. 중단(cancel)된 배치도 이미 STT 를 마친 건은 보낸다.</p>
      */
-    private ZenonClient.Report flushTransfer(RunContext ctx, List<FileProcOutcome> outcomes) {
+    private AgentConnectorClient.Report flushTransfer(RunContext ctx, List<FileProcOutcome> outcomes) {
         if (ctx.transfer == null || ctx.transfer.size() == 0) {
-            return ZenonClient.Report.empty(ctx.execId, zenon.mode(), zenon.endpoint());
+            return AgentConnectorClient.Report.empty(ctx.execId, connector.mode(), connector.endpoint());
         }
         long t0 = System.currentTimeMillis();
         long mSend = meter.start();
-        ZenonClient.Report rep;
+        AgentConnectorClient.Report rep;
         try {
             rep = ctx.transfer.flush();
         } catch (RuntimeException e) {
             // 전송 코드 자체가 깨졌다 — 쌓인 건을 모두 SEND 실패로 남긴다(전사는 남아 있어 재처리할 수 있다)
-            log.error("[Batch] 제논 전송 실패(예기치 않음) — execId={} · {}", ctx.execId, e.toString(), e);
+            log.error("[Batch] 에이전트 커넥터 전송 실패(예기치 않음) — execId={} · {}", ctx.execId, e.toString(), e);
             for (FileProcOutcome o : outcomes) {
                 if (o.isSuccess() && PENDING_SEND.equals(o.sttPath())) {
                     ctx.sendFailed.putIfAbsent(o.target().idempotencyKey(),
                             e.getClass().getSimpleName() + ": " + shorten(e.getMessage()));
                 }
             }
-            rep = ZenonClient.Report.empty(ctx.execId, zenon.mode(), zenon.endpoint());
+            rep = AgentConnectorClient.Report.empty(ctx.execId, connector.mode(), connector.endpoint());
         } finally {
             meter.add(PerfStage.SEND, mSend);
         }
@@ -377,7 +377,7 @@ public class VoiceCollectService {
                 continue;
             }
             String key = o.target().idempotencyKey();
-            ZenonClient.Receipt rc = ctx.delivered.get(key);
+            AgentConnectorClient.Receipt rc = ctx.delivered.get(key);
             if (rc != null) {
                 outcomes.set(i, FileProcOutcome.success(o.target(), o.fileSize(), o.sttChars(), rc.location(), o.elapsedMs()));
             } else {
@@ -387,7 +387,7 @@ public class VoiceCollectService {
                 }
                 log.warn("[Batch] 처리 실패 [{}] — {} ({})", FileProcOutcome.STEP_SEND, o.target().shortId(), why);
                 outcomes.set(i, FileProcOutcome.fail(o.target(), FileProcOutcome.STEP_SEND,
-                        "ZenonSendException: " + shorten(why), o.elapsedMs()));
+                        "TransferSendException: " + shorten(why), o.elapsedMs()));
             }
         }
         return rep;
@@ -400,7 +400,7 @@ public class VoiceCollectService {
      * 생산자-소비자 — <b>XVARM 확보 워커</b>가 파일을 받아 대기열에 넣고, <b>STT 처리 워커</b>가 곧바로 집어 간다.
      *
      * <p>확보 워커는 대상을 앞에서부터 하나씩 가져가 확보(접견: 브로커 추출 → 수신 폴더 도착 / 전화: 파일 연계
-     * 수신)까지만 한다. STT 워커는 복호화 · STT · 제논 전송을 한다. 대상 조회 · T1/T2 개시 · T4/T1 마감은
+     * 수신)까지만 한다. STT 워커는 복호화 · STT · 에이전트 커넥터 전송을 한다. 대상 조회 · T1/T2 개시 · T4/T1 마감은
      * 순차와 똑같이 이 스레드가 한다. 결과는 <b>대상 순서 그대로</b> 모은다 — T4 행 순서가 순차 실행과 같다.</p>
      *
      * <p><b>대기열은 STT 워커 수만큼만</b> 받는다 — STT 가 밀리면 확보도 쉬어 간다. 끝없이 받아 두면 확보한
@@ -503,7 +503,7 @@ public class VoiceCollectService {
         }
     }
 
-    /** STT 워커 — 대기열에서 한 건씩 집어 복호화 · STT · 제논 전송까지 한다. 끝 표시를 받으면 멈춘다. */
+    /** STT 워커 — 대기열에서 한 건씩 집어 복호화 · STT · 에이전트 커넥터 전송까지 한다. 끝 표시를 받으면 멈춘다. */
     private void consume(BlockingQueue<Staged> queue, RunContext ctx, FileProcOutcome[] results,
                          AtomicBoolean canceled, AtomicInteger liveConsumers) {
         try {
@@ -591,10 +591,10 @@ public class VoiceCollectService {
         String sendStepId;
         boolean analyzeStarted;
         boolean sendStarted;
-        /** 제논 전송 런 — SEND 가 레코드를 쌓고 배치 끝에 보낸다. */
-        ZenonClient.Session transfer;
+        /** 에이전트 커넥터 전송 런 — SEND 가 레코드를 쌓고 배치 끝에 보낸다. */
+        AgentConnectorClient.Session transfer;
         /** 전송 결과 — 키 → 수신증(받아들여짐) / 사유(실패 · 미전송). flush 가 채우고 결과를 고친다. */
-        final Map<String, ZenonClient.Receipt> delivered = new java.util.concurrent.ConcurrentHashMap<>();
+        final Map<String, AgentConnectorClient.Receipt> delivered = new java.util.concurrent.ConcurrentHashMap<>();
         final Map<String, String> sendFailed = new java.util.concurrent.ConcurrentHashMap<>();
         long collectMs;
         long analyzeMs;
@@ -662,7 +662,7 @@ public class VoiceCollectService {
         log.info("[Batch] T2 ANALYZE 시작 — stepLogId={}", ctx.analyzeStepId == null ? "(미연동)" : ctx.analyzeStepId);
     }
 
-    /** SEND 단계를 연다 — 첫 제논 전송 직전에 한 번. ANALYZE 와 같은 방식이다. */
+    /** SEND 단계를 연다 — 첫 에이전트 커넥터 전송 직전에 한 번. ANALYZE 와 같은 방식이다. */
     private void beginSend(RunContext ctx) {
         synchronized (ctx) {
             if (ctx.sendStarted) {
@@ -902,14 +902,14 @@ public class VoiceCollectService {
         }
         String failure = null;
         try {
-            // ── 전송부터 이어서 — 보존된 전사 결과를 찾는다(제논 전송에서 깨진 건) ────────────
+            // ── 전송부터 이어서 — 보존된 전사 결과를 찾는다(에이전트 커넥터 전송에서 깨진 건) ────────────
             if (st.resume.fromTranscript()) {
                 st.stt = sttTemp.find(target, ctx.fromExecId).orElse(null);
                 if (st.stt == null) {
                     log.info("[Resume] 보존된 전사 결과가 없다 — {} · STT 부터 다시 한다", target.shortId());
                     st.resume = ResumeMode.FROM_ANALYZE;
                 } else {
-                    log.info("[Resume] 전사 결과 재사용 — {} ({}자) · 수집·복호화·STT 생략 → 제논 전송",
+                    log.info("[Resume] 전사 결과 재사용 — {} ({}자) · 수집·복호화·STT 생략 → 에이전트 커넥터 전송",
                             target.shortId(), st.stt.charCount());
                 }
             }
@@ -961,7 +961,7 @@ public class VoiceCollectService {
     }
 
     /**
-     * <b>STT 단계</b>(STT 워커) — 복호화(수집의 나머지) → 분석(STT) → 전송(제논) → 임시 파일 정리.
+     * <b>STT 단계</b>(STT 워커) — 복호화(수집의 나머지) → 분석(STT) → 전송(에이전트 커넥터) → 임시 파일 정리.
      * 실패해도 예외를 밖으로 던지지 않는다.
      *
      * <p>두 구간으로 나눠 잰다 — 어느 구간에서 실패했는지가 T2 의 단계별 건수를 가른다. 복호화 실패는
@@ -1031,16 +1031,16 @@ public class VoiceCollectService {
             long tAnalyzed = System.currentTimeMillis();
             ctx.addAnalyze(tAnalyzed - tCollected);
 
-            // ── SEND — 제논(Zenon) 전송 ───────────────────────────────────────
+            // ── SEND — 에이전트 커넥터 전송 ───────────────────────────────────────
             step = FileProcOutcome.STEP_SEND;
             beginSend(ctx);
             if (stageFault.shouldFail(StageFaultState.Stage.SEND)) {
-                throw StageFaultState.fault(StageFaultState.Stage.SEND, "제논 전송 실패(500/Timeout) 주입");
+                throw StageFaultState.fault(StageFaultState.Stage.SEND, "에이전트 커넥터 전송 실패(500/Timeout) 주입");
             }
-            ZenonClient.Record record = ZenonVoiceDocument.of(ctx.execId, target, stt, fileSize,
+            AgentConnectorClient.Record record = VoiceTransferDocument.of(ctx.execId, target, stt, fileSize,
                     pidGenerator.of(target.corrNo()), objectMapper);
             try {
-                zenon.precheck(record);   // 키 표식(SF) — 그 건만 한 번 거부(청크는 멈추지 않는다)
+                connector.precheck(record);   // 키 표식(SF) — 그 건만 한 번 거부(청크는 멈추지 않는다)
             } catch (RuntimeException e) {
                 if (!progress.isCancelRequested()) {
                     meter.error(PerfStage.SEND);

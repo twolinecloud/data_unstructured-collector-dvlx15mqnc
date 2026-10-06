@@ -4,21 +4,21 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * 제논(Zenon) 전송 설정 — 파이프라인 마지막 단계 SEND 가 STT 결과를 넘기는 곳.
+ * 에이전트 커넥터 전송 설정 — 파이프라인 마지막 단계 SEND 가 STT 결과를 넘기는 곳.
  *
  * <pre>
- * zenon:
- *   mode: MOCK                         # MOCK — 수집기 내장 수신기로(네트워크 없음) · REST — 제논 수신 API 로
- *   base-url: http://zenon:8080
+ * agent-connector:
+ *   mode: MOCK                         # MOCK — 수집기 내장 수신기로(네트워크 없음) · REST — 에이전트 커넥터 bypass API 로
+ *   base-url: http://agent-connector-dp8qbi7xqh:8080     # 개발계 서비스(data-pipeline) — data-collector 와 같은 곳
  *   transfer-path: /api/v1/learn/transfer
  *   gzip: true
  *   chunk-records: 50
  * </pre>
  *
- * <p><b>전송 양식은 data-collector 와 같다</b>(2026-10-05 — 에이전트 커넥터 없이 제논으로 직접). 배치 1회 = 전송 런 1개
+ * <p><b>전송 양식 · 수신 API 는 data-collector 와 같다</b> — 에이전트 커넥터 bypass API(비식별 없이 제논으로 중계). 배치 1회 = 전송 런 1개
  * ({@code X-Run-Id} = 실행 ID), 레코드를 {@code chunk-records} 건씩 묶어 순번({@code X-Seq} 1부터) 순서대로 보내고,
  * 마지막 청크에 {@code X-Is-Last: true}. 본문 {@code {header:{runId,dataTypeCd,collectDtm,setTypeCd}, payload:[{managementNo,rawDataset}]}}
- * 을 gzip + chunked 로 흘린다. 성공 = HTTP 2xx. 자세한 규칙은 {@link ZenonClient}.</p>
+ * 을 gzip + chunked 로 흘린다. 성공 = HTTP 2xx. 자세한 규칙은 {@link AgentConnectorClient}.</p>
  *
  * @param mode                      MOCK · REST
  * @param baseUrl                   REST 일 때 수신 서버 주소(경로 접두가 있으면 포함)
@@ -34,8 +34,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param mockMaxDecompressedBytes  내장 수신기(MOCK) 해제 상한 — 넘으면 413(압축 폭탄 방어). 에이전트 커넥터와 같은 512MB
  * @param mockGapTimeoutSec         내장 수신기 유실 판정 — 마지막 청크를 받고도 빈 순번이 이만큼 안 채워지면 INGEST-GAP
  */
-@ConfigurationProperties(prefix = "zenon")
-public record ZenonProperties(
+@ConfigurationProperties(prefix = "agent-connector")
+public record AgentConnectorProperties(
         @DefaultValue("MOCK") Mode mode,
         @DefaultValue("") String baseUrl,
         @DefaultValue("/api/v1/learn/transfer") String transferPath,

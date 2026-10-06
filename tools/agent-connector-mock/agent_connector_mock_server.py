@@ -1,10 +1,11 @@
 """
-제논(Zenon) 수신 REST API — 목(Mock) 서버. data-collector 와 같은 전송 양식(2026-10-05).
+에이전트 커넥터 bypass 수신 API(POST /api/v1/learn/transfer) — 목(Mock) 서버. data-collector 와 같은 전송 양식.
 
-비정형 수집기(unstructured-collector)의 SEND 단계(적재/전송)가 STT 결과를 온프레미스 제논으로 직접 보내는 규약을 흉내 낸다
-(에이전트 커넥터 LearnTransferController 와 같은 수신단). 수집기를 ``ZENON_MODE=REST``, ``ZENON_BASE_URL=http://<이 서버>:8000``
+비정형 수집기(unstructured-collector)의 SEND 단계(적재/전송)가 STT 결과를 에이전트 커넥터 bypass API(비식별 없이 제논으로 중계)로
+보내는 규약을 흉내 낸다(에이전트 커넥터 LearnTransferController 와 같은 수신단 — 실제 커넥터는 헤더 누락 400 · 멱등만 보고 본문을 풀지 않는다.
+아래의 본문 대조 400 · 413 · 장부 · 유실 판정은 송신단을 더 엄하게 확인하려고 이 목에만 있다). 수집기를 ``AGENT_CONNECTOR_MODE=REST``, ``AGENT_CONNECTOR_BASE_URL=http://<이 서버>:8000``
 으로 띄우면 실제 소켓으로 gzip + chunked 전송 · 순번/중복/유실 판정 · 장애(503) · 해제 상한(413)을 로컬에서 재현할 수 있다.
-(수집기 안에도 같은 수신기가 있다 — ZENON_MODE=MOCK 기본, 또는 /api/v1/mock/zenon/transfer)
+(수집기 안에도 같은 수신기가 있다 — AGENT_CONNECTOR_MODE=MOCK 기본, 또는 /api/v1/mock/agent-connector/transfer)
 
 엔드포인트
   POST /api/v1/learn/transfer          청크 1건 — 요청 하나 = 청크 하나
@@ -15,19 +16,19 @@
        ?status_code=503|500|400   그 상태 코드로 실패(장애 재현)
        → 200 {"code":"SUCCESS","runId","seq","duplicate","receivedChunks","receivedRecords","state","missingSeqs"}
          400 헤더 누락 · header.runId ≠ X-Run-Id · payload 건수 ≠ X-Chunk-Cnt · managementNo 없음
-         413 해제 상한 초과(ZENON_MOCK_MAX_MB, 기본 512) · 503 장애 흉내(POST /fault)
+         413 해제 상한 초과(AGENT_CONNECTOR_MOCK_MAX_MB, 기본 512) · 503 장애 흉내(POST /fault)
        (X-Run-Id + X-Seq) 멱등 — 이미 받은 청크는 200 + duplicate=true
   GET  /api/v1/learn/transfer/ledger            최근 런 장부
   GET  /api/v1/learn/transfer/ledger/{run_id}   런 하나 — 받은 순번 · 빈 순번 · 상태(RECEIVING · GAP_SUSPECT · COMPLETE · INGEST-GAP)
   POST /api/v1/learn/transfer/sweep?idle_sec=0  유실 판정(빈 순번이 있거나 마지막이 안 온 채 조용한 런 → INGEST-GAP)
   POST /fault?mode=UP|DOWN|FAIL_FROM_SEQ&from_seq=3   장애 흉내(전송 재처리 시나리오)
-  GET  /health                                  수집기 헬스 배지(HealthProbeService)가 부른다
+  GET  /actuator/health · /health              수집기 헬스 배지(HealthProbeService)가 부른다(커넥터와 같은 /actuator/health)
 
 받은 청크는 ./mock_received_files/{runId}/seq-{n}.json 에 (풀어서) 저장한다 — 확인용.
 
 실행 (Python 3.10+)
   pip install -r requirements.txt
-  uvicorn zenon_mock_server:app --host 0.0.0.0 --port 8000
+  uvicorn agent_connector_mock_server:app --host 0.0.0.0 --port 8000
 """
 
 from __future__ import annotations
@@ -46,16 +47,16 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
 # ── 설정 ────────────────────────────────────────────────────────────────
-RECEIVE_DIR = Path(os.environ.get("ZENON_MOCK_DIR", "./mock_received_files")).resolve()
-MAX_DECOMPRESSED = int(os.environ.get("ZENON_MOCK_MAX_MB", "512")) * 1024 * 1024
-GAP_TIMEOUT_SEC = int(os.environ.get("ZENON_MOCK_GAP_TIMEOUT_SEC", "60"))
+RECEIVE_DIR = Path(os.environ.get("AGENT_CONNECTOR_MOCK_DIR", "./mock_received_files")).resolve()
+MAX_DECOMPRESSED = int(os.environ.get("AGENT_CONNECTOR_MOCK_MAX_MB", "512")) * 1024 * 1024
+GAP_TIMEOUT_SEC = int(os.environ.get("AGENT_CONNECTOR_MOCK_GAP_TIMEOUT_SEC", "60"))
 MAX_DELAY_SEC = 600.0
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s [zenon-mock] %(message)s")
-log = logging.getLogger("zenon-mock")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s [agent-connector-mock] %(message)s")
+log = logging.getLogger("agent-connector-mock")
 
 app = FastAPI(
-    title="Zenon 수신 Mock 서버",
+    title="에이전트 커넥터 bypass 수신 Mock 서버",
     version="2.0.0",
     description="비정형 수집기 SEND — data-collector 와 같은 전송 양식(gzip · chunked · 유실검증 헤더 6종 · 2xx) 수신 · 장부 · 장애/지연 재현",
 )
@@ -117,8 +118,9 @@ def _int(v: Optional[str], default: int) -> int:
 
 
 @app.get("/health")
+@app.get("/actuator/health")
 async def health() -> dict[str, Any]:
-    return {"status": "UP", "service": "zenon-mock", "protocol": "data-collector transfer (gzip · chunked · X-Run-Id/X-Seq)",
+    return {"status": "UP", "service": "agent-connector-mock", "protocol": "data-collector transfer (gzip · chunked · X-Run-Id/X-Seq)",
             "receive_dir": str(RECEIVE_DIR), "fault": _FAULT, "checked_at": _now().isoformat()}
 
 
@@ -145,7 +147,7 @@ async def transfer(
         r["rejected"].add(seq)
         r["lastSeenAt"] = _now()
         log.warning("장애 흉내 503 — runId=%s seq=%d (%s)", run_id, seq, _FAULT)
-        return _error(503, "UNAVAILABLE", f"(MOCK) 제논 수신 장애 — {_FAULT['mode']} · seq {seq}")
+        return _error(503, "UNAVAILABLE", f"(MOCK) 에이전트 커넥터 수신 장애 — {_FAULT['mode']} · seq {seq}")
     if status_code:
         return _error(status_code, "FORCED", f"요청한 실패 응답 {status_code}")
     if seq in r["seqs"]:

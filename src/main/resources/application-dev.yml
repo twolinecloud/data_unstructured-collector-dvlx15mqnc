@@ -170,10 +170,11 @@ unstructured:
     include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:true}
 
 # ── 에이전트 커넥터 전송(SEND) — 개발계 커넥터 서비스(data-pipeline). data-collector 의 COLLECTOR_TRANSFER_BASE_URL 과 같은 곳 ──
-#   2026-10-06: 커넥터 bypass API(/api/v1/learn/transfer · ed46d09)는 개발계에 떠 있다. 기본은 아직 MOCK(내장 수신기) —
-#   실제로 붙이려면 AGENT_CONNECTOR_MODE=REST 만 준다. 커넥터는 지금 받은 본문을 세기만 하고 제논 중계는 TODO 다.
+#   2026-10-06: 개발계는 REST — 실제 커넥터 bypass API(/api/v1/learn/transfer · 커넥터 acbfc57)로 보낸다(사용자 지시).
+#   커넥터는 지금 받은 본문을 세기만 하고 제논 중계는 TODO 다. 내장 수신기로 되돌리려면 AGENT_CONNECTOR_MODE=MOCK.
+#   시뮬레이터 7번 탭 '전송 재처리' 시나리오는 장애 흉내가 내장 수신기에만 걸리므로 그 시나리오 동안만 MOCK 으로 보낸다(끝나면 되돌림).
 agent-connector:
-  mode: ${AGENT_CONNECTOR_MODE:MOCK}
+  mode: ${AGENT_CONNECTOR_MODE:REST}
   base-url: ${AGENT_CONNECTOR_BASE_URL:http://agent-connector-dp8qbi7xqh:8080}
 
 image:

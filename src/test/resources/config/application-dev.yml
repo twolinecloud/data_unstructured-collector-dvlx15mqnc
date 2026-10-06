@@ -1,0 +1,4 @@
+# 테스트 전용 — Jenkins 는 dev 프로필로 테스트를 돌린다. dev 프로필의 전송 모드가 REST(개발계 커넥터)라도
+# 테스트는 네트워크로 나가지 않게 내장 수신기(MOCK)로 못 박는다(classpath:/config/ 프로필 파일이 루트 application-dev.yml 을 덮는다).
+agent-connector:
+  mode: MOCK

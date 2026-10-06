@@ -415,6 +415,28 @@ class AgentConnectorClientTest {
     }
 
     @Test
+    @DisplayName("전송 모드 덮어쓰기 — 설정이 REST 여도 시뮬레이터가 잠깐 MOCK 으로 보낼 수 있고, 되돌리면 설정값(REST)")
+    void modeOverrideSendsToMockThenBack() {
+        AgentConnectorProperties p = props(AgentConnectorProperties.Mode.REST, "", 50, 512L << 20);
+        AgentConnectorMockReceiver receiver = new AgentConnectorMockReceiver(p, om);
+        AgentConnectorClient c = client(p, receiver, TransferRuns.inMemory(), ScenarioFaults.inactive());
+
+        c.overrideMode(AgentConnectorProperties.Mode.MOCK);
+        assertThat(c.mode()).isEqualTo("MOCK");
+        assertThat(c.status()).containsEntry("configMode", "REST").containsEntry("modeOverridden", true);
+        AgentConnectorClient.Report rep = sendAll(c, "20261006TST900", null, 2, new ArrayList<>(), new TreeMap<>());
+        assertThat(rep.delivered()).isEqualTo(2);
+        assertThat(receiver.ledger("20261006TST900")).isNotNull();
+
+        c.overrideMode(null);
+        assertThat(c.mode()).isEqualTo("REST");
+        assertThat(c.status()).containsEntry("modeOverridden", false);
+        Map<String, String> failed = new TreeMap<>();
+        sendAll(c, "20261006TST901", null, 1, new ArrayList<>(), failed);
+        assertThat(failed.values()).allMatch(v -> v.contains("base-url"));   // REST 로 돌아가 주소 없음 실패
+    }
+
+    @Test
     @DisplayName("REST 인데 주소가 비면 보내지 않고 그 런의 레코드 전부 실패")
     void restWithoutBaseUrlFails() {
         AgentConnectorProperties p = props(AgentConnectorProperties.Mode.REST, "", 50, 512L << 20);

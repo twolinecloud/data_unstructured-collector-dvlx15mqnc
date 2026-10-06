@@ -195,12 +195,31 @@ public class VoiceCollectService {
     public VoiceBatchResult run(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
                                 ResumeMode resume, String fromExecId, Workers workers,
                                 java.util.function.BiConsumer<String, Boolean> onExecId) {
+        return run(window, kinds, triggerBy, testRun, resume, fromExecId, workers, onExecId, null);
+    }
+
+    /**
+     * 긴급 재처리 체인 — 로그 컬렉터가 <b>같은 EXEC_ID 로 다시 연</b> 배치(T1 RUNNING · T2 비움 · T4 그대로).
+     *
+     * @param execId     다시 연 원배치 실행 ID — T1 을 새로 만들지 않고 이 ID 로 돈다
+     * @param failedKeys 원배치 T4 에서 실패였던 건(REC_FILE_ID) — 다른 실행이 이미 처리해 이번에 '이미 처리된 건' 으로 건너뛰면
+     *                   그 행을 성공으로 덮어쓴다(V19). 원배치에서 성공한 건은 건너뛰어도 T4 를 건드리지 않는다
+     */
+    public record Reopened(String execId, java.util.Set<String> failedKeys) {}
+
+    /**
+     * 배치를 1회 실행한다 — {@code reopened} 가 있으면 그 실행 ID 로 다시 돌고, T1 건수를 <b>T4 최종 상태</b>로 마감한다
+     * (원래 성공 + 이번 성공 — 같은 (배치 · 수용자 · 파일)은 마지막 상태로 덮어쓰므로).
+     */
+    public VoiceBatchResult run(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
+                                ResumeMode resume, String fromExecId, Workers workers,
+                                java.util.function.BiConsumer<String, Boolean> onExecId, Reopened reopened) {
         long startedAt = System.currentTimeMillis();
         Workers w = workers == null ? Workers.sequential() : workers;
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
                 ? List.of(VoiceKind.MEET, VoiceKind.PHONE) : kinds;
 
-        String collectorExecId = openBatch(window, triggerBy, testRun);
+        String collectorExecId = reopened != null ? reopened.execId() : openBatch(window, triggerBy, testRun);
         String execId = collectorExecId != null ? collectorExecId : localExecId(testRun);
         if (onExecId != null) {
             try {
@@ -305,7 +324,7 @@ public class VoiceCollectService {
         }
 
         // T4 — 파일 1건 = 1행. 정합성 대사(T1.SUCCESS_CNT == Σ T3·T4·T5)의 근거다.
-        logCollector.createFileProcs(execId, toFileProcReqs(outcomes));
+        logCollector.createFileProcs(execId, toFileProcReqs(outcomes, reopened));
 
         // 결과를 PV 에 남기지 않는다 — 어디로 보냈는지만 싣는다
         Map<String, String> sent = new LinkedHashMap<>();
@@ -329,12 +348,30 @@ public class VoiceCollectService {
         //   MAX(target_to_dtm) 이 곧 워터마크다. PARTIAL·FAIL·CANCELED 는 로그 컬렉터가 세지 않으므로,
         //   빠진 건이 있는 구간이 '다 수집했다' 로 둔갑하지 않는다.
 
-        logCollector.finishBatch(execId, result.execStsCd(), elapsedSec(startedAt),
-                (long) found.size(), (long) success, (long) fail,
-                result.errMsg() == null ? null : LogCollectorClient.FileProcReq.errStackOf(result.errMsg()));
+        long t1Target = found.size();
+        long t1Success = success;
+        long t1Fail = fail;
+        String t1Sts = result.execStsCd();
+        if (reopened != null) {
+            // 같은 실행 ID 로 다시 돈 배치 — T1 은 이번 실행이 아니라 T4 최종 상태(원래 성공 + 이번 성공)로 마감한다
+            Map<String, Long> by = logCollector.fileStatusCounts(execId);
+            if (by != null) {
+                t1Success = by.getOrDefault("SUCCESS", 0L);
+                t1Fail = by.getOrDefault("FAIL", 0L);
+                t1Target = Math.max(found.size(), by.values().stream().mapToLong(Long::longValue).sum());
+                t1Sts = canceled ? "CANCELED" : t1Fail == 0 ? "SUCCESS" : t1Success > 0 ? "PARTIAL" : "FAIL";
+                log.info("[Batch] 다시 연 배치 {} — T4 최종 상태로 T1 마감: {} · 성공 {} · 실패 {} (이번 실행 성공 {} · 실패 {} · 건너뜀 {})",
+                        execId, t1Sts, t1Success, t1Fail, success, fail, skipped);
+            }
+        }
+        logCollector.finishBatch(execId, t1Sts, elapsedSec(startedAt), t1Target, t1Success, t1Fail,
+                t1Fail == 0 || result.errMsg() == null ? null : LogCollectorClient.FileProcReq.errStackOf(result.errMsg()));
         log.info("[Batch] 종료{} — {}", canceled ? "(중단됨)" : "", result.summary());
         return result;
     }
+
+    /** 건너뜀 사유 — 멱등 표식이 있는 건(이미 처리됨). 다시 연 배치가 '해결됨' 을 가리는 데 쓴다. */
+    static final String ALREADY_PROCESSED = "이미 처리된 건";
 
     /** 중단 사유 — 순차·생산자-소비자가 같은 문구를 쓴다(화면이 이 접두로 센다). */
     private static final String CANCELED = "중단됨 — 사용자가 배치를 멈췄습니다";
@@ -897,7 +934,7 @@ public class VoiceCollectService {
         Staged st = new Staged(target, resume, index);
         if (idempotency.isProcessed(target)) {
             log.debug("[Batch] 이미 처리됨 — {}", target.shortId());
-            st.done = FileProcOutcome.skipped(target, "이미 처리된 건");
+            st.done = FileProcOutcome.skipped(target, ALREADY_PROCESSED);
             return st;
         }
         String failure = null;
@@ -1301,10 +1338,17 @@ public class VoiceCollectService {
         }
     }
 
-    private List<LogCollectorClient.FileProcReq> toFileProcReqs(List<FileProcOutcome> outcomes) {
+    private List<LogCollectorClient.FileProcReq> toFileProcReqs(List<FileProcOutcome> outcomes, Reopened reopened) {
         List<LogCollectorClient.FileProcReq> rows = new ArrayList<>(outcomes.size());
         for (FileProcOutcome o : outcomes) {
             if (o.status() == ProcStatus.SKIPPED) {
+                // 다시 연 배치에서 원래 실패였던 건이 이미 다른 실행에서 처리됐다 — 그 T4 행을 성공으로 덮어쓴다(해결됨)
+                if (reopened != null && ALREADY_PROCESSED.equals(o.errMsg())
+                        && reopened.failedKeys().contains(o.target().idempotencyKey())) {
+                    rows.add(new LogCollectorClient.FileProcReq(o.target().idempotencyKey(), o.target().srcFilePath(),
+                            o.target().srcFileName(), pidGenerator.of(o.target().corrNo()), 0L, ProcStatus.SUCCESS.name(),
+                            null, StepType.SEND.name()));
+                }
                 continue;   // 이번 배치가 처리한 건이 아니다 — 집계에 넣으면 대사가 어긋난다
             }
             // 컬렉터 T4 스펙 순서대로: REC_FILE_ID · FILE_PATH · FILE_NM · INMATE_PID · FILE_SIZE · PROC_STS_CD · ERR_STACK

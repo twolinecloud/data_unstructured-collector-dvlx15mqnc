@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
@@ -207,6 +209,12 @@ public class UnstructuredBatchService {
 
     /** 계획대로 돌린다 — 음성, 그리고 켜져 있으면 이미지. 결과 요약을 돌려준다. */
     public String execute(Plan p, BiConsumer<String, Boolean> onExecId) {
+        if (p.originExecId() != null) {
+            String chained = executeChain(p, onExecId);
+            if (chained != null) {
+                return chained;
+            }
+        }
         if (p.imageOnly()) {
             // 이미지 배치의 긴급 재처리 — 이미지를 다시 돈다(실패 · 미처리 건만 처리 · 새 실행 ID 로 T1 · T2 · T4)
             //   시험(TST) 이미지 배치는 시뮬레이터 SIM 사진이다 — 6번 탭과 같게 SIMIMG 접두 · 수집기 내장 Mock 브로커로
@@ -232,6 +240,96 @@ public class UnstructuredBatchService {
             }
         }
         return sum;
+    }
+
+    /**
+     * 긴급 재처리 체인(2026-10-06 결정) — 실패 배치마다 버튼이 있고(페이지 · 필터로 버튼이 가려지지 않게), 누르면 <b>같은 EXEC_ID 로
+     * 다시 열어</b> 돈다. 해결되면 그 배치는 SUCCESS 가 되어 버튼이 사라진다.
+     *
+     * <ul>
+     *   <li><b>음성</b> — 누른 배치까지, 그 이전의 실패/부분성공/취소 배치를 <b>오래된 순</b>으로(정형과 같은 방식). 각 배치는 자기 구간을
+     *       다시 돌고 처리된 건은 건너뛴다(멱등). 누른 배치는 요청한 단계부터, 나머지는 전송부터(보존물이 없으면 건마다 앞 단계로).
+     *       비정형은 건마다 독립이라 중간 배치가 또 실패해도 <b>멈추지 않고</b> 끝까지 간다</li>
+     *   <li><b>수용자 이미지</b> — 날짜 구간이 없어 한 번이 지금 시점 전체 수용자의 최신 사진을 본다(대표형). 그래서 지금까지의 실패 이미지
+     *       배치 <b>전부</b>를 오래된 순으로 다시 연다 — 첫 배치가 실제로 처리하고, 나머지는 '이미 최신 사진' 이라 금방 끝나며 원래 실패
+     *       행이 해결된 만큼 성공으로 바뀐다</li>
+     *   <li>T4 는 같은 (배치 · 수용자 · 파일)을 마지막 상태로 덮어쓰고(로그 컬렉터 V19), T1 은 T4 최종 상태로 마감한다</li>
+     * </ul>
+     *
+     * @return 요약. 체인을 쓸 수 없으면(로그 컬렉터 미연동 · 옛 컬렉터 · 원배치가 실패가 아님) null — 예전처럼 새 실행 ID 로 원배치 구간을 돈다
+     */
+    private String executeChain(Plan p, BiConsumer<String, Boolean> onExecId) {
+        if (!logCollector.isEnabled()) {
+            return null;
+        }
+        List<LogCollectorClient.ChainBatch> chain = logCollector.failedChain(p.originExecId(), p.imageOnly());
+        if (chain == null || chain.isEmpty()) {
+            log.info("[Unstructured] 재처리 체인 없음(원배치 {} 가 실패가 아니거나 옛 로그 컬렉터) — 새 실행 ID 로 원배치 구간을 돈다",
+                    p.originExecId());
+            return null;
+        }
+        log.info("[Unstructured] 긴급 재처리 체인 — {} {}건(오래된 순): {}", p.imageOnly() ? "이미지" : "음성", chain.size(),
+                chain.stream().map(LogCollectorClient.ChainBatch::execId).toList());
+        if (onExecId != null) {
+            try {
+                onExecId.accept(p.originExecId(), true);   // 접수 응답 — 누른 배치(같은 ID 로 다시 돈다)
+            } catch (RuntimeException e) {
+                log.warn("[Unstructured] execId 알림 실패(체인은 계속) — {}", e.getMessage());
+            }
+        }
+        List<String> lines = new ArrayList<>();
+        for (LogCollectorClient.ChainBatch b : chain) {
+            String id = b.execId();
+            if (!p.imageOnly() && (b.targetFrom() == null || b.targetTo() == null || !b.targetFrom().isBefore(b.targetTo()))) {
+                lines.add(id + " 건너뜀(수집 구간 없음)");
+                log.warn("[Unstructured] 체인 — {} 는 수집 구간이 없어 건너뛴다", id);
+                continue;
+            }
+            List<JsonNode> failedRows = failedRows(id);
+            if (!logCollector.reopenBatch(id, p.triggerBy(), b.targetFrom(), b.targetTo())) {
+                lines.add(id + " 다시 열기 실패");
+                log.warn("[Unstructured] 체인 — {} 를 다시 열지 못했다(이미 처리됐거나 로그 컬렉터 오류) · 다음 배치로", id);
+                continue;
+            }
+            try {
+                if (p.imageOnly()) {
+                    ImageCollectService.ImageRunResult r = image.runReopened(new ImageCollectService.ImageRunRequest(
+                            null, p.testRun() ? egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX : null,
+                            null, null, false, 0L, p.triggerBy(), p.testRun(), p.testRun(), null), id, failedRows);
+                    lines.add("%s 이미지 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
+                            id, r.total(), r.success(), r.fail(), r.skipped(), failedRows.size()));
+                } else {
+                    ResumeMode mode = id.equals(p.originExecId()) ? p.resume() : ResumeMode.FROM_SEND;
+                    java.util.Set<String> keys = new java.util.HashSet<>();
+                    failedRows.forEach(f -> keys.add(f.path("rec_file_id").asText("")));
+                    VoiceBatchResult v = voice.run(BatchWindow.manual(b.targetFrom(), b.targetTo()), null, p.triggerBy(),
+                            p.testRun(), mode, id, voice.defaultWorkers(), null, new VoiceCollectService.Reopened(id, keys));
+                    lines.add("%s 음성 %s 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
+                            id, mode, v.targetCnt(), v.successCnt(), v.failCnt(), v.skippedCnt(), failedRows.size()));
+                }
+            } catch (RuntimeException e) {
+                // 이 배치만 실패로 닫고 다음 배치로 — 비정형은 건마다 독립이라 앞 배치 실패가 뒤를 막을 이유가 없다
+                log.error("[Unstructured] 체인 — {} 재처리 실패(다음 배치로 계속) · {}", id, e.getMessage(), e);
+                logCollector.finishBatch(id, "FAIL", 0, null, null, null,
+                        LogCollectorClient.FileProcReq.errStackOf("재처리 실패 — " + e.getClass().getSimpleName()));
+                lines.add(id + " 실패: " + e.getClass().getSimpleName());
+            }
+        }
+        return "긴급 재처리 체인(%s) %d건 — %s".formatted(p.imageOnly() ? "이미지" : "음성", chain.size(), String.join(" / ", lines));
+    }
+
+    /** 원배치 T4 의 실패 행 — 다시 돈 뒤 '해결됨' 을 가리는 근거. 못 읽으면 빈 목록(이번에 처리한 건만 덮어쓴다). */
+    private List<JsonNode> failedRows(String execId) {
+        JsonNode r = logCollector.fileProcs(execId, 5000);
+        List<JsonNode> out = new ArrayList<>();
+        if (r != null && r.path("rows").isArray()) {
+            r.path("rows").forEach(n -> {
+                if ("FAIL".equals(n.path("proc_sts_cd").asText(""))) {
+                    out.add(n);
+                }
+            });
+        }
+        return out;
     }
 
     /** 로그 컬렉터 시각 — ISO({@code 2026-10-01T00:00:00}). 공백 구분도 받는다. */

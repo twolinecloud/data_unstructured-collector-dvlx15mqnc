@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 로그 컬렉터 REST 클라이언트 — 수집 이력을 <b>API 로</b> 적재한다.
@@ -146,6 +147,79 @@ public class LogCollectorClient {
                         execTypeCd, LocalDateTime.now().withNano(0), triggerBy));
         return (result == null || result.path("execId").isMissingNode())
                 ? null : result.path("execId").asText(null);
+    }
+
+    /**
+     * 긴급 재처리 — 원배치를 <b>같은 EXEC_ID 로 다시 연다</b>({@code POST /api/v1/logs/batches/{execId}/reopen} · 로그 컬렉터 2026-10-01).
+     * T1 이 RUNNING 으로 돌아가고 건수 · 오류가 비워지며 T2 단계가 지워진다(다시 도는 실행이 새로 적재). T4 는 그대로다 —
+     * V19 부터 같은 (배치 · 수용자 · 파일)은 마지막 상태로 덮어쓴다.
+     *
+     * @return 다시 열었으면 true. 미연동 · 실패(없는 배치 404 · 실패 상태가 아님 409)면 false
+     */
+    public boolean reopenBatch(String execId, String triggerBy, LocalDateTime targetFrom, LocalDateTime targetTo) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return false;
+        }
+        JsonNode r = exchange(HttpMethod.POST, url("/api/v1/logs/batches/" + execId.trim() + "/reopen"),
+                new BatchCreateReq(null, null, null,
+                        targetFrom == null ? null : targetFrom.withNano(0),
+                        targetTo == null ? null : targetTo.withNano(0),
+                        null, LocalDateTime.now().withNano(0), triggerBy));
+        return r != null;
+    }
+
+    /** 재처리 체인의 배치 한 건 — 실패/부분성공/취소 · 훑은 구간. */
+    public record ChainBatch(String execId, String execStsCd, String jobId, String jobNm, LocalDateTime startDtm,
+                             LocalDateTime targetFrom, LocalDateTime targetTo) {}
+
+    /**
+     * 재처리 체인 — 지정 배치와 같은 데이터유형 · 같은 작업의 실패/부분성공/취소 배치, 오래된 순
+     * ({@code GET /api/v1/logs/batches/{execId}/failed-chain?all=}).
+     *
+     * @param all false 면 지정 배치 이전(포함)까지 — 음성. true 면 지금까지 전부 — 수용자 이미지(한 번이 모든 실패를 해결)
+     * @return 목록. 미연동 · 실패 · 이 API 가 없는 옛 컬렉터면 null(호출 측이 예전처럼 한 배치만 돈다)
+     */
+    public List<ChainBatch> failedChain(String execId, boolean all) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return null;
+        }
+        JsonNode r = exchange(HttpMethod.GET, url("/api/v1/logs/batches/" + execId.trim() + "/failed-chain?all=" + all), null);
+        if (r == null || !r.isArray()) {
+            return null;
+        }
+        List<ChainBatch> out = new ArrayList<>();
+        r.forEach(n -> out.add(new ChainBatch(n.path("execId").asText(null), n.path("execStsCd").asText(null),
+                n.path("jobId").asText(null), n.path("jobNm").asText(null), dtm(n, "startDtm"),
+                dtm(n, "targetFromDtm"), dtm(n, "targetToDtm"))));
+        return out;
+    }
+
+    private static LocalDateTime dtm(JsonNode n, String f) {
+        JsonNode v = n.path(f);
+        if (v.isMissingNode() || v.isNull() || v.asText().isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(v.asText().trim().replace(' ', 'T'));
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /**
+     * T4 상태별 건수 — {@code GET …/file-procs} 의 {@code byStatus}. 같은 EXEC_ID 로 다시 돈 배치의 T1 건수를
+     * <b>T4 최종 상태</b>로 세는 데 쓴다(원래 성공 + 이번 성공).
+     *
+     * @return {@code {SUCCESS: n, FAIL: m, …}}. 실패하면 null
+     */
+    public Map<String, Long> fileStatusCounts(String execId) {
+        JsonNode r = fileProcs(execId, 1);
+        if (r == null || !r.path("byStatus").isObject()) {
+            return null;
+        }
+        Map<String, Long> m = new java.util.LinkedHashMap<>();
+        r.path("byStatus").fields().forEachRemaining(e -> m.put(e.getKey(), e.getValue().asLong()));
+        return m;
     }
 
     /**

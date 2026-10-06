@@ -215,12 +215,30 @@ public class ImageCollectService {
      * @param onExecId {@code (execId, 로그 컬렉터 채번인가)}. null 이면 부르지 않는다
      */
     public ImageRunResult run(ImageRunRequest req, BiConsumer<String, Boolean> onExecId) {
+        return guarded(req, onExecId, null);
+    }
+
+    /**
+     * 긴급 재처리 체인 — 로그 컬렉터가 <b>같은 EXEC_ID 로 다시 연</b> 이미지 배치로 돈다. 이미지는 날짜 구간이 없어 지금 시점 전체
+     * 수용자의 최신 사진을 다시 보고, 원배치에서 실패였던 수용자가 이제 최신 사진으로 매핑돼 있으면(이번에 처리됐든 다른 실행이
+     * 처리했든) 그 T4 행을 성공으로 덮어쓴다(V19). T1 은 T4 최종 상태로 마감한다.
+     *
+     * @param failedRows 원배치 T4 의 실패 행({@code rec_file_id} · {@code inmate_pid} · {@code file_nm})
+     */
+    public ImageRunResult runReopened(ImageRunRequest req, String reopenedExecId, List<com.fasterxml.jackson.databind.JsonNode> failedRows) {
+        return guarded(req, null, new Reopen(reopenedExecId, failedRows == null ? List.of() : failedRows));
+    }
+
+    /** 다시 연 배치 — 실행 ID 와 원배치 T4 실패 행. */
+    private record Reopen(String execId, List<com.fasterxml.jackson.databind.JsonNode> failedRows) {}
+
+    private ImageRunResult guarded(ImageRunRequest req, BiConsumer<String, Boolean> onExecId, Reopen reopen) {
         if (!running.compareAndSet(false, true)) {
             throw new IllegalStateException("수용자 이미지 수집이 이미 돌고 있습니다 — " + execId);
         }
         try {
             return runInternal(req == null ? new ImageRunRequest(null, null, null, null, null, null, null, null, null, null) : req,
-                    onExecId);
+                    onExecId, reopen);
         } finally {
             running.set(false);
             current = null;
@@ -228,7 +246,7 @@ public class ImageCollectService {
         }
     }
 
-    private ImageRunResult runInternal(ImageRunRequest req, BiConsumer<String, Boolean> onExecId) {
+    private ImageRunResult runInternal(ImageRunRequest req, BiConsumer<String, Boolean> onExecId, Reopen reopen) {
         long t0 = System.currentTimeMillis();
         // SIM(SIMIMG…)은 시뮬레이터 시험 전용이다(2026-10-02 결정) — 그 접두로 돌리면 늘 시험 실행(TST 이력)으로 남긴다
         boolean test = Boolean.TRUE.equals(req.testRun()) || isSimPrefix(req.corrNoPrefix());
@@ -246,8 +264,9 @@ public class ImageCollectService {
                 ? Map.copyOf(req.injectFailures()) : Map.of();
 
         // ── T1 — 로그 컬렉터가 채번한다(UNSTRUCTURED → UNS · 시험 → TST). 미연동이면 로컬 ID(같은 자리에 UNS/TST) ──
-        String collectorExecId = logCollector.createBatch(test ? voiceProps.batch().testJobId() : props.jobId(),
-                test ? JOB_NM + "(시험)" : JOB_NM, voiceProps.batch().dataTypeCd(), execTypeOf(trigger), trigger, null, null);
+        String collectorExecId = reopen != null ? reopen.execId()
+                : logCollector.createBatch(test ? voiceProps.batch().testJobId() : props.jobId(),
+                        test ? JOB_NM + "(시험)" : JOB_NM, voiceProps.batch().dataTypeCd(), execTypeOf(trigger), trigger, null, null);
         LocalDateTime now = LocalDateTime.now();
         execId = collectorExecId != null ? collectorExecId : now.format(EXEC_DATE) + (test ? "TST" : "UNS") + now.format(EXEC_TIME);
         if (onExecId != null) {
@@ -364,7 +383,7 @@ public class ImageCollectService {
             }
         }
         // ── 처리 이력 — T2 마감(3단계 건수) · T4(처리한 사진 1장 = 1행) · T1 마감 ─────────────────────
-        writeLogs(steps, targets, outcomes, canceled, t0, m);
+        writeLogs(steps, targets, outcomes, canceled, t0, m, reopen);
 
         long elapsed = System.currentTimeMillis() - t0;
         log.info("[Image] 종료{} — execId={} · 대상 {} · 성공 {}(신규 {} · 갱신 {} · 옛 사진 {}) · 실패 {}{} · 건너뜀 {} · {}ms",
@@ -396,7 +415,7 @@ public class ImageCollectService {
      * (정합성 T1.SUCCESS_CNT == Σ T4 SUCCESS).</p>
      */
     private void writeLogs(StepLog steps, List<ImageTarget> targets, List<ImageOutcome> outcomes, boolean canceled, long t0,
-                           ImageMetrics m) {
+                           ImageMetrics m, Reopen reopen) {
         long processed = outcomes.stream().filter(o -> !"SKIPPED".equals(o.status())).count();
         Map<StepType, Long> failAt = new java.util.EnumMap<>(StepType.class);
         for (ImageOutcome o : outcomes) {
@@ -421,11 +440,59 @@ public class ImageCollectService {
             }
             rows.add(fileProcOf(i < targets.size() ? targets.get(i) : null, o));
         }
+        if (reopen != null) {
+            rows.addAll(resolvedRows(reopen, outcomes, rows));
+        }
         logCollector.createFileProcs(execId, rows);
 
         String sts = canceled ? "CANCELED" : ng == 0 ? "SUCCESS" : ok > 0 ? "PARTIAL" : "FAIL";
+        long target = outcomes.size();
+        if (reopen != null) {
+            // 같은 실행 ID 로 다시 돈 배치 — T1 은 T4 최종 상태(원래 성공 + 해결된 실패)로 마감한다
+            Map<String, Long> by = logCollector.fileStatusCounts(execId);
+            if (by != null) {
+                ok = by.getOrDefault("SUCCESS", 0L);
+                ng = by.getOrDefault("FAIL", 0L);
+                target = Math.max(target, by.values().stream().mapToLong(Long::longValue).sum());
+                sts = canceled ? "CANCELED" : ng == 0 ? "SUCCESS" : ok > 0 ? "PARTIAL" : "FAIL";
+                log.info("[Image] 다시 연 배치 {} — T4 최종 상태로 T1 마감: {} · 성공 {} · 실패 {}", execId, sts, ok, ng);
+            }
+        }
         logCollector.finishBatch(execId, sts, (int) ((System.currentTimeMillis() - t0) / 1000),
-                (long) outcomes.size(), ok, ng, topErr);
+                target, ok, ng, ng == 0 ? null : topErr);
+    }
+
+    /**
+     * 다시 연 배치 — 원배치에서 실패였던 수용자가 지금 최신 사진으로 매핑돼 있으면(이번에 성공 · '변경 없음' · '더 최신 사진') 그 T4 행을
+     * 성공으로 덮어쓸 행. 이번 실행이 같은 (수용자 · 파일)을 이미 적었으면 넣지 않는다. 이번에도 실패했거나 원천에서 사라진 수용자는
+     * 그대로 실패로 남는다(해결된 만큼만 닫힌다).
+     */
+    private List<LogCollectorClient.FileProcReq> resolvedRows(Reopen reopen, List<ImageOutcome> outcomes,
+                                                             List<LogCollectorClient.FileProcReq> written) {
+        java.util.Set<String> resolved = new java.util.HashSet<>();
+        for (ImageOutcome o : outcomes) {
+            boolean mapped = o.isSuccess() || ("SKIPPED".equals(o.status()) && !CANCELED.equals(o.errMsg()));
+            if (mapped && o.corrNo() != null) {
+                resolved.add(pidGenerator.of(o.corrNo()));
+            }
+        }
+        java.util.Set<String> already = new java.util.HashSet<>();
+        written.forEach(r -> already.add(r.inmatePid() + "|" + r.recFileId()));
+        List<LogCollectorClient.FileProcReq> out = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode f : reopen.failedRows()) {
+            String pid = f.path("inmate_pid").asText(null);
+            String rec = f.path("rec_file_id").asText(null);
+            if (pid == null || rec == null || !resolved.contains(pid) || !already.add(pid + "|" + rec)) {
+                continue;
+            }
+            out.add(new LogCollectorClient.FileProcReq(rec, null, f.path("file_nm").asText(null), pid, 0L, "SUCCESS", null,
+                    StepType.SEND.name()));
+        }
+        if (!out.isEmpty()) {
+            log.info("[Image] 다시 연 배치 {} — 원래 실패 {}건 중 {}건이 지금 최신 사진으로 매핑돼 있어 성공으로 덮어쓴다",
+                    reopen.execId(), reopen.failedRows().size(), out.size());
+        }
+        return out;
     }
 
     /** 실패한 세부 단계의 3단계 — 단계가 비어 있으면(워커 밖 예외) 수집으로 본다. */

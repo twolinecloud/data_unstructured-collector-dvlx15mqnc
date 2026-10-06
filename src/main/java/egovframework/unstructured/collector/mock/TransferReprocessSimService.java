@@ -7,9 +7,9 @@ import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.BatchWindow;
 import egovframework.unstructured.collector.common.model.FileProcOutcome;
 import egovframework.unstructured.collector.common.model.VoiceKind;
-import egovframework.unstructured.collector.common.transfer.ZenonClient;
-import egovframework.unstructured.collector.common.transfer.ZenonMockReceiver;
-import egovframework.unstructured.collector.common.transfer.ZenonTransferRuns;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorMockReceiver;
+import egovframework.unstructured.collector.common.transfer.TransferRuns;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
 import egovframework.unstructured.collector.voice.batch.VoiceCollectService;
@@ -28,22 +28,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * <b>전송 재처리 시나리오</b> — 에이전트 커넥터 시뮬레이터 '긴급 재처리(PPP 전송)' 탭을 비정형 수집기에 그대로 옮겼다(2026-10-05).
  *
  * <ul>
- *   <li><b>시나리오 1 · 전 청크 실패</b> — 수집 · STT 까지는 성공했으나 제논이 1번 청크부터 503(수신 서버 장애) → 한 청크도
+ *   <li><b>시나리오 1 · 전 청크 실패</b> — 수집 · STT 까지는 성공했으나 에이전트 커넥터가 1번 청크부터 503(수신 서버 장애) → 한 청크도
  *       받아들여지지 않아 배치 <b>FAIL</b>. 전사 보존물({@code stt_temp})이 남아 재처리는 수집 · STT 를 건너뛰고 <b>처음부터 다시</b> 보낸다.</li>
  *   <li><b>시나리오 2 · 부분 전송 실패</b> — 3번째 청크에서 503 → 앞 2청크는 받아들여져 배치 <b>PARTIAL</b>. 재처리는
  *       <b>원배치 런을 이어 받아 3번 청크부터</b> 보내고 마지막 청크로 마감한다(이어달리기).</li>
  * </ul>
- * <p>① 오류 상황 재현(더미 생성 → 장애 · 청크 2건 → 실행) → ② 제논 정상화 → ③ 긴급 재처리(admin 과 같은 경로 — 단계 SEND).
+ * <p>① 오류 상황 재현(더미 생성 → 장애 · 청크 2건 → 실행) → ② 에이전트 커넥터 정상화 → ③ 긴급 재처리(admin 과 같은 경로 — 단계 SEND).
  * 용도(SIM/REAL)를 고른다 — SIM 은 시험 실행(TST), REAL(대시보드)은 DMY 더미로 실제 배치(UNS) — 로그 컬렉터 이력 · 대시보드에 남는다.</p>
  */
 @Log4j2
 @Service
 @Profile({"dev", "local"})
-public class ZenonReprocessSimService {
+public class TransferReprocessSimService {
 
     /** 시나리오. */
     public enum Scenario {
-        ALL_FAIL("시나리오 1 · 전 청크 실패", "제논 다운 — 1번 청크부터 503"),
+        ALL_FAIL("시나리오 1 · 전 청크 실패", "에이전트 커넥터 다운 — 1번 청크부터 503"),
         PARTIAL("시나리오 2 · 부분 전송 실패", "3번 청크부터 503");
 
         final String label;
@@ -62,22 +62,22 @@ public class ZenonReprocessSimService {
     private final VoiceCollectService voice;
     private final UnstructuredBatchService batch;
     private final UnstructuredJobRunner runner;
-    private final ZenonClient zenon;
-    private final ZenonMockReceiver receiver;
-    private final ZenonTransferRuns runs;
+    private final AgentConnectorClient connector;
+    private final AgentConnectorMockReceiver receiver;
+    private final TransferRuns runs;
     private final LogCollectorClient logCollector;
     private final egovframework.unstructured.collector.voice.batch.BatchProgress progress;
     private final Map<String, Armed> armed = new ConcurrentHashMap<>();
 
-    public ZenonReprocessSimService(DummyDataService dummy, VoiceCollectService voice, UnstructuredBatchService batch,
-                                    UnstructuredJobRunner runner, ZenonClient zenon, ZenonMockReceiver receiver,
-                                    ZenonTransferRuns runs, LogCollectorClient logCollector,
+    public TransferReprocessSimService(DummyDataService dummy, VoiceCollectService voice, UnstructuredBatchService batch,
+                                    UnstructuredJobRunner runner, AgentConnectorClient connector, AgentConnectorMockReceiver receiver,
+                                    TransferRuns runs, LogCollectorClient logCollector,
                                     egovframework.unstructured.collector.voice.batch.BatchProgress progress) {
         this.dummy = dummy;
         this.voice = voice;
         this.batch = batch;
         this.runner = runner;
-        this.zenon = zenon;
+        this.connector = connector;
         this.receiver = receiver;
         this.runs = runs;
         this.logCollector = logCollector;
@@ -85,7 +85,7 @@ public class ZenonReprocessSimService {
     }
 
     /**
-     * ① 오류 상황 재현 — 더미(접견 · 전화)를 만들고, 제논 장애를 걸고, 청크를 작게(기본 2건) 해서 배치를 돌린다.
+     * ① 오류 상황 재현 — 더미(접견 · 전화)를 만들고, 에이전트 커넥터 장애를 걸고, 청크를 작게(기본 2건) 해서 배치를 돌린다.
      *
      * @param target       SIMULATOR(SIM · 시험 실행 TST) · DASHBOARD(DMY · 실제 배치 UNS)
      * @param perType      유형별 건수(접견 · 전화 각각) — 기본 3 → 6건
@@ -103,16 +103,16 @@ public class ZenonReprocessSimService {
 
         Map<String, Object> gen = dummy.generate(new DummyDataService.GenerateRequest(tg,
                 List.of(DummyDataType.MEET, DummyDataType.PHONE), date, n, Map.of(), true, null));
-        receiver.setFault(sc == Scenario.ALL_FAIL ? ZenonMockReceiver.FaultMode.DOWN : ZenonMockReceiver.FaultMode.FAIL_FROM_SEQ,
+        receiver.setFault(sc == Scenario.ALL_FAIL ? AgentConnectorMockReceiver.FaultMode.DOWN : AgentConnectorMockReceiver.FaultMode.FAIL_FROM_SEQ,
                 3);
-        zenon.overrideChunkRecords(chunk);
+        connector.overrideChunkRecords(chunk);
         boolean testRun = tg == DummyTarget.SIMULATOR;
         // 구간 = 방금 만든 더미의 발생 시각 범위 — 같은 날의 다른 데이터(남은 SIM · DMY · 실제 행)가 섞이지 않게 좁힌다.
         //   재처리는 원배치 T1 의 구간을 그대로 쓰므로 같은 건만 다시 돈다.
         BatchWindow window = windowOf(gen, date);
         List<VoiceKind> kinds = List.of(VoiceKind.MEET, VoiceKind.PHONE);
-        log.info("[ZenonSim] 전송 재처리 재현 — {} · {} · 대상일 {} · 유형별 {}건 · 청크 {}건 · 장애 {}", sc, tg, date, n, chunk, sc.fault);
-        VoiceBatchResult r = voice.run(window, kinds, "SIM/zenon-" + sc.name(), testRun, ResumeMode.FULL, null,
+        log.info("[TransferSim] 전송 재처리 재현 — {} · {} · 대상일 {} · 유형별 {}건 · 청크 {}건 · 장애 {}", sc, tg, date, n, chunk, sc.fault);
+        VoiceBatchResult r = voice.run(window, kinds, "SIM/transfer-" + sc.name(), testRun, ResumeMode.FULL, null,
                 voice.defaultWorkers());
         armed.put(r.execId(), new Armed(sc, tg, window, kinds, testRun));
 
@@ -123,17 +123,17 @@ public class ZenonReprocessSimService {
         m.put("testRun", testRun);
         m.put("targetDate", date.toString());
         m.put("generated", Map.of("totals", gen.get("totals"), "counts", gen.get("counts"), "prefix", gen.get("prefix")));
-        m.put("summary", "제논 " + sc.fault + " · 청크 " + chunk + "건 — " + r.summary());
-        m.put("next", "② 제논 정상화 → ③ 긴급 재처리(단계 SEND — 전사 보존물로 수집·STT 를 건너뛰고 "
+        m.put("summary", "에이전트 커넥터 " + sc.fault + " · 청크 " + chunk + "건 — " + r.summary());
+        m.put("next", "② 에이전트 커넥터 정상화 → ③ 긴급 재처리(단계 SEND — 전사 보존물로 수집·STT 를 건너뛰고 "
                 + (sc == Scenario.PARTIAL ? "원배치 런을 3번 청크부터 이어서" : "처음부터 다시") + " 보낸다)");
         return m;
     }
 
-    /** ② 제논 정상화 — 수신기를 200 으로 되돌린다. */
+    /** ② 에이전트 커넥터 정상화 — 수신기를 200 으로 되돌린다. */
     public Map<String, Object> fix() {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("fault", receiver.setFault(ZenonMockReceiver.FaultMode.UP, 0));
-        m.put("message", "제논 수신기 정상화(200 OK) — 이제 ③ 긴급 재처리를 누르세요");
+        m.put("fault", receiver.setFault(AgentConnectorMockReceiver.FaultMode.UP, 0));
+        m.put("message", "에이전트 커넥터 수신기 정상화(200 OK) — 이제 ③ 긴급 재처리를 누르세요");
         return m;
     }
 
@@ -185,26 +185,26 @@ public class ZenonReprocessSimService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("execId", execId);
         m.put("fault", receiver.fault());
-        m.put("chunkRecords", zenon.chunkRecords());
+        m.put("chunkRecords", connector.chunkRecords());
         if (execId != null && !execId.isBlank()) {
-            ZenonTransferRuns.RunState r = runs.get(execId);
+            TransferRuns.RunState r = runs.get(execId);
             m.put("run", r == null ? null : runView(r));
             m.put("ledger", receiver.ledger(execId));
-            m.put("receipts", zenon.receipts(execId).size());
+            m.put("receipts", connector.receipts(execId).size());
             m.put("execStsCd", execSts(execId));
         }
-        m.put("recentRuns", runs.recent(10).stream().map(ZenonReprocessSimService::runView).toList());
+        m.put("recentRuns", runs.recent(10).stream().map(TransferReprocessSimService::runView).toList());
         return m;
     }
 
     /** 상태 초기화 — 장애 해제 · 청크 레코드 수 설정값으로. */
     public Map<String, Object> reset() {
-        receiver.setFault(ZenonMockReceiver.FaultMode.UP, 0);
-        zenon.overrideChunkRecords(null);
+        receiver.setFault(AgentConnectorMockReceiver.FaultMode.UP, 0);
+        connector.overrideChunkRecords(null);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("fault", receiver.fault());
-        m.put("chunkRecords", zenon.chunkRecords());
-        m.put("message", "초기화 — 제논 정상 · 청크 레코드 수 설정값(" + zenon.chunkRecords() + ")");
+        m.put("chunkRecords", connector.chunkRecords());
+        m.put("message", "초기화 — 에이전트 커넥터 정상 · 청크 레코드 수 설정값(" + connector.chunkRecords() + ")");
         return m;
     }
 
@@ -268,11 +268,11 @@ public class ZenonReprocessSimService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("execId", execId);
         m.put("execStsCd", execStsCd);
-        ZenonClient.Report rep = zenon.lastReport();
+        AgentConnectorClient.Report rep = connector.lastReport();
         if (rep != null && execId != null && execId.equals(rep.execId())) {
             m.put("transfer", rep.view());
             m.put("ledger", receiver.ledger(rep.runId()));
-            ZenonTransferRuns.RunState run = runs.get(rep.runId());
+            TransferRuns.RunState run = runs.get(rep.runId());
             m.put("run", run == null ? null : runView(run));
         }
         m.put("fault", receiver.fault());
@@ -298,7 +298,7 @@ public class ZenonReprocessSimService {
         return m;
     }
 
-    static Map<String, Object> runView(ZenonTransferRuns.RunState r) {
+    static Map<String, Object> runView(TransferRuns.RunState r) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("runId", r.runId);
         m.put("deliveredSeq", r.deliveredSeq);

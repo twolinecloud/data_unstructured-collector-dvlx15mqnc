@@ -28,7 +28,7 @@ public record PerfRequest(
         Integer sttPercent,
         @Schema(description = "XVARM 확보 워커 수 — 1~64. 파일 확보(브로커 추출 → 수신 폴더 도착)를 차례로 한다", example = "1")
         Integer acquireWorkers,
-        @Schema(description = "STT 처리 워커 수 — 1~64. 확보된 파일을 곧바로 받아 복호화 · STT · 제논 전송을 한다", example = "31")
+        @Schema(description = "STT 처리 워커 수 — 1~64. 확보된 파일을 곧바로 받아 복호화 · STT · 에이전트 커넥터 전송을 한다", example = "31")
         @JsonAlias("concurrency") Integer sttWorkers,
         @Schema(description = "건당 STT 처리 시간 방식 — FIXED(고정) · RANGE(기준값 ±변동 폭 균등 난수)", example = "FIXED") String latencyMode,
         @Schema(description = "접견 건당 STT 처리 시간(ms) — 0~600,000. 평균 접견 15분 → 건당 처리 시간 180초", example = "180000")

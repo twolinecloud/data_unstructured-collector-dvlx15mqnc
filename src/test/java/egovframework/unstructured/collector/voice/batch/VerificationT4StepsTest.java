@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.config.DeployEnvPreset;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
-import egovframework.unstructured.collector.common.transfer.ZenonClient;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
 import egovframework.unstructured.collector.voice.stt.SttTempStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,7 +30,7 @@ class VerificationT4StepsTest {
     void setUp() {
         logc = mock(LogCollectorClient.class);
         when(logc.isEnabled()).thenReturn(true);
-        svc = new VerificationService(mock(VoiceDirState.class), logc, mock(DeployEnvPreset.class), mock(SttTempStore.class), mock(ZenonClient.class));
+        svc = new VerificationService(mock(VoiceDirState.class), logc, mock(DeployEnvPreset.class), mock(SttTempStore.class), mock(AgentConnectorClient.class));
     }
 
     @Test
@@ -69,7 +69,7 @@ class VerificationT4StepsTest {
     @Test
     @DisplayName("ERR_STACK 단계 읽기 — [코드] [단계] · 코드 없이 [단계] · 단계 없음")
     void stepOf() {
-        assertThat(VerificationService.stepOf("[DATA] [SEND] 제논 HTTP 503")).isEqualTo("SEND");
+        assertThat(VerificationService.stepOf("[DATA] [SEND] 에이전트 커넥터 HTTP 503")).isEqualTo("SEND");
         assertThat(VerificationService.stepOf(" [ANALYZE] STT 실패")).isEqualTo("ANALYZE");
         assertThat(VerificationService.stepOf("[TIMEOUT] 수신 대기 초과")).isNull();
         assertThat(VerificationService.stepOf(null)).isNull();

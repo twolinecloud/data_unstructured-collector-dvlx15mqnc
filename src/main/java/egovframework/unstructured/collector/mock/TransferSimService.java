@@ -2,9 +2,9 @@ package egovframework.unstructured.collector.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.transfer.StreamingHttpClient;
-import egovframework.unstructured.collector.common.transfer.ZenonClient;
-import egovframework.unstructured.collector.common.transfer.ZenonMockReceiver;
-import egovframework.unstructured.collector.common.transfer.ZenonProperties;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorMockReceiver;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorProperties;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
@@ -27,11 +27,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * <b>제논 전송 시뮬레이션</b> — 에이전트 커넥터 시뮬레이터 '대용량 gzip 연동 시험'(표준 양식 · A/B/C · 수신 헤더 시나리오)을
+ * <b>에이전트 커넥터 전송 시뮬레이션</b> — 에이전트 커넥터 시뮬레이터 '대용량 gzip 연동 시험'(표준 양식 · A/B/C · 수신 헤더 시나리오)을
  * 비정형 수집기에 그대로 옮겼다(2026-10-05 지시).
  *
  * <p>수집기가 <b>자기 자신에게</b> 송신단 흉내를 내어 실제 소켓으로 쏜다 — {@link StreamingHttpClient}(data-collector 원본)로
- * {@code 127.0.0.1:{port}/api/v1/mock/zenon/transfer}(내장 수신기)에. 같은 JVM 이라 힙 곡선까지 함께 본다.
+ * {@code 127.0.0.1:{port}/api/v1/mock/agent-connector/transfer}(내장 수신기)에. 같은 JVM 이라 힙 곡선까지 함께 본다.
  * 수신기는 본문을 저장하지 않고 흘려 읽는다 — 방어가 됐는지는 상태 코드로, OOM 이 없었는지는 힙으로 확인한다.</p>
  * <ul>
  *   <li><b>A 정상 청크</b> — sizeMb gzip(chunked) 1회 → 200 · 레코드 수 일치</li>
@@ -45,17 +45,17 @@ import java.util.concurrent.atomic.AtomicLong;
 @Log4j2
 @Service
 @Profile({"dev", "local"})
-public class ZenonSimService {
+public class TransferSimService {
 
-    static final String SELF_PATH = "/api/v1/mock/zenon/transfer";
+    static final String SELF_PATH = "/api/v1/mock/agent-connector/transfer";
     private static final int MB = 1024 * 1024;
     /** 레코드 하나를 이만큼 부풀린다(50KB) — 커넥터 시험과 같다. 50MB 당 약 1,000건. */
     private static final int FILLER_BYTES = 50 * 1024;
     private static final int MAX_EVENTS = 400;
 
-    private final ZenonProperties props;
-    private final ZenonMockReceiver receiver;
-    private final ZenonClient zenon;
+    private final AgentConnectorProperties props;
+    private final AgentConnectorMockReceiver receiver;
+    private final AgentConnectorClient connector;
     private final ObjectMapper objectMapper;
     private final Environment env;
 
@@ -64,11 +64,11 @@ public class ZenonSimService {
     private volatile String jobId;
     private volatile String jobStatus = "NONE";
 
-    public ZenonSimService(ZenonProperties props, ZenonMockReceiver receiver, ZenonClient zenon, ObjectMapper objectMapper,
+    public TransferSimService(AgentConnectorProperties props, AgentConnectorMockReceiver receiver, AgentConnectorClient connector, ObjectMapper objectMapper,
                            Environment env) {
         this.props = props;
         this.receiver = receiver;
-        this.zenon = zenon;
+        this.connector = connector;
         this.objectMapper = objectMapper;
         this.env = env;
     }
@@ -92,7 +92,7 @@ public class ZenonSimService {
     /** 송신 표준 양식 — 헤더 · 본문 예시 · 규칙 · curl. 화면 '양식 복사' 가 이것을 그대로 쓴다. */
     public Map<String, Object> template() {
         String runId = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "UNS001";
-        Map<String, String> headers = zenon.headers(runId, 1, false, 6, 2);
+        Map<String, String> headers = connector.headers(runId, 1, false, 6, 2);
         headers.put("Content-Encoding", props.gzip() ? "gzip" : "(끔)");
         headers.put("Transfer-Encoding", "chunked");
         Map<String, Object> body = new LinkedHashMap<>();
@@ -134,7 +134,7 @@ public class ZenonSimService {
         m.put("headers", headers);
         m.put("body", body);
         m.put("rules", List.of(
-                "data-collector FeatureSetTransferSink 와 같은 양식 — 에이전트 커넥터 없이 제논으로 직접(2026-10-05)",
+                "data-collector FeatureSetTransferSink 와 같은 양식 · 같은 수신 API — 에이전트 커넥터 bypass(비식별 없이 제논으로 중계)",
                 "X-Run-Id = 전송 런 ID = 수집 실행 ID(EXEC_ID). FROM_SEND 재처리는 원배치 런을 이어 받아 다음 순번부터 보낸다",
                 "X-Seq 1부터 오름차순 · 마지막 청크만 X-Is-Last: true · X-Target-Cnt = 런 전체 레코드 · X-Chunk-Cnt = 이 청크 레코드",
                 "(X-Run-Id + X-Seq) 멱등 — 중복 청크는 200 + duplicate:true(재전송 무해)",
@@ -150,9 +150,9 @@ public class ZenonSimService {
                 + "  -H 'X-Target-Cnt: 2' -H 'X-Chunk-Cnt: 2' -H 'X-Seq: 1' -H 'X-Is-Last: true' \\\n"
                 + "  --data-binary @-");
         m.put("maxDecompressedMb", props.mockMaxDecompressedBytes() / MB);
-        m.put("chunkRecords", zenon.chunkRecords());
-        m.put("mode", zenon.mode());
-        m.put("endpoint", zenon.endpoint());
+        m.put("chunkRecords", connector.chunkRecords());
+        m.put("mode", connector.mode());
+        m.put("endpoint", connector.endpoint());
         return m;
     }
 
@@ -186,7 +186,7 @@ public class ZenonSimService {
         }
         jobId = "ZLOAD-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
         jobStatus = "RUNNING";
-        Thread t = new Thread(() -> runLoad(s, size, r, bomb), "zenon-sim-load");
+        Thread t = new Thread(() -> runLoad(s, size, r, bomb), "transfer-sim-load");
         t.setDaemon(true);
         t.start();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -216,7 +216,7 @@ public class ZenonSimService {
 
     private void runLoad(String s, int sizeMb, int rounds, int bombMb) {
         try {
-            Map<String, Object> b = event("banner", "info", "대용량 gzip 연동 시험 — 송신단(수집기) → 내장 제논 수신기");
+            Map<String, Object> b = event("banner", "info", "대용량 gzip 연동 시험 — 송신단(수집기) → 내장 에이전트 커넥터 수신기");
             b.put("scenario", s);
             b.put("sizeMb", sizeMb);
             b.put("rounds", rounds);
@@ -237,7 +237,7 @@ public class ZenonSimService {
             emit(event("done", "info", "시험 종료"));
             jobStatus = "DONE";
         } catch (RuntimeException e) {
-            log.error("[ZenonSim] 시험 실행 실패", e);
+            log.error("[TransferSim] 시험 실행 실패", e);
             emit(event("log", "error", "시험이 중단되었습니다 — " + e));
             emit(event("done", "error", "중단"));
             jobStatus = "FAILED";
@@ -381,14 +381,14 @@ public class ZenonSimService {
                 peak.accumulateAndGet(mem.getHeapMemoryUsage().getUsed(), Math::max);
                 sleepQuietly(150);
             }
-        }, "zenon-sim-heap");
+        }, "transfer-sim-heap");
         sampler.setDaemon(true);
         sampler.start();
         long t0 = System.currentTimeMillis();
         AtomicLong written = new AtomicLong();
         AtomicLong compressed = new AtomicLong();
         try {
-            Map<String, String> h = zenon.headers(runId, seq, last, target, (int) Math.min(Integer.MAX_VALUE, chunkCnt));
+            Map<String, String> h = connector.headers(runId, seq, last, target, (int) Math.min(Integer.MAX_VALUE, chunkCnt));
             // gzip 은 여기서 씌운다(클라이언트 gzip 과 같은 바이트) — 네트워크로 나간 압축 바이트를 세기 위해서다
             h.put("Content-Encoding", "gzip");
             StreamingHttpClient.Result r = StreamingHttpClient.post("127.0.0.1", port(), SELF_PATH, h, false, out -> {
@@ -568,7 +568,7 @@ public class ZenonSimService {
 
     /** 레코드 2건짜리 청크 하나 — 실제 소켓으로. runId 가 null 이면 X-Run-Id 를 뺀다. */
     private Hit chunk(String runId, int seq, boolean last, int target, int chunkCnt, boolean gzip) {
-        Map<String, String> h = zenon.headers(runId == null ? "x" : runId, seq, last, target, chunkCnt);
+        Map<String, String> h = connector.headers(runId == null ? "x" : runId, seq, last, target, chunkCnt);
         if (runId == null) {
             h.remove("X-Run-Id");
         }

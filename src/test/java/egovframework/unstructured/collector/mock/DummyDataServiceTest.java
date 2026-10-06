@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 더미 데이터 — 용도별 생성 · 날짜 분산 · 추가(append) 키 유일성 · 장애 시나리오별 실패 단계와 기대 재처리 · 용도별 초기화 격리 ·
- * 수용자기본/신상 테이블 미사용. 로컬 H2(보라미 · Admin) · 브로커/전화/STT/제논 MOCK · 복호화 REAL(테스트 키) — 개발계와 같은 단계 구성.
+ * 수용자기본/신상 테이블 미사용. 로컬 H2(보라미 · Admin) · 브로커/전화/STT/에이전트 커넥터 MOCK · 복호화 REAL(테스트 키) — 개발계와 같은 단계 구성.
  *
  * <p>외부 주소는 여기서 못 박는다 — Jenkins 는 dev 프로파일로 테스트를 돌려 개발계 주소를 읽는다.</p>
  */
@@ -56,7 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "voice.phone.mode=MOCK",
         "voice.stt.mode=MOCK",
         "voice.decrypt.mode=REAL",
-        "zenon.mode=MOCK",
+        "agent-connector.mode=MOCK",
         "log-collector.enabled=false",
         "voice.sim.seed-on-startup=false",
         "voice.sync.wait-timeout-sec=10",

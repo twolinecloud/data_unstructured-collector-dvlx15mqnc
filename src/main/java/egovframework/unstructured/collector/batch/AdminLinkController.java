@@ -134,7 +134,7 @@ public class AdminLinkController {
                     |---|---|---|
                     | (비움) · `COLLECT` | 처음부터 | 없음 |
                     | `ANALYZE` | STT 부터 | 복호화 오디오 |
-                    | `SEND` | 제논 전송부터(STT 생략) | `stt_temp/{원 execId}` 전사 |
+                    | `SEND` | 에이전트 커넥터 전송부터(STT 생략) | `stt_temp/{원 execId}` 전사 |
 
                     - 실행 ID 는 **새로 받는다**(TRIGGER_BY `ADMIN/reprocess:<원 execId>`). 이미 성공한 건은 멱등 표식이 건너뛴다
                     - 시험 배치(TST)를 재처리하면 재처리도 시험 이력으로 남는다

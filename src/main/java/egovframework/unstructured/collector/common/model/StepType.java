@@ -15,7 +15,7 @@ import java.util.Optional;
  *   <tr><th>단계</th><th>음성(접견 · 전화)</th><th>수용자 이미지</th></tr>
  *   <tr><td>COLLECT</td><td>대상 조회 · 브로커 추출 / 전화 연계 · 수신 · 복호화</td><td>최신 사진 조회 · FILEKEY 추출 · 브로커 수신</td></tr>
  *   <tr><td>ANALYZE</td><td>STT</td><td>복호화 · 이미지 확인(매직 넘버)</td></tr>
- *   <tr><td>SEND</td><td>제논 전송</td><td>저장소 저장 · Admin DB 매핑(적재)</td></tr>
+ *   <tr><td>SEND</td><td>에이전트 커넥터 전송</td><td>저장소 저장 · Admin DB 매핑(적재)</td></tr>
  * </table>
  */
 public enum StepType {

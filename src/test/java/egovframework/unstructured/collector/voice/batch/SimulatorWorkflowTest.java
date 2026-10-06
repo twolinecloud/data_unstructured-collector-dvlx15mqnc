@@ -62,7 +62,7 @@ class SimulatorWorkflowTest {
     @Autowired
     private IdempotencyGuard idempotency;
     @Autowired
-    private egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private egovframework.unstructured.collector.common.transfer.AgentConnectorClient connector;
     @Autowired
     private egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
 
@@ -163,10 +163,10 @@ class SimulatorWorkflowTest {
         assertThat(r.execStsCd()).isEqualTo("FAIL");
     }
 
-    // ── 제논 전송 실패 → 재처리(FROM_SEND) ─────────────────────────────────
+    // ── 에이전트 커넥터 전송 실패 → 재처리(FROM_SEND) ─────────────────────────────────
 
     @Test
-    @DisplayName("제논 전송 실패 → 전사 보존 · 수신증 없음 → FROM_SEND 재처리가 보존된 전사로 다시 보내고 보존물을 지운다")
+    @DisplayName("에이전트 커넥터 전송 실패 → 전사 보존 · 수신증 없음 → FROM_SEND 재처리가 보존된 전사로 다시 보내고 보존물을 지운다")
     @SuppressWarnings("unchecked")
     void sendFailureResumesFromTranscript() {
         faults.set(StageFaultState.Stage.SEND, StageFaultState.Mode.ALL, null);
@@ -178,7 +178,7 @@ class SimulatorWorkflowTest {
         assertThat(first.outcomes()).allSatisfy(o -> assertThat(o.failedStep()).isEqualTo(egovframework.unstructured.collector.common.model.FileProcOutcome.STEP_SEND));
         assertThat(first.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
                 .containsExactly("COLLECT", "ANALYZE", "SEND");
-        assertThat(zenon.receipts(first.execId())).as("실패한 건은 보내지 않았다").isEmpty();
+        assertThat(connector.receipts(first.execId())).as("실패한 건은 보내지 않았다").isEmpty();
         assertThat(((Number) sttTemp.status().get("total")).intValue()).as("전사 보존물이 남는다").isEqualTo(5);
 
         List<String> failedKeys = first.outcomes().stream().map(o -> o.target().idempotencyKey()).toList();
@@ -188,8 +188,8 @@ class SimulatorWorkflowTest {
 
         assertThat(again.failCnt()).isZero();
         assertThat(again.successCnt()).isEqualTo(7);
-        assertThat(zenon.receipts(again.execId())).extracting(r -> String.valueOf(r.metadata().get("idempotency_key")))
-                .as("전송에서 깨졌던 5건이 이번에 제논으로 갔다").containsAll(failedKeys);
+        assertThat(connector.receipts(again.execId())).extracting(r -> String.valueOf(r.metadata().get("idempotency_key")))
+                .as("전송에서 깨졌던 5건이 이번에 에이전트 커넥터로 갔다").containsAll(failedKeys);
         assertThat(((Number) sttTemp.status().get("total")).intValue()).as("보낸 뒤 보존물 정리(Purge)").isZero();
     }
 
@@ -232,13 +232,13 @@ class SimulatorWorkflowTest {
         assertThat(db).containsEntry("available", false);
         assertThat((String) db.get("reason")).as("컬렉터를 끈 구성").contains("미연동");
 
-        // 결과는 PV 에 남기지 않는다 — 전부 성공했으니 보존물도 없고, 제논 수신증만 있다
+        // 결과는 PV 에 남기지 않는다 — 전부 성공했으니 보존물도 없고, 전송 수신증만 있다
         Map<String, Object> files = (Map<String, Object>) v.get("files");
         assertThat(files).doesNotContainKey("output");
-        Map<String, Object> zenon = (Map<String, Object>) v.get("zenon");
-        assertThat(zenon).containsEntry("mode", "MOCK");
-        assertThat(((Number) zenon.get("count")).intValue()).as("성공 건마다 수신증 하나").isEqualTo(r.successCnt());
-        assertThat((Map<String, Long>) zenon.get("byKind")).containsKeys("MEET", "PHONE");
+        Map<String, Object> connector = (Map<String, Object>) v.get("transfer");
+        assertThat(connector).containsEntry("mode", "MOCK");
+        assertThat(((Number) connector.get("count")).intValue()).as("성공 건마다 수신증 하나").isEqualTo(r.successCnt());
+        assertThat((Map<String, Long>) connector.get("byKind")).containsKeys("MEET", "PHONE");
 
         List<Map<String, String>> sql = (List<Map<String, String>>) v.get("sql");
         assertThat(sql).isNotEmpty();

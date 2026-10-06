@@ -217,7 +217,7 @@ public record VoiceProperties(
      *   work                   {ROOT}/xvram/decoding               XVARM 접견 복호화 산출물 · 멱등 표식
      * </pre>
      *
-     * <p>최종 결과 폴더(xenon)는 없다 — STT 결과는 제논(Zenon)으로 보내고 PV 에 남기지 않는다(2026-10-01).</p>
+     * <p>최종 결과 폴더(xenon)는 없다 — STT 결과는 에이전트 커넥터(bypass → 제논)로 보내고 PV 에 남기지 않는다(2026-10-01).</p>
      *
      * <p>기동 초기값은 여기서 오고 시뮬레이터에서 런타임으로 바꿀 수 있다({@code VoiceDirState}). 앱 기동과
      * 시뮬레이션 데이터 생성/초기화 때 없는 폴더는 만든다(CREATE_IF_NOT_EXISTS).</p>

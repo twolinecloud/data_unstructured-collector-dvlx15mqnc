@@ -59,7 +59,7 @@ class VoiceCollectE2ETest {
     @Autowired
     private VoiceCollectService service;
     @Autowired
-    private egovframework.unstructured.collector.common.transfer.ZenonClient zenon;
+    private egovframework.unstructured.collector.common.transfer.AgentConnectorClient connector;
 
     @Autowired
     private IdempotencyGuard idempotency;
@@ -103,15 +103,15 @@ class VoiceCollectE2ETest {
     }
 
     @Test
-    @DisplayName("STT 결과는 제논(Zenon)으로 보낸다 — 건마다 수신증 하나, PV 에는 결과 폴더(xenon)가 생기지 않는다")
-    void sendsSttResultsToZenon() throws Exception {
+    @DisplayName("STT 결과는 에이전트 커넥터(bypass → 제논)로 보낸다 — 건마다 수신증 하나, PV 에는 결과 폴더(xenon)가 생기지 않는다")
+    void sendsSttResultsToAgentConnector() throws Exception {
         VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
-        assertThat(result.zenon()).containsEntry("mode", "MOCK").containsEntry("sent", String.valueOf(result.successCnt()));
-        List<egovframework.unstructured.collector.common.transfer.ZenonClient.Receipt> receipts = zenon.receipts(result.execId());
+        assertThat(result.transfer()).containsEntry("mode", "MOCK").containsEntry("sent", String.valueOf(result.successCnt()));
+        List<egovframework.unstructured.collector.common.transfer.AgentConnectorClient.Receipt> receipts = connector.receipts(result.execId());
         assertThat(receipts).hasSize(result.successCnt());
         for (FileProcOutcome o : result.outcomes()) {
-            assertThat(o.sttPath()).startsWith("zenon:").endsWith(".json");
+            assertThat(o.sttPath()).startsWith("agent-connector:").endsWith(".json");
             var r = receipts.stream().filter(x -> o.target().idempotencyKey().equals(x.metadata().get("idempotency_key")))
                     .findFirst().orElseThrow();
             assertThat(r.code()).isEqualTo("SUCCESS");
@@ -127,7 +127,7 @@ class VoiceCollectE2ETest {
     void recordsCollectAndAnalyzeSteps() {
         VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
-        // SEND 는 제논 전송 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
+        // SEND 는 에이전트 커넥터 전송 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
         assertThat(result.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
                 .containsExactly("COLLECT", "ANALYZE", "SEND");
         assertThat(result.steps()).allSatisfy(st -> {

@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
  *   <tr><th>시나리오</th><th>표식</th><th>음성 실패 단계(T2/T4)</th><th>기대 재처리</th><th>이미지 실패 단계</th></tr>
  *   <tr><td>COLLECT_FAIL</td><td>{@code CF}</td><td>COLLECT</td><td>FULL</td><td>ACQUIRE(브로커 수신)</td></tr>
  *   <tr><td>ANALYZE_FAIL</td><td>{@code AF}</td><td>ANALYZE(STT)</td><td>FROM_ANALYZE</td><td>DECRYPT(복호화·이미지 확인)</td></tr>
- *   <tr><td>SEND_FAIL</td><td>{@code SF}</td><td>SEND(제논)</td><td>FROM_SEND</td><td>MAP(Admin DB 매핑 — 롤백)</td></tr>
+ *   <tr><td>SEND_FAIL</td><td>{@code SF}</td><td>SEND(에이전트 커넥터)</td><td>FROM_SEND</td><td>MAP(Admin DB 매핑 — 롤백)</td></tr>
  * </table>
  *
  * <p><b>키 형식</b> — 표식은 날짜와 순번 사이에 둔다(접견 키 컬럼 {@code TARE_FILE_NO} 가 26자라 짧은 두 글자).</p>

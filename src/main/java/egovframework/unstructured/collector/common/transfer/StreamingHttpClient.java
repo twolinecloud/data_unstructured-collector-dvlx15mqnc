@@ -21,7 +21,7 @@ import java.util.zip.GZIPOutputStream;
  * — 수신단 참조 구현(StreamingHttpClient)과 동일 전략.
  *
  * <p>gzip + {@code Transfer-Encoding: chunked}(Content-Length 없이 흘려보냄). 평문 http(클러스터 내부
- * 파드↔파드라 TLS 불필요), 요청당 1소켓({@code Connection: close}). 순차 전송({@link ZenonClient})과 짝.
+ * 파드↔파드라 TLS 불필요), 요청당 1소켓({@code Connection: close}). 순차 전송({@link AgentConnectorClient})과 짝.
  *
  * <p><b>출처</b>: data-collector {@code pipeline.predict.StreamingHttpClient}(2026-10 dev) 를 <b>그대로</b> 옮겼다 —
  * 전송 양식(gzip · chunked · 유실검증 헤더 · 2xx 판정)을 정형과 하나로 맞추기 위해서다(2026-10-05 지시).

@@ -29,16 +29,20 @@ import java.util.function.Consumer;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * 제논(Zenon) 전송 — 파이프라인 3단계 {@code SEND}. <b>data-collector 와 같은 전송 양식</b>(2026-10-05).
+ * 에이전트 커넥터 전송 — 파이프라인 3단계 {@code SEND}. <b>data-collector 와 같은 전송 양식 · 같은 수신 API</b>.
  *
- * <p>에이전트 커넥터(비식별 · 클라우드 중계)를 거치지 않고 제논 수신 API 로 직접 보낸다. 양식은 data-collector
- * {@code FeatureSetTransferSink} 와 같다 — 에이전트 커넥터 시뮬레이터에서 정해 둔 수집단 ↔ 수신단 규약이다.</p>
+ * <p><b>제논으로 가는 길은 늘 에이전트 커넥터를 거친다</b>(2026-10-06 PL 확인). 다만 비식별 파이프라인
+ * ({@code /api/v1/deid/pipeline} — gzip 을 풀어 비식별화)이 아니라, 비식별 없이 받은 그대로 제논으로 넘기는
+ * <b>bypass API</b>({@code POST /api/v1/learn/transfer} — 커넥터 {@code LearnTransferController})를 부른다.
+ * data-collector {@code FeatureSetTransferSink} 가 개발계에서 부르는 것과 같은 주소 · 같은 양식이다
+ * ({@code COLLECTOR_TRANSFER_BASE_URL=http://agent-connector-dp8qbi7xqh:8080}).
+ * 10-05 에 잠깐 '커넥터 없이 제논 직접' 으로 적었던 것을 되돌렸다 — 양식은 그때부터 이 bypass API 규약 그대로였다.</p>
  *
  * <h3>요청 하나 = 청크 하나</h3>
  * <pre>
  * POST {base-url}{transfer-path}            (기본 /api/v1/learn/transfer)
  * Content-Type: application/json;charset=UTF-8
- * Content-Encoding: gzip                     (zenon.gzip)
+ * Content-Encoding: gzip                     (agent-connector.gzip)
  * Transfer-Encoding: chunked
  * X-Run-Id: 20261005UNS001                   전송 런 ID = 실행 ID(재처리 이어달리기면 원배치 ID)
  * X-Data-Type: UNSTRUCTURED
@@ -56,9 +60,9 @@ import java.util.zip.GZIPOutputStream;
  *       (X-Run-Id + X-Seq) 멱등으로 200 + {@code duplicate:true} — 보낸 것으로 친다.</li>
  *   <li><b>순서대로 · 실패하면 멈춘다</b> — 한 청크가 실패하면 뒤 청크는 보내지 않는다(수신단이 오름차순 도착을 전제로 유실을 판정).
  *       실패 청크와 그 뒤 청크의 레코드는 그 건만 SEND 실패로 남고, 보존된 전사({@code stt_temp})로 {@code FROM_SEND} 재처리가
- *       <b>원배치 런을 이어 받아 다음 순번부터</b> 보낸다({@link ZenonTransferRuns}).</li>
+ *       <b>원배치 런을 이어 받아 다음 순번부터</b> 보낸다({@link TransferRuns}).</li>
  *   <li><b>전이중</b> — {@link StreamingHttpClient}(data-collector 원본)로 본문을 쓰는 동안 응답을 동시에 읽는다.</li>
- *   <li><b>MOCK</b>(개발계 기본) — 네트워크 없이 {@link ZenonMockReceiver} 를 직접 부른다. 본문 바이트 · 헤더는 REST 와 같다.</li>
+ *   <li><b>MOCK</b>(개발계 기본) — 네트워크 없이 {@link AgentConnectorMockReceiver} 를 직접 부른다. 본문 바이트 · 헤더는 REST 와 같다.</li>
  * </ul>
  *
  * <p>배치는 건마다 레코드를 {@link Session#stage 쌓고} 끝에 {@link Session#flush 한 번에} 청크로 나눠 보낸다 — 대상 건수
@@ -67,7 +71,7 @@ import java.util.zip.GZIPOutputStream;
  */
 @Log4j2
 @Component
-public class ZenonClient {
+public class AgentConnectorClient {
 
     /** 응답 꼬리(요약 판독용) — 작은 Ack 는 통째로 담긴다. data-collector RESP_TAIL_BYTES 와 같다. */
     private static final int RESP_TAIL_BYTES = 64 * 1024;
@@ -81,7 +85,7 @@ public class ZenonClient {
 
         /** T4 · 배치 결과에 남길 위치 표기 — 디스크 경로 대신 "어디로 · 어느 런 · 몇 번 청크로 보냈는가". */
         public String location() {
-            return "zenon:" + ("MOCK".equals(mode) ? "mock" : endpoint) + "/" + runId + "#" + seq + "/" + fileName;
+            return "agent-connector:" + ("MOCK".equals(mode) ? "mock" : endpoint) + "/" + runId + "#" + seq + "/" + fileName;
         }
     }
 
@@ -100,13 +104,13 @@ public class ZenonClient {
     public record Record(String type, String execId, String key, String managementNo, String fileName,
                          ObjectNode rawDataset, Map<String, Object> metadata, String preview) {}
 
-    /** 제논 전송 실패 — 그 건(또는 그 청크 · 뒤 청크의 건)만 SEND 실패다. */
-    public static class ZenonSendException extends RuntimeException {
-        public ZenonSendException(String message) {
+    /** 에이전트 커넥터 전송 실패 — 그 건(또는 그 청크 · 뒤 청크의 건)만 SEND 실패다. */
+    public static class TransferSendException extends RuntimeException {
+        public TransferSendException(String message) {
             super(message);
         }
 
-        public ZenonSendException(String message, Throwable cause) {
+        public TransferSendException(String message, Throwable cause) {
             super(message, cause);
         }
     }
@@ -150,10 +154,10 @@ public class ZenonClient {
         }
     }
 
-    private final ZenonProperties props;
+    private final AgentConnectorProperties props;
     private final ObjectMapper objectMapper;
-    private final ZenonMockReceiver receiver;
-    private final ZenonTransferRuns runs;
+    private final AgentConnectorMockReceiver receiver;
+    private final TransferRuns runs;
     /** 더미 키 표식(SF) 장애 — 이 레코드를 한 번만 거부한다(그 건만 실패 · 청크는 멈추지 않는다). */
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
     private final Clock clock;
@@ -164,12 +168,12 @@ public class ZenonClient {
     private volatile Report lastReport;
 
     @Autowired
-    public ZenonClient(ZenonProperties props, ObjectMapper objectMapper, ZenonMockReceiver receiver,
-                       ZenonTransferRuns runs, egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
+    public AgentConnectorClient(AgentConnectorProperties props, ObjectMapper objectMapper, AgentConnectorMockReceiver receiver,
+                       TransferRuns runs, egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults) {
         this(props, objectMapper, receiver, runs, scenarioFaults, Clock.systemDefaultZone());
     }
 
-    ZenonClient(ZenonProperties props, ObjectMapper objectMapper, ZenonMockReceiver receiver, ZenonTransferRuns runs,
+    AgentConnectorClient(AgentConnectorProperties props, ObjectMapper objectMapper, AgentConnectorMockReceiver receiver, TransferRuns runs,
                 egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults, Clock clock) {
         this.props = props;
         this.objectMapper = objectMapper;
@@ -177,7 +181,7 @@ public class ZenonClient {
         this.runs = runs;
         this.scenarioFaults = scenarioFaults;
         this.clock = clock;
-        log.info("[Zenon] 전송 모드 {} · {} · gzip={} · 청크 {}건", props.mode(), endpoint(), props.gzip(), chunkRecords());
+        log.info("[Transfer] 전송 모드 {} · {} · gzip={} · 청크 {}건", props.mode(), endpoint(), props.gzip(), chunkRecords());
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -195,7 +199,7 @@ public class ZenonClient {
 
     /** 수신 API 전체 주소(REST) — MOCK 이면 표기용 설명. */
     public String endpoint() {
-        if (props.mode() == ZenonProperties.Mode.MOCK) {
+        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
             return "MOCK(수집기 내장 수신기 — 네트워크 없음 · " + props.transferPath() + " 규약)";
         }
         return (StringUtils.hasText(props.baseUrl()) ? props.baseUrl().replaceAll("/+$", "") : "(base-url 비어 있음)")
@@ -212,7 +216,7 @@ public class ZenonClient {
     /** 시뮬레이터 — 청크 레코드 수를 덮어쓴다(null 이면 설정값으로 되돌림). */
     public void overrideChunkRecords(Integer records) {
         this.chunkRecordsOverride = records == null || records < 1 ? null : Math.min(MAX_CHUNK_RECORDS, records);
-        log.info("[Zenon] 청크 레코드 수 {}", chunkRecordsOverride == null ? "설정값(" + props.chunkRecords() + ")" : chunkRecordsOverride);
+        log.info("[Transfer] 청크 레코드 수 {}", chunkRecordsOverride == null ? "설정값(" + props.chunkRecords() + ")" : chunkRecordsOverride);
     }
 
     public Report lastReport() {
@@ -231,7 +235,7 @@ public class ZenonClient {
         m.put("chunkRecords", chunkRecords());
         m.put("chunkRecordsOverridden", chunkRecordsOverride != null);
         m.put("receiptsKept", receipts.size());
-        if (props.mode() == ZenonProperties.Mode.MOCK) {
+        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
             m.put("receiver", receiver.status());
         }
         m.put("runsFile", runs.filePath());
@@ -251,11 +255,11 @@ public class ZenonClient {
      * 키 표식(SF) 장애 — 이 레코드가 표식을 달았고 아직 실패한 적이 없으면 거부한다. 그 건만 실패하고 청크는 멈추지 않는다
      * (수신 서버 장애가 아니라 건 하나의 거절을 흉내 낸다 — "표식 건만 정해진 단계에서 실패").
      *
-     * @throws ZenonSendException 표식 건의 첫 전송
+     * @throws TransferSendException 표식 건의 첫 전송
      */
     public void precheck(Record r) {
         if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.SEND_FAIL, r.key())) {
-            throw new ZenonSendException("제논 HTTP 503 — (MOCK) 수신 거부 [더미 시나리오 SEND_FAIL · 1회]");
+            throw new TransferSendException("에이전트 커넥터 HTTP 503 — (MOCK) 수신 거부 [더미 시나리오 SEND_FAIL · 1회]");
         }
     }
 
@@ -308,14 +312,14 @@ public class ZenonClient {
             }
             boolean continued = originExecId != null && !originExecId.equals(execId) && runs.isOpen(originExecId);
             String runId = continued ? originExecId : execId;
-            ZenonTransferRuns.RunState before = runs.get(runId);
+            TransferRuns.RunState before = runs.get(runId);
             int base = before == null ? 0 : before.deliveredSeq;
             long prior = before == null ? 0 : before.deliveredRecords;
             runs.attach(runId, execId);
             long targetCnt = prior + staged.size();
             List<List<Staged>> parts = split(staged);
             if (continued) {
-                log.info("[Zenon] 이어달리기 — 원배치 런 {} 의 {}번 청크부터 (앞서 {}건 전송) · 이번 실행 {}", runId, base + 1, prior, execId);
+                log.info("[Transfer] 이어달리기 — 원배치 런 {} 의 {}번 청크부터 (앞서 {}건 전송) · 이번 실행 {}", runId, base + 1, prior, execId);
             }
             List<Chunk> out = new ArrayList<>(parts.size());
             int delivered = 0;
@@ -368,14 +372,14 @@ public class ZenonClient {
                     failed += part.size();
                     runs.failed(runId, seq, sent.message);
                     out.add(new Chunk(seq, part.size(), last, "FAILED", sent.status, sent.message, sent.bytes, ms, keys));
-                    log.warn("[Zenon] 청크 실패 — runId={} seq={} ({}건) · {} → 뒤 청크 {}개는 보내지 않는다", runId, seq,
+                    log.warn("[Transfer] 청크 실패 — runId={} seq={} ({}건) · {} → 뒤 청크 {}개는 보내지 않는다", runId, seq,
                             part.size(), sent.message, parts.size() - i - 1);
                 }
             }
             Report rep = new Report(runId, execId, continued, base + 1, targetCnt, out, delivered, failed, closed,
                     mode(), endpoint());
             lastReport = rep;
-            log.info("[Zenon] 전송 {} — runId={} 청크 {}개(seq {}~{}) · 레코드 {}건 중 {}건 전송 · {}건 실패{}",
+            log.info("[Transfer] 전송 {} — runId={} 청크 {}개(seq {}~{}) · 레코드 {}건 중 {}건 전송 · {}건 실패{}",
                     failed == 0 ? "완료" : (delivered == 0 ? "실패" : "부분 실패"), runId, out.size(), base + 1,
                     base + out.size(), staged.size(), delivered, failed, closed ? " · 런 마감" : "");
             return rep;
@@ -463,7 +467,7 @@ public class ZenonClient {
             return new Sent(false, false, -1, "본문 직렬화 실패 — " + e.getMessage(), 0L);
         }
         Map<String, String> headers = headers(runId, seq, last, targetCnt, records.size());
-        if (props.mode() == ZenonProperties.Mode.MOCK) {
+        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
             return mock(headers, body);
         }
         return rest(headers, body);
@@ -477,23 +481,23 @@ public class ZenonClient {
         if (props.gzip()) {
             ci.put("Content-Encoding", "gzip");
         }
-        ZenonMockReceiver.Ack ack = receiver.receive(ci::get, new ByteArrayInputStream(wire), props.gzip());
+        AgentConnectorMockReceiver.Ack ack = receiver.receive(ci::get, new ByteArrayInputStream(wire), props.gzip());
         boolean dup = Boolean.TRUE.equals(ack.body().get("duplicate"));
         String msg = ack.ok() ? "MOCK " + ack.status() + (dup ? " duplicate" : "")
-                : "제논 HTTP " + ack.status() + " — " + ack.body().get("message");
+                : "에이전트 커넥터 HTTP " + ack.status() + " — " + ack.body().get("message");
         return new Sent(ack.ok(), dup, ack.status(), msg, wire.length);
     }
 
     /** REST — 전이중 스트리밍(gzip + chunked)으로 보내고 2xx 를 확인한다. */
     private Sent rest(Map<String, String> headers, byte[] body) {
         if (!StringUtils.hasText(props.baseUrl())) {
-            return new Sent(false, false, -1, "제논 주소가 비어 있다 — zenon.base-url(ZENON_BASE_URL)", 0L);
+            return new Sent(false, false, -1, "에이전트 커넥터 주소가 비어 있다 — agent-connector.base-url(AGENT_CONNECTOR_BASE_URL)", 0L);
         }
         URI u;
         try {
             u = URI.create(props.baseUrl().trim());
         } catch (IllegalArgumentException e) {
-            return new Sent(false, false, -1, "제논 주소 형식 오류 — " + props.baseUrl(), 0L);
+            return new Sent(false, false, -1, "에이전트 커넥터 주소 형식 오류 — " + props.baseUrl(), 0L);
         }
         String host = u.getHost();
         int port = u.getPort() > 0 ? u.getPort() : ("https".equalsIgnoreCase(u.getScheme()) ? 443 : 80);
@@ -505,7 +509,7 @@ public class ZenonClient {
             boolean dup = r.tail() != null && r.tail().replace(" ", "").contains("\"duplicate\":true");
             return new Sent(true, dup, r.status(), "HTTP " + r.status() + (dup ? " duplicate" : ""), body.length);
         }
-        String why = "제논 HTTP " + r.status()
+        String why = "에이전트 커넥터 HTTP " + r.status()
                 + (r.writeError() != null ? " writeErr=" + r.writeError() : "")
                 + (r.readError() != null ? " readErr=" + r.readError() : "")
                 + (aborted ? " (응답 커밋 후 중단 — summary.aborted)" : "")

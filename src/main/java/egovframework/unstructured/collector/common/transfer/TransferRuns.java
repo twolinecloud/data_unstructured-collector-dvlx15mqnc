@@ -29,15 +29,20 @@ import java.util.function.Supplier;
  * 몇 번 순번까지 받아들여졌는지 알아야 한다. 재처리는 새 실행 ID 로 돌지만 전송은 원배치 런({@code X-Run-Id} = 원 실행 ID)을
  * 이어 받아 다음 순번부터 보내고 마지막 청크로 마감한다 — 수신단 장부에서 그 런이 빈 순번 없이 닫힌다.</p>
  *
- * <p>PV 파일 {@code {ROOT}/zenon/transfer_runs.json} 에도 남긴다(키 표식 소진 기록과 같은 방식) — 실패와 재처리 사이에 파드가
+ * <p>PV 파일 {@code {ROOT}/transfer/transfer_runs.json} 에도 남긴다(키 표식 소진 기록과 같은 방식) — 실패와 재처리 사이에 파드가
  * 다시 떠도(개발계는 dev 머지마다 재배포) 이어달리기가 끊기지 않게. 파일을 읽거나 쓰지 못해도 전송은 멈추지 않는다.</p>
+ *
+ * <p>2026-10-06 — 전송 목적지가 '제논 직접' 에서 '에이전트 커넥터 bypass' 로 돌아오며 파일도 {@code zenon/} 에서 {@code transfer/} 로 옮겼다.
+ * 새 파일이 없으면 옛 파일({@link #LEGACY_FILE})을 한 번 읽어 이어 쓴다 — 그 사이 못 끝낸 런의 이어달리기가 끊기지 않게.</p>
  */
 @Log4j2
 @Component
-public class ZenonTransferRuns {
+public class TransferRuns {
 
     /** PV 파일 — ROOT 기준 상대 경로. */
-    public static final String FILE = "zenon/transfer_runs.json";
+    public static final String FILE = "transfer/transfer_runs.json";
+    /** 옛 위치(2026-10-05 ~ 10-06, '제논 직접' 시절) — 새 파일이 없을 때만 읽는다. */
+    public static final String LEGACY_FILE = "zenon/transfer_runs.json";
     /** 남기는 런 수 — 넘으면 오래된 마감 런부터 버린다. */
     private static final int MAX_RUNS = 500;
 
@@ -85,18 +90,18 @@ public class ZenonTransferRuns {
     private final Supplier<Path> file;
 
     @Autowired
-    public ZenonTransferRuns(VoiceDirState dirs) {
+    public TransferRuns(VoiceDirState dirs) {
         this(() -> Path.of(dirs.baseDir(), FILE));
     }
 
     /** 파일 위치를 직접 준다 — null 이면 메모리만(단위 테스트). */
-    public ZenonTransferRuns(Supplier<Path> file) {
+    public TransferRuns(Supplier<Path> file) {
         this.file = file;
         load();
     }
 
-    public static ZenonTransferRuns inMemory() {
-        return new ZenonTransferRuns((Supplier<Path>) null);
+    public static TransferRuns inMemory() {
+        return new TransferRuns((Supplier<Path>) null);
     }
 
     /** 런 상태 사본 — 없으면 null. */
@@ -217,8 +222,18 @@ public class ZenonTransferRuns {
 
     private void load() {
         Path f = path();
-        if (f == null || !Files.isRegularFile(f)) {
+        if (f == null) {
             return;
+        }
+        if (!Files.isRegularFile(f)) {
+            // 옛 위치(zenon/) — ROOT/transfer/transfer_runs.json 의 형제 ROOT/zenon/transfer_runs.json
+            Path legacy = f.getParent() == null || f.getParent().getParent() == null ? null
+                    : f.getParent().getParent().resolve(LEGACY_FILE);
+            if (legacy == null || !Files.isRegularFile(legacy)) {
+                return;
+            }
+            log.info("[Transfer] 새 장부가 없어 옛 위치에서 읽는다 — {} (다음 저장부터 {})", legacy, f);
+            f = legacy;
         }
         try {
             Map<String, RunState> saved = JSON.readValue(f.toFile(), new TypeReference<Map<String, RunState>>() { });
@@ -228,9 +243,9 @@ public class ZenonTransferRuns {
                     runs.put(k, v);
                 }
             });
-            log.info("[Zenon] 전송 런 {}건을 파일에서 되살렸다 — {}", runs.size(), f);
+            log.info("[Transfer] 전송 런 {}건을 파일에서 되살렸다 — {}", runs.size(), f);
         } catch (IOException | RuntimeException e) {
-            log.warn("[Zenon] 전송 런 파일을 읽지 못했다 — 빈 채로 시작한다: {} ({})", f, e.getMessage());
+            log.warn("[Transfer] 전송 런 파일을 읽지 못했다 — 빈 채로 시작한다: {} ({})", f, e.getMessage());
         }
     }
 
@@ -255,7 +270,7 @@ public class ZenonTransferRuns {
                 Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException | RuntimeException e) {
-            log.warn("[Zenon] 전송 런 파일을 쓰지 못했다 — 메모리로만 계속한다: {} ({})", f, e.getMessage());
+            log.warn("[Transfer] 전송 런 파일을 쓰지 못했다 — 메모리로만 계속한다: {} ({})", f, e.getMessage());
         }
     }
 }

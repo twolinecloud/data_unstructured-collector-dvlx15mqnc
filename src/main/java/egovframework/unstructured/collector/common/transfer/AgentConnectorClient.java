@@ -164,6 +164,8 @@ public class AgentConnectorClient {
     private final Deque<Receipt> receipts = new ConcurrentLinkedDeque<>();
     /** 시뮬레이터가 덮어쓴 청크 레코드 수(전송 재처리 시나리오 — 6건을 2건씩 3청크로). null 이면 설정값. */
     private volatile Integer chunkRecordsOverride;
+    /** 시뮬레이터가 잠깐 바꾼 전송 모드(전송 재처리 시나리오 — 내장 수신기 장애 흉내는 MOCK 에서만 걸린다). null 이면 설정값. */
+    private volatile AgentConnectorProperties.Mode modeOverride;
     /** 마지막 전송 결과 — 화면용. */
     private volatile Report lastReport;
 
@@ -189,7 +191,7 @@ public class AgentConnectorClient {
     // ══════════════════════════════════════════════════════════════════════
 
     public String mode() {
-        return props.mode().name();
+        return effectiveMode().name();
     }
 
     /** 메모리에 남기는 수신증 상한 — 이보다 많이 보낸 배치는 수신증으로 건수를 대조할 수 없다. */
@@ -199,11 +201,23 @@ public class AgentConnectorClient {
 
     /** 수신 API 전체 주소(REST) — MOCK 이면 표기용 설명. */
     public String endpoint() {
-        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
+        if (effectiveMode() == AgentConnectorProperties.Mode.MOCK) {
             return "MOCK(수집기 내장 수신기 — 네트워크 없음 · " + props.transferPath() + " 규약)";
         }
         return (StringUtils.hasText(props.baseUrl()) ? props.baseUrl().replaceAll("/+$", "") : "(base-url 비어 있음)")
                 + props.transferPath();
+    }
+
+    /** 지금 쓰는 전송 모드 — 시뮬레이터가 잠깐 바꿨으면 그 값, 아니면 설정값({@code agent-connector.mode}). */
+    public AgentConnectorProperties.Mode effectiveMode() {
+        AgentConnectorProperties.Mode o = modeOverride;
+        return o != null ? o : props.mode();
+    }
+
+    /** 시뮬레이터 — 전송 모드를 잠깐 바꾼다(null 이면 설정값으로 되돌림). */
+    public void overrideMode(AgentConnectorProperties.Mode mode) {
+        this.modeOverride = mode == props.mode() ? null : mode;
+        log.info("[Transfer] 전송 모드 {}", modeOverride == null ? "설정값(" + props.mode() + ")" : modeOverride + " (시뮬레이터가 잠깐 바꿈)");
     }
 
     /** 지금 쓰는 청크 레코드 수. */
@@ -234,8 +248,10 @@ public class AgentConnectorClient {
         m.put("setTypeCd", props.setTypeCd());
         m.put("chunkRecords", chunkRecords());
         m.put("chunkRecordsOverridden", chunkRecordsOverride != null);
+        m.put("configMode", props.mode().name());
+        m.put("modeOverridden", modeOverride != null);
         m.put("receiptsKept", receipts.size());
-        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
+        if (effectiveMode() == AgentConnectorProperties.Mode.MOCK) {
             m.put("receiver", receiver.status());
         }
         m.put("runsFile", runs.filePath());
@@ -467,7 +483,7 @@ public class AgentConnectorClient {
             return new Sent(false, false, -1, "본문 직렬화 실패 — " + e.getMessage(), 0L);
         }
         Map<String, String> headers = headers(runId, seq, last, targetCnt, records.size());
-        if (props.mode() == AgentConnectorProperties.Mode.MOCK) {
+        if (effectiveMode() == AgentConnectorProperties.Mode.MOCK) {
             return mock(headers, body);
         }
         return rest(headers, body);

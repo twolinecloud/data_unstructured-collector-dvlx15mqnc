@@ -9,6 +9,7 @@ import egovframework.unstructured.collector.common.model.FileProcOutcome;
 import egovframework.unstructured.collector.common.model.VoiceKind;
 import egovframework.unstructured.collector.common.transfer.AgentConnectorClient;
 import egovframework.unstructured.collector.common.transfer.AgentConnectorMockReceiver;
+import egovframework.unstructured.collector.common.transfer.AgentConnectorProperties;
 import egovframework.unstructured.collector.common.transfer.TransferRuns;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
@@ -106,6 +107,8 @@ public class TransferReprocessSimService {
         receiver.setFault(sc == Scenario.ALL_FAIL ? AgentConnectorMockReceiver.FaultMode.DOWN : AgentConnectorMockReceiver.FaultMode.FAIL_FROM_SEQ,
                 3);
         connector.overrideChunkRecords(chunk);
+        // 장애 흉내는 내장 수신기에만 걸린다 — 설정이 REST(개발계 실연동)여도 이 시나리오 동안은 MOCK 으로 보낸다(③ 재처리 · 초기화 때 되돌림)
+        connector.overrideMode(AgentConnectorProperties.Mode.MOCK);
         boolean testRun = tg == DummyTarget.SIMULATOR;
         // 구간 = 방금 만든 더미의 발생 시각 범위 — 같은 날의 다른 데이터(남은 SIM · DMY · 실제 행)가 섞이지 않게 좁힌다.
         //   재처리는 원배치 T1 의 구간을 그대로 쓰므로 같은 건만 다시 돈다.
@@ -177,6 +180,7 @@ public class TransferReprocessSimService {
         Map<String, Object> originRun = runs.get(origin) == null ? null : runView(runs.get(origin));
         m.put("originRun", originRun);
         m.put("originLedger", receiver.ledger(origin));
+        connector.overrideMode(null);   // 시나리오 끝 — 설정 모드(개발계 REST)로 되돌린다
         return m;
     }
 
@@ -201,6 +205,7 @@ public class TransferReprocessSimService {
     public Map<String, Object> reset() {
         receiver.setFault(AgentConnectorMockReceiver.FaultMode.UP, 0);
         connector.overrideChunkRecords(null);
+        connector.overrideMode(null);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("fault", receiver.fault());
         m.put("chunkRecords", connector.chunkRecords());

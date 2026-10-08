@@ -16,6 +16,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,8 +33,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p><b>실행기 밖의 배치도 본다</b>: 시뮬레이터·기존 수동 API({@code /api/v1/voice/**} · {@code /api/v1/image/**})·성능 시험은
  * 요청 스레드에서 동기로 돈다. 그것이 돌고 있으면 같은 대상·같은 수신 폴더를 동시에 건드리게 되므로 역시 거절한다.</p>
  *
- * <p><b>잠금은 프로세스 안({@code synchronized})뿐</b>이다 — 파드 1개 전제. 파드를 늘리면 data-collector 처럼
- * DB advisory lock(Admin DB {@code pg_try_advisory_lock})으로 바꿔야 한다.</p>
+ * <p><b>파드 간 잠금</b>({@link BatchLock}, 2026-10-08): 프로세스 안 잠금({@code synchronized})에 더해 접수할 때
+ * Admin DB advisory lock 을 잡고 배치가 끝나면 푼다(data-collector 와 같은 방식). 롤링 배포 중 옛 파드가 돌리고 있으면
+ * 새 파드는 잠금을 못 잡아 거절된다({@code kind=OTHER_POD}). 실행기 밖의 동기 API(시뮬레이터 · 수동 API · 성능 시험)는
+ * 이 잠금을 쓰지 않는다 — 사람이 직접 부르는 시험용이다.</p>
  */
 @Log4j2
 @Component
@@ -64,6 +67,7 @@ public class UnstructuredJobRunner {
     private static final int HISTORY_MAX = 50;
 
     private final OtherBatchProbe others;
+    private final BatchLock lock;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "unstructured-batch");
         t.setDaemon(true);
@@ -80,7 +84,8 @@ public class UnstructuredJobRunner {
 
     @Autowired
     public UnstructuredJobRunner(BatchProgress voiceProgress, ImageCollectService image,
-                                 ObjectProvider<PerfRunService> voicePerf, ObjectProvider<ImagePerfService> imagePerf) {
+                                 ObjectProvider<PerfRunService> voicePerf, ObjectProvider<ImagePerfService> imagePerf,
+                                 BatchLock lock) {
         this(() -> {
             if (voiceProgress.isRunning()) {
                 return "음성 배치(" + voiceProgress.snapshot().get("execId") + ")";
@@ -97,16 +102,22 @@ public class UnstructuredJobRunner {
                 return "수용자 이미지 검증";
             }
             return null;
-        });
+        }, lock);
     }
 
-    /** 바깥 배치 판정을 직접 준다 — 테스트(다른 패키지의 스케줄러 테스트 포함)용. */
+    /** 바깥 배치 판정을 직접 준다 — 테스트(다른 패키지의 스케줄러 테스트 포함)용. 파드 간 잠금 없음. */
     public UnstructuredJobRunner(OtherBatchProbe others) {
+        this(others, BatchLock.NONE);
+    }
+
+    public UnstructuredJobRunner(OtherBatchProbe others, BatchLock lock) {
         this.others = others;
+        this.lock = lock;
     }
 
     /**
-     * 접수 — 실행 중(이 실행기든 바깥이든)이면 {@link AlreadyRunningException}. 아니면 백그라운드로 넘기고 즉시 돌아온다.
+     * 접수 — 실행 중(이 실행기든 바깥이든 · 다른 파드든)이면 {@link AlreadyRunningException}. 아니면 백그라운드로 넘기고 즉시 돌아온다.
+     * 파드 간 잠금은 여기서 잡고, 배치가 끝나면(성공 · 실패 모두) 백그라운드 스레드가 푼다.
      *
      * @param detail 상태에 함께 보일 값(창 · 원배치 · 재처리 단계 등)
      */
@@ -119,13 +130,41 @@ public class UnstructuredJobRunner {
         if (other != null) {
             throw new AlreadyRunningException("OTHER", null, "다른 배치가 실행 중 — " + other);
         }
+        BatchLock.Held held;
+        try {
+            held = lock.tryAcquire();
+        } catch (IllegalStateException e) {
+            throw new AlreadyRunningException("LOCK", null, "실행 잠금을 확인하지 못해 돌리지 않는다 — " + e.getMessage());
+        }
+        if (held == null) {
+            throw new AlreadyRunningException("OTHER_POD", null, "다른 파드에서 비정형 배치가 실행 중(DB 잠금)");
+        }
         String handle = "UNS-" + kind.name() + "-" + LocalDateTime.now().format(HANDLE);
         Job job = new Job(handle, kind, triggerBy, detail);
         current.set(job);
         history.put(handle, job);
-        executor.submit(() -> execute(job, task));
+        try {
+            executor.submit(() -> {
+                try {
+                    execute(job, task);
+                } finally {
+                    held.close();
+                    job.done.complete(job);   // 잠금을 푼 뒤에 알린다 — 다음 회차가 곧바로 잠금을 잡을 수 있게
+                }
+            });
+        } catch (RuntimeException e) {
+            held.close();
+            job.fail("접수 실패 — " + e.getMessage());
+            job.done.complete(job);
+            throw e;
+        }
         log.info("[Unstructured] 접수 kind={} handle={} triggerBy={} {}", kind, handle, triggerBy, detail);
         return job;
+    }
+
+    /** 파드 간 잠금 상태 — 상태 화면용. */
+    public Map<String, Object> lockInfo() {
+        return lock.describe();
     }
 
     /**
@@ -199,6 +238,7 @@ public class UnstructuredJobRunner {
         final Map<String, Object> detail;
         final LocalDateTime startedAt = LocalDateTime.now();
         final CountDownLatch execIdLatch = new CountDownLatch(1);
+        final CompletableFuture<Job> done = new CompletableFuture<>();
         volatile Status status = Status.RUNNING;
         volatile String execId;
         volatile Boolean execIdFromCollector;
@@ -237,6 +277,11 @@ public class UnstructuredJobRunner {
 
         public String handle() {
             return handle;
+        }
+
+        /** 끝나면(성공 · 실패 모두, 파드 간 잠금을 푼 뒤) 완료된다 — 스케줄러가 '끝난 시각 + 주기' 로 다음 회차를 건다. */
+        public CompletableFuture<Job> done() {
+            return done;
         }
 
         /** 응답·상태에 보일 execId — 로그 컬렉터 채번 값, 아직이면 접수 handle. */

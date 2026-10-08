@@ -1958,16 +1958,19 @@ function pipePaint(steps) {
 /**
  * 스케줄 한 줄 — 관리 화면(admin-api) UNSTRUCTURED 설정과 자동 실행 스위치(VOICE_SCHEDULE_ENABLED).
  * 고정 cron(일배치 02:00 · 10분 주기)은 없앴다 — 관리 화면 값 하나로 돈다(2026-10-02).
+ * 주기 실행은 반영 즉시 1회 + 끝난 시각 + 주기 — 실행 중이면 다음 시각이 아직 없다(nextRunNote). 파드 간 잠금(dbLock)도 보인다(2026-10-08).
  */
 function scheduleText(b) {
   const sc = b.schedule || {};
   const kind = { FIXED_TIME: '매일', INTERVAL_BASED: '주기' }[sc.execSchedTypeCd] || sc.execSchedTypeCd || '';
   const val = sc.activeYn == null ? (sc.adminEnabled ? '아직 못 받음' : 'admin 미연동')
     : sc.activeYn === 'Y' ? `${kind} ${sc.schedVal}` : '사용 N';
-  const auto = b.scheduleEnabled ? (sc.armed ? `다음 ${String(sc.nextRunAt || '-').replace('T', ' ')}` : '자동 실행 대기')
+  const next = sc.nextRunAt ? `다음 ${String(sc.nextRunAt).replace('T', ' ')}` : (sc.nextRunNote || '다음 -');
+  const auto = b.scheduleEnabled ? (sc.armed ? next : '자동 실행 대기')
     : '자동 실행 꺼짐(VOICE_SCHEDULE_ENABLED)';
   const src = sc.appliedFrom ? ` · 반영 ${sc.appliedFrom} ${String(sc.appliedAt || '').replace('T', ' ')}` : '';
-  return `스케줄(관리 화면) <b>${esc(val)}</b> · ${esc(auto)}${esc(src)}`;
+  const lock = sc.dbLock ? ` · 파드 간 잠금 ${sc.dbLock.enabled ? 'DB ' + sc.dbLock.key : '없음(로컬)'}` : '';
+  return `스케줄(관리 화면) <b>${esc(val)}</b> · ${esc(auto)}${esc(src)}${esc(lock)}`;
 }
 async function loadStatus(quiet) {
   const s = await call('GET', '/api/v1/voice/status', '현재 구성 조회', quiet);

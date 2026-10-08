@@ -13,6 +13,8 @@ import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
@@ -32,6 +34,18 @@ import java.util.concurrent.ScheduledFuture;
  *
  * <p><b>고정 cron 두 개를 없앴다</b>: 예전에는 yml 의 일배치 02:00 + 10분 주기가 따로 돌았다. 관리 화면은 유형당 한 값이라
  * 그 값 하나로 일원화한다 — {@code FIXED_TIME} 이면 일배치 창, {@code INTERVAL_BASED} 면 주기 창.</p>
+ *
+ * <p><b>실행 시점</b>(2026-10-08 PL 요청 — 정형과 같게):</p>
+ * <ul>
+ *   <li>{@code FIXED_TIME} — 매일 그 시각(크론). 바꿔도 곧바로 돌지 않는다</li>
+ *   <li>{@code INTERVAL_BASED} — <b>반영 즉시 1회</b>, 그 뒤로는 <b>배치가 끝난 시각 + 주기</b>. 이전 배치가 끝나기 전에 다음 회차가
+ *       오지 않는다. 기동 때도 즉시 1회(정형과 같다 — 배포 중 옛 파드와 겹치는 것은 파드 간 잠금이 막는다).
+ *       다른 배치(바로 실행 · 재처리 · 다른 파드)가 돌고 있어 건너뛰면 지금 + 주기</li>
+ * </ul>
+ * <p>Spring {@code PeriodicTrigger} 는 '발화 메서드가 끝난 시각 + 주기' 인데, 발화는 실행기에 넘기고 곧바로 돌아오므로 그대로 쓰면
+ * '시작 시각 + 주기' 가 된다. 그래서 주기 실행은 <b>한 번짜리 예약을 이어 건다</b> — 배치가 끝나면 다음 회차를 예약한다.
+ * 스케줄러 스레드(1개)를 배치 동안 붙잡지 않으므로 5분 재조회가 멈추지 않는다. 설정이 바뀌면 세대 번호가 올라가
+ * 이전 사슬은 다음 회차를 걸지 않는다.</p>
  *
  * <p><b>최종 안전 스위치</b> {@code voice.batch.schedule-enabled}({@code VOICE_SCHEDULE_ENABLED}): 꺼져 있으면 설정은 받아
  * 상태에 보여 주되 <b>트리거를 걸지 않는다</b>. 개발계는 꺼 둔다 — 관리 화면 값이 "사용 Y · 02:00" 이라 켜는 순간
@@ -68,6 +82,9 @@ public class UnstructuredBatchScheduler {
     private LocalDateTime lastFireAt;
     private String lastFireResult;
     private String lastError;
+    private long generation;            // 반영할 때마다 +1 — 주기 실행 사슬의 세대
+    private Duration period;            // INTERVAL_BASED 주기(아니면 null)
+    private LocalDateTime nextFireAt;   // INTERVAL_BASED 다음 발화 예정 — 실행 중이면 null(끝난 뒤 정해진다)
 
     public UnstructuredBatchScheduler(AdminBatchScheduleClient client, UnstructuredBatchService service,
                                       UnstructuredJobRunner runner, TaskScheduler taskScheduler,
@@ -130,10 +147,15 @@ public class UnstructuredBatchScheduler {
         if (s.spec().equals(currentSpec)) {
             return Apply.UNCHANGED;
         }
-        Trigger trigger = null;
+        Trigger cron = null;
+        Duration every = null;
         if (s.isActive()) {
             try {
-                trigger = ScheduleTriggers.of(s.execSchedTypeCd(), s.schedVal(), zone);
+                if (BatchSchedule.INTERVAL_BASED.equals(s.execSchedTypeCd())) {
+                    every = ScheduleTriggers.period(s.schedVal());
+                } else {
+                    cron = ScheduleTriggers.of(s.execSchedTypeCd(), s.schedVal(), zone);
+                }
             } catch (IllegalArgumentException e) {
                 lastError = e.getMessage();
                 log.error("[Schedule] 설정 값 오류 — 지금 스케줄 유지(유형={} 값={}): {}", s.execSchedTypeCd(), s.schedVal(), e.getMessage());
@@ -146,7 +168,7 @@ public class UnstructuredBatchScheduler {
         appliedFrom = source;
         appliedAt = now();
         lastError = null;
-        if (trigger == null) {
+        if (cron == null && every == null) {
             log.info("[Schedule] 비정형 스케줄 사용 N — 자동 실행 없음 (출처 {})", source);
             return Apply.APPLIED;
         }
@@ -155,14 +177,59 @@ public class UnstructuredBatchScheduler {
                     s.execSchedTypeCd(), s.schedVal(), source);
             return Apply.APPLIED;
         }
-        current = taskScheduler.schedule(this::fire, trigger);
+        if (every != null) {
+            period = every;
+            armInterval(generation, Instant.now());
+            log.info("[Schedule] 비정형 스케줄 등록 — 주기 {} · 지금 1회 실행하고 그 뒤로는 끝난 시각 + 주기 (출처 {})",
+                    s.schedVal(), source);
+            return Apply.APPLIED;
+        }
+        current = taskScheduler.schedule(this::fire, cron);
         log.info("[Schedule] 비정형 스케줄 등록 — 유형={} 값={} 다음 실행={} (출처 {})", s.execSchedTypeCd(), s.schedVal(),
                 ScheduleTriggers.nextRun(s, LocalDateTime.now(zone), appliedAt), source);
         return Apply.APPLIED;
     }
 
-    /** 트리거 발화 — 실행기에 넘기고 곧바로 돌아온다. 무엇이든 돌고 있으면 이번 회차는 건너뛴다. */
+    /** 정기(크론) 발화 — 실행기에 넘기고 곧바로 돌아온다. 무엇이든 돌고 있으면 이번 회차는 건너뛴다. */
     void fire() {
+        submitScheduled();
+    }
+
+    /**
+     * 주기 발화 — 이 세대가 아직 유효할 때만 돈다. 배치가 끝나면(성공 · 실패 모두) 그 시각 + 주기로 다음 회차를 건다.
+     * 건너뛰었으면(다른 배치가 실행 중 · 다른 파드 · 꺼짐) 지금 + 주기.
+     */
+    void fireInterval(long gen) {
+        synchronized (this) {
+            if (gen != generation) {
+                return;   // 그 사이 설정이 바뀌었다 — 새 사슬이 맡는다
+            }
+            nextFireAt = null;
+        }
+        UnstructuredJobRunner.Job job = submitScheduled();
+        if (job == null) {
+            scheduleNext(gen, "건너뜀");
+            return;
+        }
+        job.done().whenComplete((j, e) -> scheduleNext(gen, "끝남 " + (j == null ? "" : j.currentExecId())));
+    }
+
+    private synchronized void scheduleNext(long gen, String why) {
+        if (gen != generation || period == null) {
+            return;   // 설정이 바뀌었거나 풀렸다
+        }
+        armInterval(gen, Instant.now().plus(period));
+        log.info("[Schedule] 주기 실행 {} — 다음 실행 {}", why, nextFireAt);
+    }
+
+    /** 한 번짜리 예약 — synchronized 안에서 부른다. */
+    private void armInterval(long gen, Instant at) {
+        current = taskScheduler.schedule(() -> fireInterval(gen), at);
+        nextFireAt = LocalDateTime.ofInstant(at, zone).withNano(0);
+    }
+
+    /** 실행기에 넘긴다. @return 접수한 작업. 건너뛰었거나 실패면 null */
+    private UnstructuredJobRunner.Job submitScheduled() {
         BatchSchedule s;
         synchronized (this) {
             s = active;
@@ -170,13 +237,14 @@ public class UnstructuredBatchScheduler {
         }
         if (s == null || !s.isActive() || !voiceProps.batch().scheduleEnabled()) {
             record("SKIPPED — 스케줄 꺼짐");
-            return;
+            return null;
         }
         try {
             UnstructuredBatchService.Plan plan = service.planScheduled(s, LocalDateTime.now());
             UnstructuredJobRunner.Job job = runner.submit(UnstructuredJobRunner.Kind.SCHEDULE, plan.triggerBy(), plan.detail(),
                     sink -> service.execute(plan, sink::publish));
             record("SUBMITTED — " + job.handle());
+            return job;
         } catch (UnstructuredJobRunner.AlreadyRunningException e) {
             log.warn("[Schedule] 이번 회차 건너뜀 — {}", e.getMessage());
             record("SKIPPED — " + e.getMessage());
@@ -185,6 +253,7 @@ public class UnstructuredBatchScheduler {
             log.error("[Schedule] 발화 처리 실패 — {}", e.getMessage(), e);
             record("FAILED — " + e.getMessage());
         }
+        return null;
     }
 
     /** 상태 표시용 시각 — 트리거와 같은 시간대(한국). 파드 TZ 가 UTC 여도 다음 실행 시각 계산이 어긋나지 않게. */
@@ -197,6 +266,9 @@ public class UnstructuredBatchScheduler {
     }
 
     private void cancelCurrent() {
+        generation++;
+        period = null;
+        nextFireAt = null;
         if (current != null) {
             current.cancel(false);
             current = null;
@@ -220,8 +292,11 @@ public class UnstructuredBatchScheduler {
         m.put("schedVal", active == null ? null : active.schedVal());
         m.put("armed", current != null);
         LocalDateTime next = current == null ? null
-                : ScheduleTriggers.nextRun(active, LocalDateTime.now(zone), lastFireAt != null ? lastFireAt : appliedAt);
+                : period != null ? nextFireAt
+                : ScheduleTriggers.nextRun(active, LocalDateTime.now(zone), null);
         m.put("nextRunAt", next == null ? null : next.withNano(0).toString());
+        m.put("nextRunNote", period != null && current != null && nextFireAt == null
+                ? "실행 중 — 끝난 시각 + 주기(" + active.schedVal() + ")에 다음 실행" : null);
         m.put("appliedFrom", appliedFrom == null ? null : appliedFrom.name());
         m.put("appliedAt", appliedAt == null ? null : appliedAt.withNano(0).toString());
         m.put("lastFetchAt", lastFetchAt == null ? null : lastFetchAt.withNano(0).toString());
@@ -229,6 +304,7 @@ public class UnstructuredBatchScheduler {
         m.put("lastFireAt", lastFireAt == null ? null : lastFireAt.withNano(0).toString());
         m.put("lastFireResult", lastFireResult);
         m.put("lastError", lastError);
+        m.put("dbLock", runner.lockInfo());
         m.put("note", voiceProps.batch().scheduleEnabled() ? null
                 : "VOICE_SCHEDULE_ENABLED=false — 설정만 받고 자동 실행은 하지 않는다");
         return m;

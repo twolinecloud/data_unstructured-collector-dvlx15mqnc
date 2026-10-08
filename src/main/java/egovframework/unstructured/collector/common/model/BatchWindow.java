@@ -33,7 +33,8 @@ public record BatchWindow(LocalDateTime from, LocalDateTime to, String label) {
      *
      * @param lagMinutes 더 이상 창의 길이를 정하지 않는다. 당일 00:00 이 그보다 늦을 수 없으므로
      *                   {@code 지금-lag} 가 자정보다 이르면(자정 직후) 그쪽까지 넓힌다 —
-     *                   00:05 에 도는 배치가 어제 23:55 건을 놓치지 않게.
+     *                   00:05 에 도는 배치가 어제 23:55 건을 놓치지 않게. 스케줄은 '주기 + 10분'(최소 20분)을 넘긴다
+     *                   ({@code UnstructuredBatchService#planScheduled}) — 주기가 길어도 앞 회차 창과 맞물리게.
      */
     public static BatchWindow periodic(LocalDateTime now, int lagMinutes) {
         LocalDateTime todayStart = now.toLocalDate().atStartOfDay();

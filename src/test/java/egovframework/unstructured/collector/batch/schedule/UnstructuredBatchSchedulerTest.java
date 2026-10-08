@@ -14,6 +14,7 @@ import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.support.CronTrigger;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +25,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -35,7 +37,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 비정형 스케줄러 — data-collector {@code BatchScheduler} 와 같은 동작(조회 · 재조회 · 변경 감지 · 동적 트리거 · 사용 N 해제)
- * + 최종 안전 스위치({@code VOICE_SCHEDULE_ENABLED}) · 잘못된 값이면 기존 트리거 유지.
+ * + 최종 안전 스위치({@code VOICE_SCHEDULE_ENABLED}) · 잘못된 값이면 기존 트리거 유지
+ * + 주기 실행은 반영 즉시 1회 · 끝난 시각 + 주기 · 건너뛰면 지금 + 주기 · 설정이 바뀌면 이전 사슬은 멈춤(2026-10-08).
  */
 class UnstructuredBatchSchedulerTest {
 
@@ -45,6 +48,9 @@ class UnstructuredBatchSchedulerTest {
     private VoiceProperties.Batch batch;
     private FakeAdmin admin;
     private final List<ScheduledFuture<?>> futures = new ArrayList<>();
+    /** 한 번짜리 예약(주기 실행) — 발화 시각과 작업. */
+    private final List<Instant> onceAt = new ArrayList<>();
+    private final List<Runnable> onceTask = new ArrayList<>();
 
     /** admin-api 대역 — 응답을 바꿔 가며 준다. */
     static final class FakeAdmin extends AdminBatchScheduleClient {
@@ -74,6 +80,15 @@ class UnstructuredBatchSchedulerTest {
         when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class))).thenAnswer(inv -> {
             ScheduledFuture<?> f = mock(ScheduledFuture.class);
             futures.add(f);
+            return f;
+        });
+        when(taskScheduler.schedule(any(Runnable.class), any(Instant.class))).thenAnswer(inv -> {
+            ScheduledFuture<?> f = mock(ScheduledFuture.class);
+            futures.add(f);
+            synchronized (onceAt) {
+                onceTask.add(inv.getArgument(0));
+                onceAt.add(inv.getArgument(1));
+            }
             return f;
         });
         service = mock(UnstructuredBatchService.class);
@@ -183,7 +198,11 @@ class UnstructuredBatchSchedulerTest {
         UnstructuredBatchScheduler sch = scheduler();
         assertThat(sch.applySchedule(s("Y", "FIXED_TIME", "02:00"), UnstructuredBatchScheduler.Source.REFRESH))
                 .isEqualTo(UnstructuredBatchScheduler.Apply.APPLIED);
+        assertThat(sch.applySchedule(s("Y", "INTERVAL_BASED", "00:10"), UnstructuredBatchScheduler.Source.REFRESH))
+                .isEqualTo(UnstructuredBatchScheduler.Apply.APPLIED);
         verify(taskScheduler, never()).schedule(any(Runnable.class), any(Trigger.class));
+        verify(taskScheduler, never()).schedule(any(Runnable.class), any(Instant.class));
+        sch.applySchedule(s("Y", "FIXED_TIME", "02:00"), UnstructuredBatchScheduler.Source.REFRESH);
         Map<String, Object> snap = sch.snapshot();
         assertThat(snap.get("schedVal")).isEqualTo("02:00");
         assertThat(snap.get("armed")).isEqualTo(false);
@@ -215,5 +234,108 @@ class UnstructuredBatchSchedulerTest {
         sch.fire();   // 첫 회차가 아직 돈다
         assertThat(sch.snapshot().get("lastFireResult")).asString().startsWith("SKIPPED");
         release.countDown();
+    }
+
+    private UnstructuredBatchService.Plan periodicPlan() {
+        UnstructuredBatchService.Plan plan = new UnstructuredBatchService.Plan(
+                BatchWindow.periodic(LocalDateTime.now(), 20), ResumeMode.FULL, null, false, "SCHEDULER", false);
+        when(service.planScheduled(any(), any())).thenReturn(plan);
+        return plan;
+    }
+
+    private Instant onceAt(int i) {
+        synchronized (onceAt) {
+            return onceAt.get(i);
+        }
+    }
+
+    private int onceCount() {
+        synchronized (onceAt) {
+            return onceAt.size();
+        }
+    }
+
+    @Test
+    @DisplayName("주기 실행 — 반영(기동 포함) 즉시 1회 · 배치가 끝난 시각 + 주기로 다음 회차 · 실행 중에는 다음 시각이 없다")
+    void intervalRunsNowThenEndPlusPeriod() throws Exception {
+        UnstructuredBatchService.Plan plan = periodicPlan();
+        CountDownLatch release = new CountDownLatch(1);
+        when(service.execute(eq(plan), any())).thenAnswer(inv -> {
+            release.await(5, TimeUnit.SECONDS);
+            return "ok";
+        });
+        UnstructuredBatchScheduler sch = scheduler();
+        Instant applied = Instant.now();
+        sch.applySchedule(s("Y", "INTERVAL_BASED", "00:30"), UnstructuredBatchScheduler.Source.STARTUP);
+        verify(taskScheduler, never()).schedule(any(Runnable.class), any(Trigger.class));
+        assertThat(onceCount()).isEqualTo(1);
+        assertThat(onceAt(0)).as("첫 회차는 지금").isBetween(applied.minusSeconds(1), Instant.now().plusSeconds(1));
+
+        onceTask.get(0).run();   // 발화 — 배치가 돌기 시작한다
+        verify(service, timeout(2000)).execute(eq(plan), any());
+        Map<String, Object> running = sch.snapshot();
+        assertThat(running.get("nextRunAt")).as("끝나야 정해진다").isNull();
+        assertThat(running.get("nextRunNote")).asString().contains("끝난 시각 + 주기");
+        Thread.sleep(300);
+        assertThat(onceCount()).as("배치가 끝나기 전에는 다음 회차를 걸지 않는다").isEqualTo(1);
+
+        Instant end = Instant.now();
+        release.countDown();
+        await().atMost(3, TimeUnit.SECONDS).until(() -> onceCount() == 2);
+        assertThat(onceAt(1)).as("끝난 시각 + 30분").isBetween(end.plus(Duration.ofMinutes(30)).minusSeconds(1),
+                Instant.now().plus(Duration.ofMinutes(30)).plusSeconds(1));
+        assertThat(sch.snapshot().get("nextRunAt")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("주기 실행 — 다른 배치가 돌고 있어 건너뛰면 지금 + 주기로 다음 회차")
+    void intervalSkipReschedules() throws Exception {
+        periodicPlan();
+        CountDownLatch hold = new CountDownLatch(1);
+        runner.submit(UnstructuredJobRunner.Kind.RUN, "ADMIN", null, sink -> {
+            try {
+                hold.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "busy";
+        });
+        UnstructuredBatchScheduler sch = scheduler();
+        sch.applySchedule(s("Y", "INTERVAL_BASED", "00:10"), UnstructuredBatchScheduler.Source.REFRESH);
+        Instant fired = Instant.now();
+        onceTask.get(0).run();
+        assertThat(sch.snapshot().get("lastFireResult")).asString().startsWith("SKIPPED");
+        assertThat(onceCount()).isEqualTo(2);
+        assertThat(onceAt(1)).isBetween(fired.plus(Duration.ofMinutes(10)).minusSeconds(1),
+                Instant.now().plus(Duration.ofMinutes(10)).plusSeconds(1));
+        verify(service, never()).execute(any(), any());
+        hold.countDown();
+    }
+
+    @Test
+    @DisplayName("주기 실행 — 설정이 바뀌면 이전 사슬은 발화해도 돌지 않고, 돌던 배치가 끝나도 다음 회차를 걸지 않는다")
+    void staleChainStops() throws Exception {
+        UnstructuredBatchService.Plan plan = periodicPlan();
+        CountDownLatch release = new CountDownLatch(1);
+        when(service.execute(eq(plan), any())).thenAnswer(inv -> {
+            release.await(5, TimeUnit.SECONDS);
+            return "ok";
+        });
+        UnstructuredBatchScheduler sch = scheduler();
+        sch.applySchedule(s("Y", "INTERVAL_BASED", "00:10"), UnstructuredBatchScheduler.Source.REFRESH);
+        Runnable first = onceTask.get(0);
+        sch.applySchedule(s("Y", "INTERVAL_BASED", "00:20"), UnstructuredBatchScheduler.Source.REFRESH);
+        verify(futures.get(0)).cancel(false);
+        first.run();   // 이미 떠난 옛 예약
+        verify(service, never()).planScheduled(any(), any());
+
+        onceTask.get(1).run();   // 새 사슬 — 돈다
+        verify(service, timeout(2000)).execute(eq(plan), any());
+        sch.applySchedule(s("Y", "FIXED_TIME", "02:00"), UnstructuredBatchScheduler.Source.REFRESH);   // 도는 중에 정기로 바뀜
+        release.countDown();
+        await().atMost(3, TimeUnit.SECONDS).until(() -> !runner.isRunning());
+        Thread.sleep(200);
+        assertThat(onceCount()).as("끝나도 옛 주기 사슬은 다음 회차를 걸지 않는다").isEqualTo(2);
+        verify(taskScheduler, times(1)).schedule(any(Runnable.class), any(CronTrigger.class));
     }
 }

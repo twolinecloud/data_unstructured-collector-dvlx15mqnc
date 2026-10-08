@@ -187,7 +187,10 @@ voice:
     # 자동 실행 최종 스위치. 실행 시각은 관리 화면(admin-api) UNSTRUCTURED 설정이 정한다 — 아래 unstructured.* 참고.
     #   (고정 cron VOICE_DAILY_CRON · VOICE_PERIODIC_CRON 은 2026-10-02 없앴다)
     schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
+    # 주기 실행이 자정 직후 거슬러 보는 폭 = max(주기 + periodic-margin-min, periodic-lag-min) — 10분 주기 20분 · 30분 주기 40분 ·
+    #   1시간 주기 70분(2026-10-08). 주기가 길어도 어제 마지막 회차 이후 ~ 자정 사이 건이 다음 창에 들어오게
     periodic-lag-min: 20
+    periodic-margin-min: ${VOICE_PERIODIC_MARGIN_MIN:10}
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:500}
     job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum(작업명 매핑) — 채번 작업코드는 data-type-cd 가 정한다(UNSTRUCTURED → UNS)
@@ -213,6 +216,9 @@ logging:
 #   관리 화면(admin-api)의 UNSTRUCTURED 한 행이 음성(·이미지)을 움직인다. data-collector 와 같은 방식(2026-10-02 회의).
 #   admin:    설정 조회 GET {base-url}/api/batch-schedules/UNSTRUCTURED — 기동 시 + refresh-ms 마다. 비우면 조회 끔
 #   batch:    include-image — 음성 뒤에 이미지 수집도(순차). exec-id-wait-ms — 바로 실행·재처리 접수 응답에 실제 execId 를 싣기 위해 기다리는 상한
+#             db-lock — 파드 간 실행 잠금(Admin DB advisory lock · 정형 42120001 과 다른 키). 스케줄 · 바로 실행 · 재처리가 접수할 때 잡고
+#             끝나면 푼다. 롤링 배포 중 옛 파드와 겹치지 않게(2026-10-08). Admin DB 가 H2(로컬)면 저절로 꺼진다
+#   주기 실행(INTERVAL_BASED)은 반영 즉시 1회 + 끝난 시각 + 주기(정형과 같음 · 기동 때도 즉시 1회). 정기 실행(FIXED_TIME)은 매일 그 시각
 #   수집기가 받는 쪽: POST /internal/schedule/refresh · /internal/batch/run · /internal/batch/reprocess · GET /internal/batch/status
 unstructured:
   admin:
@@ -225,6 +231,9 @@ unstructured:
   batch:
     include-image: ${UNSTRUCTURED_INCLUDE_IMAGE:false}
     exec-id-wait-ms: ${UNSTRUCTURED_EXEC_ID_WAIT_MS:1500}
+    db-lock:
+      enabled: ${UNSTRUCTURED_DB_LOCK_ENABLED:true}
+      key: ${UNSTRUCTURED_DB_LOCK_KEY:42120002}
   # ── 더미 데이터(시뮬레이터 SIM / 대시보드 DMY) — 생성 API · 스케줄러는 dev/local 프로필에서만 빈이 생긴다 ──
   #   dashboard.enabled: 대시보드 더미(DMY — 실존하지 않는 가상 교정번호) 생성 허용. dev/local 프로필이 켠다 · prod 는 강제 false
   #   daily: 매일 cron 에 어제 날짜로 DMY 를 추가(append)하고 retain-days 지난 DMY 를 지운다(catch-up 없음). 기본 끔

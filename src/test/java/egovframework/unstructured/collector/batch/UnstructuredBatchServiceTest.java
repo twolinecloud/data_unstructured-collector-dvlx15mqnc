@@ -96,6 +96,23 @@ class UnstructuredBatchServiceTest {
     }
 
     @Test
+    @DisplayName("주기 창 자정 직후 — 거슬러 보는 폭 = 주기 + 10분(최소 20분): 10분 20 · 30분 40 · 1시간 70 → 앞 회차 창과 맞물린다")
+    void periodicLookbackFollowsPeriod() {
+        UnstructuredBatchService s = service(false);
+        LocalDateTime justAfter = LocalDateTime.of(2026, 10, 2, 0, 1);
+        assertThat(s.planScheduled(new BatchSchedule("UNSTRUCTURED", "Y", "INTERVAL_BASED", "00:10"), justAfter).window().from())
+                .isEqualTo(LocalDateTime.of(2026, 10, 1, 23, 41));
+        // 30분 주기 — 23:30 회차 다음(끝난 시각 + 30분 ≈ 00:01)이 23:21 부터 봐 23:30 ~ 24:00 를 덮는다(예전 20분이면 23:41 부터 → 11분 빠짐)
+        assertThat(s.planScheduled(new BatchSchedule("UNSTRUCTURED", "Y", "INTERVAL_BASED", "00:30"), justAfter).window().from())
+                .isEqualTo(LocalDateTime.of(2026, 10, 1, 23, 21));
+        assertThat(s.planScheduled(new BatchSchedule("UNSTRUCTURED", "Y", "INTERVAL_BASED", "01:00:00"), justAfter).window().from())
+                .isEqualTo(LocalDateTime.of(2026, 10, 1, 22, 51));
+        // 낮에는 그대로 오늘 00:00 부터
+        assertThat(s.planScheduled(new BatchSchedule("UNSTRUCTURED", "Y", "INTERVAL_BASED", "01:00"), NOW).window().from())
+                .isEqualTo(LocalDateTime.of(2026, 10, 2, 0, 0));
+    }
+
+    @Test
     @DisplayName("바로 실행 — 워터마크 ~ targetToDtm · 미래/이미 수집한 구간은 400 · 비우면 지금-lag")
     void runWindow() {
         UnstructuredBatchService s = service(false);

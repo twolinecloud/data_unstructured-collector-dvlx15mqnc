@@ -2,6 +2,7 @@ package egovframework.unstructured.collector.batch;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import egovframework.unstructured.collector.batch.schedule.BatchSchedule;
+import egovframework.unstructured.collector.batch.schedule.ScheduleTriggers;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.BatchWindow;
@@ -53,6 +54,10 @@ public class UnstructuredBatchService {
     @Value("${voice.batch.catchup-lookback-days:30}")
     private int catchupLookbackDays;
 
+    /** 주기 실행이 자정 직후 거슬러 보는 여유 — 주기 + 이 값(분). 회의(2026-09-11) "앞에서 못 돌린 것까지 다 하고 20분 전" 의 10분. */
+    @Value("${voice.batch.periodic-margin-min:10}")
+    private int periodicMarginMin = 10;
+
     /**
      * 실행 계획 — 접수 <b>전에</b> 만들고 검증한다. 잘못된 요청은 실행기에 넣지 않고 400 으로 돌려보낸다.
      *
@@ -101,12 +106,28 @@ public class UnstructuredBatchService {
      *
      * <p>예전 고정 cron 두 개(일배치 02:00 + 10분 주기)를 관리 화면 값 하나로 합쳤다. 정기면 어제치를 한 번,
      * 주기면 오늘치를 반복해서 줍는다 — 주기 창은 겹치지만 멱등 표식이 이미 처리한 건을 건너뛴다.</p>
+     *
+     * <p><b>자정 직후 거슬러 보는 폭 = 주기 + {@code periodic-margin-min}(10분)</b>, 최소 {@code periodic-lag-min}(20분)
+     * (2026-10-08). 예전에는 주기와 상관없이 20분이라, 주기가 30분 이상이면(관리 화면은 10분 ~ 12시간) 어제 마지막 회차 이후 ~
+     * 자정 사이 등록 건이 다음 창에 들어오지 않았다 — 예: 30분 주기 23:30 → 00:00 회차가 23:40 부터 봐 23:30 ~ 23:40 이 빠짐.
+     * 다음 회차는 '끝난 시각 + 주기' 에 오므로 배치가 여유(10분)보다 오래 걸리지 않는 한 앞 창과 겹친다.</p>
      */
     public Plan planScheduled(BatchSchedule s, LocalDateTime now) {
         BatchWindow w = BatchSchedule.INTERVAL_BASED.equals(s.execSchedTypeCd())
-                ? BatchWindow.periodic(now, voiceProps.batch().periodicLagMin())
+                ? BatchWindow.periodic(now, periodicLookbackMin(s))
                 : BatchWindow.daily(now);
         return new Plan(w, ResumeMode.FULL, null, false, "SCHEDULER", props.batch().includeImage());
+    }
+
+    /** 주기 창이 자정 직후 거슬러 보는 분 — max(주기 + 여유, periodic-lag-min). 주기 값이 잘못됐으면 periodic-lag-min. */
+    int periodicLookbackMin(BatchSchedule s) {
+        int floor = voiceProps.batch().periodicLagMin();
+        try {
+            long byPeriod = ScheduleTriggers.period(s.schedVal()).toMinutes() + Math.max(0, periodicMarginMin);
+            return (int) Math.max(floor, Math.min(byPeriod, Integer.MAX_VALUE));
+        } catch (IllegalArgumentException e) {
+            return floor;
+        }
     }
 
     /**

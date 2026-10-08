@@ -2,20 +2,16 @@ package egovframework.unstructured.collector.batch.schedule;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.support.CronTrigger;
-import org.springframework.scheduling.support.PeriodicTrigger;
-import org.springframework.scheduling.support.SimpleTriggerContext;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** admin 스케줄 값 → 트리거 변환 — data-collector 와 같은 규칙 + 주기 첫 발화 지연. */
+/** admin 스케줄 값 → 정기 크론 · 주기 길이 — data-collector 와 같은 규칙. 주기 실행은 트리거로 만들지 않는다(스케줄러가 이어 건다). */
 class ScheduleTriggersTest {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -30,15 +26,12 @@ class ScheduleTriggersTest {
     }
 
     @Test
-    @DisplayName("INTERVAL_BASED — HH:mm · HH:mm:ss 주기, 등록 즉시 발화하지 않고 한 주기 뒤")
+    @DisplayName("INTERVAL_BASED — HH:mm · HH:mm:ss 주기 길이. 트리거로는 만들지 않는다(반영 즉시 1회 + 끝난 시각 + 주기는 스케줄러가)")
     void intervalBased() {
         assertThat(ScheduleTriggers.period("00:30")).isEqualTo(Duration.ofMinutes(30));
         assertThat(ScheduleTriggers.period("01:00:00")).isEqualTo(Duration.ofHours(1));
-        Trigger t = ScheduleTriggers.of("INTERVAL_BASED", "00:30", KST);
-        assertThat(t).isInstanceOf(PeriodicTrigger.class);
-        Instant before = Instant.now();
-        Instant first = t.nextExecution(new SimpleTriggerContext());
-        assertThat(first).as("첫 발화는 한 주기(30분) 뒤").isAfterOrEqualTo(before.plus(Duration.ofMinutes(30)).minusSeconds(1));
+        assertThat(ScheduleTriggers.period("12:00")).isEqualTo(Duration.ofHours(12));
+        assertThatThrownBy(() -> ScheduleTriggers.of("INTERVAL_BASED", "00:30", KST)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -47,7 +40,7 @@ class ScheduleTriggersTest {
         assertThatThrownBy(() -> ScheduleTriggers.of("FIXED_TIME", "aa:bb", KST)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ScheduleTriggers.of("FIXED_TIME", "0200", KST)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ScheduleTriggers.of("FIXED_TIME", "24:00", KST)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> ScheduleTriggers.of("INTERVAL_BASED", "00:00", KST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ScheduleTriggers.period("00:00")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ScheduleTriggers.of("WEEKLY", "02:00", KST)).isInstanceOf(IllegalArgumentException.class);
     }
 

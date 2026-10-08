@@ -135,6 +135,7 @@ voice:
     #   실행 시각은 관리 화면(admin-api) 설정이 정한다(아래 unstructured.admin). 이 스위치가 꺼져 있으면 설정만 받는다.
     schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
     periodic-lag-min: ${VOICE_PERIODIC_LAG_MIN:20}
+    periodic-margin-min: ${VOICE_PERIODIC_MARGIN_MIN:10}
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
     max-files-per-run: ${VOICE_MAX_FILES:2000}
     job-id: ${VOICE_JOB_ID:VOICE_ANALYSIS}   # 컬렉터 JobId enum(작업명 매핑) — 채번 작업코드는 data-type-cd 가 정한다(UNSTRUCTURED → UNS)

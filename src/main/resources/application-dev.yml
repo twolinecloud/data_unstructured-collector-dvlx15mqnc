@@ -161,10 +161,16 @@ unstructured:
   admin:
     base-url: ${ADMIN_API_BASE_URL:http://admin-api-yo38xf9iff.service-core.svc.cluster.local:8080}
   # 대시보드 더미(DMY) — 개발계는 생성을 허용한다. 실제 borami-db 에 쓰는 생성은 사람이 시뮬레이터에서 누른다.
-  #   매일 자동 생성(daily)은 기본 끔 — 켜면 01:30 에 어제 날짜로 추가 · 7일 지난 DMY 정리. 켜고 끄기는 시뮬레이터 상단 패널(실행 중 스위치)
+  #   매일 자동 생성(daily)은 2026-10-11 사용자 지시로 개발계 기본 켬 — 01:30 에 어제 날짜로 추가하고
+  #   7일(retain-days) 지난 DMY 를 지운다. 대시보드가 늘 최근 7일치를 들고 있게 하려는 것이다.
+  #   이 값은 <기동 시 처음 값>일 뿐이다 — 시뮬레이터 상단 스위치로 끄면 PV 의 mock/auto_generator.json 이
+  #   이기고 재기동 뒤에도 꺼진 채로 간다(설정과 같은 쪽으로 되돌리면 그 파일을 지운다).
+  #   운영(prod)은 application-prod.yml 에서 명시적으로 false 라 영향 없다.
   mock:
     dashboard:
       enabled: ${UNSTRUCTURED_MOCK_DASHBOARD_ENABLED:true}
+    daily:
+      enabled: ${UNSTRUCTURED_MOCK_DAILY_ENABLED:true}
   # 2026-10-02 결정 — 개발계는 스케줄 · 바로 실행이 음성 뒤에 이미지 수집도 돈다(대시보드 더미 이미지 DMYIMG 포함).
   #   운영(prod)은 base 기본 false 그대로 — 정형 수집기 PHOTO_REF 반영 순서가 정해진 뒤 켠다
   batch:

@@ -67,11 +67,23 @@ public class AdminBatchScheduleClient {
                 log.warn("[Schedule] 설정 조회 응답 이상 — {}", res);
                 return Optional.empty();
             }
-            return Optional.of(new BatchSchedule(r.path("dataTypeCd").asText(), r.path("activeYn").asText(),
-                    r.path("execSchedTypeCd").asText(), r.path("schedVal").asText()));
+            return Optional.of(toSchedule(r));
         } catch (RuntimeException e) {
             log.warn("[Schedule] 설정 조회 실패(지금 스케줄 유지) — {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * admin 응답 {@code result} → 설정. {@code schedVal} 이 없거나 JSON null 이면 <b>null</b> 로 둔다.
+     *
+     * <p>{@code asText()} 는 JSON null 을 문자열 {@code "null"} 로 돌려준다. scheduledValue 가 필수값에서 빠졌으므로
+     * (2026-10-12 회의 결정) 사용 N 설정에는 값이 안 올 수 있고, 그걸 {@code "null"} 이라는 시각으로 들고 있으면
+     * 상태 화면에 그대로 찍힌다.</p>
+     */
+    static BatchSchedule toSchedule(JsonNode r) {
+        String schedVal = r.hasNonNull("schedVal") ? r.get("schedVal").asText() : null;
+        return new BatchSchedule(r.path("dataTypeCd").asText(), r.path("activeYn").asText(),
+                r.path("execSchedTypeCd").asText(), schedVal);
     }
 }

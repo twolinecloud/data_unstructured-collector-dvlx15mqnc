@@ -89,6 +89,31 @@ class AdminLinkControllerTest {
     }
 
     @Test
+    @DisplayName("refresh 사용 N · schedVal 없음 — 재조회 없이 그대로 적용(2026-10-12 scheduledValue 필수 해제)")
+    void refreshInactiveWithoutSchedVal() throws Exception {
+        when(scheduler.applySchedule(any(), eq(UnstructuredBatchScheduler.Source.REFRESH)))
+                .thenReturn(UnstructuredBatchScheduler.Apply.APPLIED);
+        mvc.perform(post("/internal/schedule/refresh").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"activeYn\":\"N\",\"execSchedTypeCd\":\"FIXED_TIME\",\"schedVal\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("applied:UNSTRUCTURED"));
+        verify(scheduler).applySchedule(eq(new BatchSchedule("UNSTRUCTURED", "N", "FIXED_TIME", null)),
+                eq(UnstructuredBatchScheduler.Source.REFRESH));
+        verify(scheduler, never()).reschedule(any());
+    }
+
+    @Test
+    @DisplayName("refresh 사용 Y · schedVal 없음 — 걸 수 없으니 본문을 쓰지 않고 admin 재조회(폴백)")
+    void refreshActiveWithoutSchedValFallsBack() throws Exception {
+        mvc.perform(post("/internal/schedule/refresh").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"activeYn\":\"Y\",\"execSchedTypeCd\":\"FIXED_TIME\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("rescheduled"));
+        verify(scheduler, never()).applySchedule(any(), eq(UnstructuredBatchScheduler.Source.REFRESH));
+        verify(scheduler).reschedule(UnstructuredBatchScheduler.Source.REFRESH_FETCH);
+    }
+
+    @Test
     @DisplayName("refresh 다른 유형은 무시하고 200 · 잘못된 값은 400")
     void refreshIgnoredAndInvalid() throws Exception {
         when(scheduler.applySchedule(any(), any())).thenReturn(UnstructuredBatchScheduler.Apply.IGNORED);

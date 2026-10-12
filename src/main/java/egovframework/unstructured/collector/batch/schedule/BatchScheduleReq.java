@@ -9,9 +9,18 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record BatchScheduleReq(String dataTypeCd, String activeYn, String execSchedTypeCd, String schedVal) {
 
-    /** 네 값이 다 있어야 그대로 적용한다. 하나라도 비면 본문 없는 요청처럼 admin 을 다시 읽는다. */
+    /**
+     * 그대로 적용할 수 있는 본문인가. 아니면 본문 없는 요청처럼 admin 을 다시 읽는다.
+     *
+     * <p>{@code schedVal} 은 <b>사용(Y)일 때만</b> 요구한다(2026-10-12 회의 결정: scheduledValue 필수값 해제).
+     * 사용 N 이면 트리거를 걸지 않으므로 시각 · 주기가 필요 없다 — 예전에는 그 자리를 admin 이 임의 기본값으로
+     * 채워 보내야 했고, 비워 보내면 본문을 버리고 재조회했다.</p>
+     */
     public boolean hasSchedule() {
-        return dataTypeCd != null && activeYn != null && execSchedTypeCd != null && schedVal != null;
+        if (dataTypeCd == null || activeYn == null || execSchedTypeCd == null) {
+            return false;
+        }
+        return schedVal != null || !"Y".equalsIgnoreCase(activeYn);
     }
 
     public BatchSchedule toSchedule() {

@@ -159,6 +159,32 @@ class UnstructuredBatchSchedulerTest {
     }
 
     @Test
+    @DisplayName("사용 N · schedVal 없음 — 시각이 필요 없으니 그대로 적용(2026-10-12 scheduledValue 필수 해제)")
+    void inactiveWithoutSchedVal() {
+        UnstructuredBatchScheduler sch = scheduler();
+        sch.applySchedule(s("Y", "FIXED_TIME", "02:00"), UnstructuredBatchScheduler.Source.STARTUP);
+        assertThat(sch.applySchedule(s("N", "FIXED_TIME", null), UnstructuredBatchScheduler.Source.REFRESH))
+                .isEqualTo(UnstructuredBatchScheduler.Apply.APPLIED);
+        verify(futures.get(0)).cancel(false);
+        assertThat(sch.isArmed()).isFalse();
+        Map<String, Object> snap = sch.snapshot();
+        assertThat(snap.get("activeYn")).isEqualTo("N");
+        assertThat(snap.get("schedVal")).isNull();
+        assertThat(snap.get("nextRunAt")).isNull();
+    }
+
+    @Test
+    @DisplayName("사용 Y · schedVal 없음 — 걸 수 없으니 INVALID, 지금 트리거 유지")
+    void activeWithoutSchedValKeepsCurrent() {
+        UnstructuredBatchScheduler sch = scheduler();
+        sch.applySchedule(s("Y", "FIXED_TIME", "02:00"), UnstructuredBatchScheduler.Source.STARTUP);
+        assertThat(sch.applySchedule(s("Y", "FIXED_TIME", null), UnstructuredBatchScheduler.Source.REFRESH))
+                .isEqualTo(UnstructuredBatchScheduler.Apply.INVALID);
+        verify(futures.get(0), never()).cancel(false);
+        assertThat(sch.isArmed()).isTrue();
+    }
+
+    @Test
     @DisplayName("잘못된 값 — INVALID, 지금 트리거는 그대로(풀지 않는다)")
     void invalidKeepsCurrent() {
         UnstructuredBatchScheduler sch = scheduler();

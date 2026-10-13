@@ -84,7 +84,29 @@ public record SttResult(String text, String engine, double duration, boolean fro
      * <p>텍스트가 같으면(단순 전달) 자기 자신을 돌려준다.</p>
      */
     public SttResult withText(String replaced) {
-        if (replaced == null || replaced.equals(text)) {
+        return withDeidentified(replaced, null);
+    }
+
+    /**
+     * 비식별 결과로 바꾼다 — 구간 텍스트를 비식별 쪽이 따로 가려 돌려줬으면(같은 개수) 그것을 쓰고,
+     * 아니면 {@link #withText} 규칙(줄 맞춤 · 안 맞으면 비움)을 따른다. <b>원문 구간이 남는 길은 없다.</b>
+     *
+     * @param maskedSegments 구간 텍스트를 같은 순서로 가린 것. null 이면 전문에서 줄로 나눈다
+     */
+    public SttResult withDeidentified(String replaced, List<String> maskedSegments) {
+        if (replaced == null) {
+            return this;
+        }
+        if (hasSegments() && maskedSegments != null && maskedSegments.size() == segments.size()) {
+            java.util.List<Segment> out = new java.util.ArrayList<>(segments.size());
+            for (int i = 0; i < segments.size(); i++) {
+                Segment s = segments.get(i);
+                String t = maskedSegments.get(i);
+                out.add(new Segment(s.id(), s.start(), s.end(), t == null ? "" : t));
+            }
+            return new SttResult(replaced, engine, duration, fromSource, language, out);
+        }
+        if (replaced.equals(text)) {
             return this;
         }
         List<Segment> segs = segments;

@@ -51,8 +51,8 @@ public class VerificationService {
     static final int T4_ROWS = 300;
     /** {@code [코드] [단계] 사유} — 수집기가 ERR_STACK 에 남기는 모양(로그 컬렉터 정규화 뒤에도 같다). */
     private static final java.util.regex.Pattern ERR_STEP =
-            java.util.regex.Pattern.compile("^(?:\\[[A-Z_]+\\]\\s*)?\\[(COLLECT|ANALYZE|SEND)\\]");
-    private static final List<String> STEP_ORDER = List.of("COLLECT", "ANALYZE", "SEND");
+            java.util.regex.Pattern.compile("^(?:\\[[A-Z_]+\\]\\s*)?\\[(COLLECT|ANALYZE|DEIDENT|SEND)\\]");
+    private static final List<String> STEP_ORDER = List.of("COLLECT", "ANALYZE", "DEIDENT", "SEND");
 
     private final VoiceDirState dirs;
     private final LogCollectorClient logCollector;
@@ -211,7 +211,7 @@ public class VerificationService {
         return mt.find() ? mt.group(1) : null;
     }
 
-    /** 단계 순서 — COLLECT · ANALYZE · SEND 다음 나머지(이름순). */
+    /** 단계 순서 — COLLECT · ANALYZE · DEIDENT · SEND 다음 나머지(이름순). */
     private static Map<String, Map<String, Long>> ordered(Map<String, Map<String, Long>> in) {
         Map<String, Map<String, Long>> out = new LinkedHashMap<>();
         STEP_ORDER.forEach(s -> { if (in.containsKey(s)) out.put(s, in.get(s)); });

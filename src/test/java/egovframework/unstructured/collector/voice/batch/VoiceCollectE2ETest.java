@@ -123,13 +123,13 @@ class VoiceCollectE2ETest {
     }
 
     @Test
-    @DisplayName("T2 단계 요약 — 3단계(COLLECT · ANALYZE · SEND) 세 행, 전부 성공")
+    @DisplayName("T2 단계 요약 — 4단계(COLLECT · ANALYZE · DEIDENT · SEND) 네 행, 전부 성공")
     void recordsCollectAndAnalyzeSteps() {
         VoiceBatchResult result = service.run(wideWindow(), null, "TEST", true);
 
         // SEND 는 에이전트 커넥터 전송 구간이다 — 여기까지 남아야 파이프라인 로그가 ANALYZE 에서 끊기지 않는다.
         assertThat(result.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly("COLLECT", "ANALYZE", "SEND");
+                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
         assertThat(result.steps()).allSatisfy(st -> {
             assertThat(st.stepStsCd()).isEqualTo("SUCCESS");
             assertThat(st.inCnt()).isEqualTo(14);

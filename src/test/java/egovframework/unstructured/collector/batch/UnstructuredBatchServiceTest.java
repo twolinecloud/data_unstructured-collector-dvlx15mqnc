@@ -77,7 +77,8 @@ class UnstructuredBatchServiceTest {
         assertThat(UnstructuredBatchService.resumeOf("COLLECT")).isEqualTo(ResumeMode.FULL);
         assertThat(UnstructuredBatchService.resumeOf("analyze")).isEqualTo(ResumeMode.FROM_ANALYZE);
         assertThat(UnstructuredBatchService.resumeOf("SEND")).isEqualTo(ResumeMode.FROM_SEND);
-        assertThatThrownBy(() -> UnstructuredBatchService.resumeOf("DEIDENT")).isInstanceOf(IllegalArgumentException.class);
+        // 비식별 실패 — 보존된 전사로 비식별부터 다시(STT 는 다시 돌리지 않는다)
+        assertThat(UnstructuredBatchService.resumeOf("DEIDENT")).isEqualTo(ResumeMode.FROM_SEND);
         assertThatThrownBy(() -> UnstructuredBatchService.resumeOf("CLEANSE")).isInstanceOf(IllegalArgumentException.class);
     }
 

@@ -394,6 +394,58 @@ class AgentConnectorClientTest {
     }
 
     @Test
+    @DisplayName("REST — 배치 연계 키(X-Collect-Exec-Id)를 싣고, 커넥터가 마지막 청크에 held:true 로 답하면 보류(사유)로 보고한다 — 전송은 성공")
+    void restHeldAckIsReported() throws Exception {
+        List<String> execIds = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v1/learn/transfer", ex -> {
+            execIds.add(String.valueOf(ex.getRequestHeaders().getFirst("X-Collect-Exec-Id")));
+            boolean last = Boolean.parseBoolean(ex.getRequestHeaders().getFirst("X-Is-Last"));
+            ex.getRequestBody().readAllBytes();
+            Map<String, Object> ack = new java.util.LinkedHashMap<>();
+            ack.put("runId", ex.getRequestHeaders().getFirst("X-Run-Id"));
+            ack.put("duplicate", false);
+            ack.put("complete", last);
+            if (last) {
+                ack.put("held", true);
+                ack.put("holdReason", "수동 확인");
+            }
+            byte[] resp = om.writeValueAsBytes(ack);
+            ex.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(resp);
+            }
+        });
+        server.start();
+        try {
+            AgentConnectorProperties p = props(AgentConnectorProperties.Mode.REST,
+                    "http://127.0.0.1:" + server.getAddress().getPort(), 2, 512L << 20);
+            AgentConnectorClient c = client(p, new AgentConnectorMockReceiver(p, om), TransferRuns.inMemory(), ScenarioFaults.inactive());
+            List<String> ok = new ArrayList<>();
+            Map<String, String> failed = new TreeMap<>();
+
+            AgentConnectorClient.Report rep = sendAll(c, "20261013UNS001", null, 3, ok, failed);
+
+            assertThat(rep.delivered()).isEqualTo(3);
+            assertThat(failed).isEmpty();
+            assertThat(rep.held()).isTrue();
+            assertThat(rep.holdReason()).isEqualTo("수동 확인");
+            assertThat(rep.view()).containsEntry("held", true);
+            assertThat(execIds).containsOnly("20261013UNS001");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("보류 사유 읽기 — 공백이 있어도 · 없으면 '전송 보류'")
+    void holdReasonParsing() {
+        assertThat(AgentConnectorClient.holdReasonOf("{\"held\": true, \"holdReason\" : \"전송 중지\"}")).isEqualTo("전송 중지");
+        assertThat(AgentConnectorClient.holdReasonOf("{\"held\":true}")).isEqualTo("전송 보류");
+        assertThat(AgentConnectorClient.holdReasonOf(null)).isEqualTo("전송 보류");
+    }
+
+    @Test
     @DisplayName("전송 런 장부 — 새 위치(transfer/)에 파일이 없으면 옛 위치(zenon/)를 읽어 이어달리기를 잇고, 다음 저장부터 새 위치에 쓴다")
     void transferRunsReadLegacyFile(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) {
         java.nio.file.Path legacy = dir.resolve(TransferRuns.LEGACY_FILE);

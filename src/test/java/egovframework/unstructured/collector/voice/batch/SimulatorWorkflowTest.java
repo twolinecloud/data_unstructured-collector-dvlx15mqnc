@@ -177,7 +177,7 @@ class SimulatorWorkflowTest {
         assertThat(first.failCnt()).isEqualTo(5);
         assertThat(first.outcomes()).allSatisfy(o -> assertThat(o.failedStep()).isEqualTo(egovframework.unstructured.collector.common.model.FileProcOutcome.STEP_SEND));
         assertThat(first.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly("COLLECT", "ANALYZE", "SEND");
+                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
         assertThat(connector.receipts(first.execId())).as("실패한 건은 보내지 않았다").isEmpty();
         assertThat(((Number) sttTemp.status().get("total")).intValue()).as("전사 보존물이 남는다").isEqualTo(5);
 

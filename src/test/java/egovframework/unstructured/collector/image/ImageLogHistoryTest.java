@@ -178,7 +178,7 @@ class ImageLogHistoryTest {
                 .containsExactly(2L, 1L, 1L);
         assertThat(steps.values()).allMatch(s -> "PARTIAL".equals(s.get("step_sts_cd")));
         assertThat(n(steps.get("COLLECT"), "step_seq")).isEqualTo(1);
-        assertThat(n(steps.get("SEND"), "step_seq")).isEqualTo(3);
+        assertThat(n(steps.get("SEND"), "step_seq")).as("비정형 체인 4번 칸 — 이미지는 DEIDENT 칸을 건너뛴다").isEqualTo(4);
 
         Map<String, Map<String, Object>> t4 = t4ByPid(r.execId());
         assertThat(t4).hasSize(4);
@@ -254,7 +254,7 @@ class ImageLogHistoryTest {
                 assertThat((String) row.get("err_stack")).startsWith("[DATA] [" + s.voiceStep() + "] ");
             }
         }
-        assertThat(t2(r.execId()).keySet()).containsExactlyInAnyOrder("COLLECT", "ANALYZE", "SEND");
+        assertThat(t2(r.execId()).keySet()).containsExactlyInAnyOrder("COLLECT", "ANALYZE", "DEIDENT", "SEND");
 
         // 시뮬레이터가 보는 T4 단계별 이력 — 로그 컬렉터 GET …/file-procs 를 실제 HTTP 로 읽는다
         Map<String, Object> st = verification.t4Steps(r.execId());

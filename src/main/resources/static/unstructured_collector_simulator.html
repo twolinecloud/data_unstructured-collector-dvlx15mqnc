@@ -677,11 +677,12 @@
     <div class="card-header bg-white py-2"><strong>② 제어</strong></div>
     <div class="card-body py-2" id="controls">
       <div class="mb-2 hint">배치 — 실제 REST API 를 호출하고 응답을 ③ 요약 바에 남깁니다. 시뮬레이션 데이터는 접견 7·전화 7 = 14건(트랙별 일배치 5 · 10분 주기 2)</div>
-      <!-- 비정형 3단계 — 로그 컬렉터 T2 의 STEP_TYPE_CD(COLLECT 1 · ANALYZE 2 · SEND 3). 마지막 배치 결과로 칠한다 -->
-      <div class="im-flow" id="pipe-flow" title="비식별화는 하지 않음(2026-10-01 3단계 복원) — 결과는 에이전트 커넥터 bypass API 를 거쳐 온프레미스 제논으로 넘기고 PV 에 남기지 않습니다">
+      <!-- 비정형 4단계 — 로그 컬렉터 T2 의 STEP_TYPE_CD(COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4). 마지막 배치 결과로 칠한다 -->
+      <div class="im-flow" id="pipe-flow" title="STT 전사를 에이전트 커넥터에서 비식별한 뒤(2026-10-13 DEIDENT 연결) 같은 커넥터를 거쳐 온프레미스 제논으로 넘깁니다. 전송 제어(T7)가 수동 확인 · 전송 중지면 커넥터가 보류하고 SEND 는 WAIT 로 남습니다">
         <span class="st" data-step="COLLECT"><b>1</b>수집 <span class="hint">COLLECT · 대상 조회 · 브로커 추출 / ESB 수신 · 복호화</span><span class="sts"></span></span><span class="ar">→</span>
         <span class="st" data-step="ANALYZE"><b>2</b>정제/분석 <span class="hint">ANALYZE · STT(기존 STT 가 있으면 건너뜀)</span><span class="sts"></span></span><span class="ar">→</span>
-        <span class="st" data-step="SEND"><b>3</b>적재/전송 <span class="hint">SEND · 에이전트 커넥터 → 제논 <span id="pipe-transfer">MOCK</span></span><span class="sts"></span></span>
+        <span class="st" data-step="DEIDENT"><b>3</b>비식별 <span class="hint">DEIDENT · 에이전트 커넥터(MOCK 이면 수집기 안에서 숫자만 가림)</span><span class="sts"></span></span><span class="ar">→</span>
+        <span class="st" data-step="SEND"><b>4</b>적재/전송 <span class="hint">SEND · 에이전트 커넥터 → 제논 <span id="pipe-transfer">MOCK</span></span><span class="sts"></span></span>
       </div>
       <!-- 1줄 — 전체 실행 3종 -->
       <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
@@ -1938,8 +1939,8 @@ function transferStep() {
   const st = (STATUS?.tracks?.meet?.steps || []).find(x => /에이전트 커넥터|제논/.test(x.label || ''));
   return { mode: st?.mode || 'MOCK', endpoint: st?.endpoint || '' };
 }
-/** 비정형 3단계(2026-10-01 복원) — T2 STEP_TYPE_CD 와 화면 이름. */
-const PIPE_STEPS = [['COLLECT', '수집'], ['ANALYZE', '정제/분석'], ['SEND', '적재/전송 (에이전트 커넥터)']];
+/** 비정형 4단계(2026-10-13 DEIDENT 연결) — T2 STEP_TYPE_CD 와 화면 이름. */
+const PIPE_STEPS = [['COLLECT', '수집'], ['ANALYZE', '정제/분석'], ['DEIDENT', '비식별 (에이전트 커넥터)'], ['SEND', '적재/전송 (에이전트 커넥터)']];
 const PIPE_LABEL = Object.fromEntries(PIPE_STEPS);
 /** 2번 탭 3단계 띠 — 마지막 배치의 T2 상태로 칠한다(없으면 회색). */
 function pipePaint(steps) {
@@ -1948,7 +1949,7 @@ function pipePaint(steps) {
     const el = document.querySelector(`#pipe-flow [data-step="${k}"]`); if (!el) return;
     const x = by[k];
     el.classList.remove('ok', 'warn', 'ng', 'live');
-    if (x) el.classList.add(x.stepStsCd === 'SUCCESS' ? 'ok' : x.stepStsCd === 'PARTIAL' ? 'warn' : x.stepStsCd === 'RUNNING' ? 'live' : 'ng');
+    if (x) el.classList.add(x.stepStsCd === 'SUCCESS' ? 'ok' : (x.stepStsCd === 'PARTIAL' || x.stepStsCd === 'WAIT') ? 'warn' : x.stepStsCd === 'RUNNING' ? 'live' : 'ng');
     const sts = el.querySelector('.sts');
     if (sts) sts.textContent = x ? `${x.stepStsCd} · in ${x.inCnt ?? 0} / out ${x.outCnt ?? 0} / err ${x.errCnt ?? 0}` : '';
   });

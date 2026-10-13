@@ -96,6 +96,8 @@ public class VoiceCollectService {
     private final BatchProgress progress;
     private final StageFaultState stageFault;
     private final egovframework.unstructured.collector.voice.stt.SttTempStore sttTemp;
+    /** 전사 비식별(T2 DEIDENT) — 에이전트 커넥터. 돌려받은 텍스트만 보낸다. */
+    private final egovframework.unstructured.collector.voice.transfer.VoiceDeidentClient voiceDeident;
     private final PerfStageMeter meter;
     /** 더미 키 표식(CF) 장애 — 접견 수집에서 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
@@ -233,12 +235,12 @@ public class VoiceCollectService {
         // 트랙별로 따로 찍는다. 두 시나리오는 연동 주체가 달라서 한 줄에 섞으면
         // 어느 모드가 어느 경로에 걸린 것인지 읽히지 않는다.
         if (targets.contains(VoiceKind.MEET)) {
-            log.info("[Batch]   접견 트랙 — 조회={} → 브로커={} → 복호화={} → STT={} → 전송=에이전트 커넥터 {}",
-                    source.mode(), broker.mode(), decryptService.mode(), sttClient.mode(), connector.mode());
+            log.info("[Batch]   접견 트랙 — 조회={} → 브로커={} → 복호화={} → STT={} → 비식별={} → 전송=에이전트 커넥터 {}",
+                    source.mode(), broker.mode(), decryptService.mode(), sttClient.mode(), voiceDeident.mode(), connector.mode());
         }
         if (targets.contains(VoiceKind.PHONE)) {
-            log.info("[Batch]   전화 트랙 — 조회={} → 파일연계={} → 복호화={} → STT={} → 전송=에이전트 커넥터 {}  (XVARM 경유 없음)",
-                    source.mode(), phoneFileProvider.mode(), decryptService.mode(), sttClient.mode(), connector.mode());
+            log.info("[Batch]   전화 트랙 — 조회={} → 파일연계={} → 복호화={} → STT={} → 비식별={} → 전송=에이전트 커넥터 {}  (XVARM 경유 없음)",
+                    source.mode(), phoneFileProvider.mode(), decryptService.mode(), sttClient.mode(), voiceDeident.mode(), connector.mode());
         }
 
         // ── T2 ① COLLECT — 파일 확보·복호화. 배치 시작에 연다 ────────────────────
@@ -312,15 +314,30 @@ public class VoiceCollectService {
         // STT 가 한 건이라도 시작됐을 때만 ANALYZE 행이 있다 — 전건 확보 실패면 STT 단계는 돌지 않은 것이다.
         long analyzeErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_ANALYZE)).count();
         if (ctx.analyzeStarted) {
-            // ANALYZE 는 STT 까지다 — 나간 건수는 STT 를 통과해 SEND 로 넘어간 수.
+            // ANALYZE 는 STT 까지다 — 나간 건수는 STT 를 통과해 다음 단계(DEIDENT · 꺼져 있으면 SEND)로 넘어간 수.
             steps.add(finishStep(ctx.analyzeStepId, FileProcOutcome.STEP_ANALYZE,
                     collectOut, collectOut - analyzeErr, analyzeErr, ctx.analyzeMs));
         }
-        // SEND — STT 를 통과한 건이 한 번이라도 에이전트 커넥터 전송을 시도했을 때만 행이 있다.
+        // DEIDENT — 전사 비식별을 한 건이라도 시도했을 때만 행이 있다. 실패한 건은 원문을 보내지 않았다.
+        long deidentIn = collectOut - analyzeErr;
+        long deidentErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_DEIDENT)).count();
+        if (ctx.deidentStarted) {
+            steps.add(finishStep(ctx.deidentStepId, FileProcOutcome.STEP_DEIDENT,
+                    deidentIn, deidentIn - deidentErr, deidentErr, ctx.deidentMs));
+        }
+        // SEND — 비식별을 통과한 건이 한 번이라도 에이전트 커넥터 전송을 시도했을 때만 행이 있다.
+        //   커넥터가 받고 내보내지 않았으면(전송 제어 T7 — 수동 확인 · 전송 중지) SUCCESS 가 아니라 전송 대기(WAIT)로 닫는다 —
+        //   관리자 트리거가 커넥터에서 WAIT → RUNNING → SUCCESS 로 마감한다.
         if (ctx.sendStarted) {
-            long sendIn = collectOut - analyzeErr;
+            long sendIn = deidentIn - deidentErr;
             long sendErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_SEND)).count();
-            steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, sendIn, success, sendErr, ctx.sendMs));
+            if (transfer.held()) {
+                log.info("[Batch] 에이전트 커넥터가 전송을 보류했다 — {} · SEND 를 전송 대기(WAIT)로 둔다(관리자 확인 후 전송)",
+                        transfer.holdReason());
+                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, "WAIT", sendIn, success, sendErr, ctx.sendMs));
+            } else {
+                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, sendIn, success, sendErr, ctx.sendMs));
+            }
         }
 
         // T4 — 파일 1건 = 1행. 정합성 대사(T1.SUCCESS_CNT == Σ T3·T4·T5)의 근거다.
@@ -337,6 +354,10 @@ public class VoiceCollectService {
             sent.put("seq", transfer.fromSeq() + "~" + (transfer.fromSeq() + transfer.chunks().size() - 1));
             sent.put("continued", String.valueOf(transfer.continued()));
             sent.put("closed", String.valueOf(transfer.closed()));
+            if (transfer.held()) {
+                sent.put("held", "true");
+                sent.put("holdReason", String.valueOf(transfer.holdReason()));
+            }
         }
 
         long elapsedMs = System.currentTimeMillis() - startedAt;
@@ -625,8 +646,10 @@ public class VoiceCollectService {
         String fromExecId;
         String collectStepId;
         String analyzeStepId;
+        String deidentStepId;
         String sendStepId;
         boolean analyzeStarted;
+        boolean deidentStarted;
         boolean sendStarted;
         /** 에이전트 커넥터 전송 런 — SEND 가 레코드를 쌓고 배치 끝에 보낸다. */
         AgentConnectorClient.Session transfer;
@@ -635,6 +658,7 @@ public class VoiceCollectService {
         final Map<String, String> sendFailed = new java.util.concurrent.ConcurrentHashMap<>();
         long collectMs;
         long analyzeMs;
+        long deidentMs;
         long sendMs;
 
         RunContext(String execId) {
@@ -650,6 +674,10 @@ public class VoiceCollectService {
             analyzeMs += ms;
         }
 
+        synchronized void addDeident(long ms) {
+            deidentMs += ms;
+        }
+
         synchronized void addSend(long ms) {
             sendMs += ms;
         }
@@ -658,6 +686,7 @@ public class VoiceCollectService {
         synchronized void capElapsed(long wallMs) {
             collectMs = Math.min(collectMs, wallMs);
             analyzeMs = Math.min(analyzeMs, wallMs);
+            deidentMs = Math.min(deidentMs, wallMs);
             sendMs = Math.min(sendMs, wallMs);
         }
     }
@@ -699,6 +728,18 @@ public class VoiceCollectService {
         log.info("[Batch] T2 ANALYZE 시작 — stepLogId={}", ctx.analyzeStepId == null ? "(미연동)" : ctx.analyzeStepId);
     }
 
+    /** DEIDENT 단계를 연다 — 첫 비식별 호출 직전에 한 번. ANALYZE 와 같은 방식이다. */
+    private void beginDeident(RunContext ctx) {
+        synchronized (ctx) {
+            if (ctx.deidentStarted) {
+                return;
+            }
+            ctx.deidentStarted = true;
+            ctx.deidentStepId = logCollector.createStep(ctx.execId, StepType.DEIDENT.seq(), StepType.DEIDENT.name());
+        }
+        log.info("[Batch] T2 DEIDENT 시작 — stepLogId={}", ctx.deidentStepId == null ? "(미연동)" : ctx.deidentStepId);
+    }
+
     /** SEND 단계를 연다 — 첫 에이전트 커넥터 전송 직전에 한 번. ANALYZE 와 같은 방식이다. */
     private void beginSend(RunContext ctx) {
         synchronized (ctx) {
@@ -706,7 +747,7 @@ public class VoiceCollectService {
                 return;
             }
             ctx.sendStarted = true;
-            // 비정형 체인의 3번 칸(COLLECT 1 · ANALYZE 2 · SEND 3). 순번은 컬렉터가 체인 위치로 다시 정한다.
+            // 비정형 체인의 4번 칸(COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4). 순번은 컬렉터가 체인 위치로 다시 정한다.
             ctx.sendStepId = logCollector.createStep(ctx.execId, StepType.SEND.seq(), StepType.SEND.name());
         }
         log.info("[Batch] T2 SEND 시작 — stepLogId={}", ctx.sendStepId == null ? "(미연동)" : ctx.sendStepId);
@@ -715,7 +756,13 @@ public class VoiceCollectService {
     /** 단계를 마감하고 결과 요약을 돌려준다. 컬렉터 미연동이면 요약만 만든다. */
     private VoiceBatchResult.StepLog finishStep(String stepLogId, String stepTypeCd,
                                                 long in, long out, long err, long elapsedMs) {
-        String sts = err == 0 ? "SUCCESS" : (out == 0 ? "FAIL" : "PARTIAL");
+        return finishStep(stepLogId, stepTypeCd, null, in, out, err, elapsedMs);
+    }
+
+    /** @param forcedSts 건수로 정하지 않고 이 상태로 닫는다(전송 대기 WAIT). null 이면 건수로 */
+    private VoiceBatchResult.StepLog finishStep(String stepLogId, String stepTypeCd, String forcedSts,
+                                                long in, long out, long err, long elapsedMs) {
+        String sts = forcedSts != null ? forcedSts : err == 0 ? "SUCCESS" : (out == 0 ? "FAIL" : "PARTIAL");
         int sec = (int) (elapsedMs / 1000);
         boolean logged = stepLogId != null;
         if (logged) {
@@ -1068,6 +1115,21 @@ public class VoiceCollectService {
             long tAnalyzed = System.currentTimeMillis();
             ctx.addAnalyze(tAnalyzed - tCollected);
 
+            // ── DEIDENT — 전사 비식별(에이전트 커넥터, 건 단위) ─────────────────────────
+            //   돌려받은 텍스트 · 구간만 보낸다. 실패하면 원문을 보내지 않고 이 건을 DEIDENT 실패로 남긴다
+            //   (원문 전사는 임시 보관에 남아 FROM_SEND 재처리가 STT 없이 비식별부터 이어 간다).
+            String pid = pidGenerator.of(target.corrNo());
+            long tDeidented = tAnalyzed;
+            if (voiceDeident.enabled()) {
+                step = FileProcOutcome.STEP_DEIDENT;
+                beginDeident(ctx);
+                egovframework.unstructured.collector.voice.transfer.VoiceDeidentClient.Result d =
+                        voiceDeident.deident(ctx.execId, target, pid, stt);
+                stt = stt.withDeidentified(d.text(), d.segments());
+                tDeidented = System.currentTimeMillis();
+                ctx.addDeident(tDeidented - tAnalyzed);
+            }
+
             // ── SEND — 에이전트 커넥터 전송 ───────────────────────────────────────
             step = FileProcOutcome.STEP_SEND;
             beginSend(ctx);
@@ -1075,7 +1137,7 @@ public class VoiceCollectService {
                 throw StageFaultState.fault(StageFaultState.Stage.SEND, "에이전트 커넥터 전송 실패(500/Timeout) 주입");
             }
             AgentConnectorClient.Record record = VoiceTransferDocument.of(ctx.execId, target, stt, fileSize,
-                    pidGenerator.of(target.corrNo()), objectMapper);
+                    pid, objectMapper);
             try {
                 connector.precheck(record);   // 키 표식(SF) — 그 건만 한 번 거부(청크는 멈추지 않는다)
             } catch (RuntimeException e) {
@@ -1092,7 +1154,7 @@ public class VoiceCollectService {
                 idempotency.markProcessed(target);
                 log.debug("[Purge] 전송 완료 — {} · 임시 파일 정리", target.shortId());
             }, why -> ctx.sendFailed.put(target.idempotencyKey(), why));
-            ctx.addSend(System.currentTimeMillis() - tAnalyzed);
+            ctx.addSend(System.currentTimeMillis() - tDeidented);
             ok = true;
             return FileProcOutcome.success(target, fileSize, stt.charCount(), PENDING_SEND,
                     st.activeMs + System.currentTimeMillis() - t0);
@@ -1106,6 +1168,8 @@ public class VoiceCollectService {
                 ctx.addCollect(ms);
             } else if (FileProcOutcome.STEP_SEND.equals(step)) {
                 ctx.addSend(ms);
+            } else if (FileProcOutcome.STEP_DEIDENT.equals(step)) {
+                ctx.addDeident(ms);
             } else {
                 ctx.addAnalyze(ms);
             }

@@ -50,6 +50,7 @@ import java.util.zip.GZIPOutputStream;
  * X-Chunk-Cnt: 2                             이 청크의 레코드 수
  * X-Seq: 1                                   순번(1부터 오름차순)
  * X-Is-Last: false                           마지막 청크만 true
+ * X-Collect-Exec-Id: 20261005UNS002          이번 배치 실행 ID(T1 · T2 · T5 키) — 이어달리기면 런 ID 와 다르다
  *
  * {"header":{"runId":"20261005UNS001","dataTypeCd":"UNSTRUCTURED","collectDtm":"2026-10-05T10:00:00+09:00","setTypeCd":"VOICE"},
  *  "payload":[{"managementNo":"교정번호","rawDataset":{"recFileId":"…","kind":"MEET","inmatePid":"…","transcript":{…}}}, …]}
@@ -124,11 +125,19 @@ public class AgentConnectorClient {
                         long bytes, long elapsedMs, List<String> keys) {}
 
     /** 한 번의 전송(flush) 결과. */
+    /**
+     * 한 번의 전송(flush) 결과.
+     *
+     * @param held       커넥터가 받았지만 <b>내보내지 않고 보류</b>했다(전송 제어 T7 — 수동 확인 · 전송 중지 · 설정 없음).
+     *                   수집기는 SEND 를 성공이 아닌 전송 대기(WAIT)로 마감한다 — 관리자 트리거가 커넥터에서 마감한다
+     * @param holdReason 보류 사유(화면 '대기 사유')
+     */
     public record Report(String runId, String execId, boolean continued, int fromSeq, long targetCnt,
-                         List<Chunk> chunks, int delivered, int failed, boolean closed, String mode, String endpoint) {
+                         List<Chunk> chunks, int delivered, int failed, boolean closed, String mode, String endpoint,
+                         boolean held, String holdReason) {
 
         public static Report empty(String execId, String mode, String endpoint) {
-            return new Report(null, execId, false, 0, 0, List.of(), 0, 0, false, mode, endpoint);
+            return new Report(null, execId, false, 0, 0, List.of(), 0, 0, false, mode, endpoint, false, null);
         }
 
         public boolean isEmpty() {
@@ -149,6 +158,10 @@ public class AgentConnectorClient {
             m.put("closed", closed);
             m.put("mode", mode);
             m.put("endpoint", endpoint);
+            m.put("held", held);
+            if (holdReason != null) {
+                m.put("holdReason", holdReason);
+            }
             m.put("chunks", chunks);
             return m;
         }
@@ -342,6 +355,8 @@ public class AgentConnectorClient {
             int failed = 0;
             Integer haltedAt = null;
             boolean closed = false;
+            boolean held = false;
+            String holdReason = null;
             for (int i = 0; i < parts.size(); i++) {
                 List<Staged> part = parts.get(i);
                 int seq = base + 1 + i;
@@ -355,7 +370,7 @@ public class AgentConnectorClient {
                     continue;
                 }
                 long t0 = System.currentTimeMillis();
-                Sent sent = post(runId, seq, last, targetCnt, part.stream().map(Staged::record).toList());
+                Sent sent = post(runId, execId, seq, last, targetCnt, part.stream().map(Staged::record).toList());
                 long ms = System.currentTimeMillis() - t0;
                 if (sent.ok) {
                     String at = LocalDateTime.now(clock).withNano(0).toString();
@@ -379,6 +394,10 @@ public class AgentConnectorClient {
                     delivered += part.size();
                     runs.delivered(runId, seq, part.size(), last);
                     closed = last;
+                    if (sent.held) {
+                        held = true;
+                        holdReason = sent.holdReason;
+                    }
                     out.add(new Chunk(seq, part.size(), last, sent.duplicate ? "DUPLICATE" : "SENT", sent.status,
                             sent.message, sent.bytes, ms, keys));
                 } else {
@@ -393,11 +412,12 @@ public class AgentConnectorClient {
                 }
             }
             Report rep = new Report(runId, execId, continued, base + 1, targetCnt, out, delivered, failed, closed,
-                    mode(), endpoint());
+                    mode(), endpoint(), held, holdReason);
             lastReport = rep;
-            log.info("[Transfer] 전송 {} — runId={} 청크 {}개(seq {}~{}) · 레코드 {}건 중 {}건 전송 · {}건 실패{}",
+            log.info("[Transfer] 전송 {} — runId={} 청크 {}개(seq {}~{}) · 레코드 {}건 중 {}건 전송 · {}건 실패{}{}",
                     failed == 0 ? "완료" : (delivered == 0 ? "실패" : "부분 실패"), runId, out.size(), base + 1,
-                    base + out.size(), staged.size(), delivered, failed, closed ? " · 런 마감" : "");
+                    base + out.size(), staged.size(), delivered, failed, closed ? " · 런 마감" : "",
+                    held ? " · 커넥터 전송 보류(" + holdReason + ") — 관리자 확인 대기" : "");
             return rep;
         }
     }
@@ -429,10 +449,24 @@ public class AgentConnectorClient {
     //  청크 하나 보내기
     // ══════════════════════════════════════════════════════════════════════
 
-    private record Sent(boolean ok, boolean duplicate, int status, String message, long bytes) {}
+    /** @param held 커넥터가 받았지만 내보내지 않고 보류했다(응답 {@code held:true}) */
+    private record Sent(boolean ok, boolean duplicate, int status, String message, long bytes,
+                        boolean held, String holdReason) {
+        Sent(boolean ok, boolean duplicate, int status, String message, long bytes) {
+            this(ok, duplicate, status, message, bytes, false, null);
+        }
+    }
 
     /** 유실검증 헤더 — data-collector {@code FeatureSetTransferSink.post} 와 같은 이름 · 같은 뜻. */
     public Map<String, String> headers(String runId, int seq, boolean last, long targetCnt, int chunkCnt) {
+        return headers(runId, null, seq, last, targetCnt, chunkCnt);
+    }
+
+    /**
+     * 유실검증 헤더 + 배치 연계 키({@code X-Collect-Exec-Id}) — 커넥터가 전송을 보류할 때 T2 · T5 를 이 실행 ID 로 잇는다.
+     * 이어달리기면 런 ID(원배치)와 실행 ID(이번 배치)가 다르다.
+     */
+    public Map<String, String> headers(String runId, String execId, int seq, boolean last, long targetCnt, int chunkCnt) {
         Map<String, String> h = new LinkedHashMap<>();
         h.put("Content-Type", "application/json;charset=UTF-8");
         h.put("X-Run-Id", runId);
@@ -441,6 +475,9 @@ public class AgentConnectorClient {
         h.put("X-Chunk-Cnt", Integer.toString(chunkCnt));
         h.put("X-Seq", Integer.toString(seq));
         h.put("X-Is-Last", Boolean.toString(last));
+        if (StringUtils.hasText(execId)) {
+            h.put("X-Collect-Exec-Id", execId);
+        }
         return h;
     }
 
@@ -475,14 +512,14 @@ public class AgentConnectorClient {
 
     private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
 
-    private Sent post(String runId, int seq, boolean last, long targetCnt, List<Record> records) {
+    private Sent post(String runId, String execId, int seq, boolean last, long targetCnt, List<Record> records) {
         byte[] body;
         try {
             body = requestBytes(runId, records);
         } catch (RuntimeException e) {
             return new Sent(false, false, -1, "본문 직렬화 실패 — " + e.getMessage(), 0L);
         }
-        Map<String, String> headers = headers(runId, seq, last, targetCnt, records.size());
+        Map<String, String> headers = headers(runId, execId, seq, last, targetCnt, records.size());
         if (effectiveMode() == AgentConnectorProperties.Mode.MOCK) {
             return mock(headers, body);
         }
@@ -499,9 +536,11 @@ public class AgentConnectorClient {
         }
         AgentConnectorMockReceiver.Ack ack = receiver.receive(ci::get, new ByteArrayInputStream(wire), props.gzip());
         boolean dup = Boolean.TRUE.equals(ack.body().get("duplicate"));
-        String msg = ack.ok() ? "MOCK " + ack.status() + (dup ? " duplicate" : "")
+        boolean held = Boolean.TRUE.equals(ack.body().get("held"));
+        String msg = ack.ok() ? "MOCK " + ack.status() + (dup ? " duplicate" : "") + (held ? " held" : "")
                 : "에이전트 커넥터 HTTP " + ack.status() + " — " + ack.body().get("message");
-        return new Sent(ack.ok(), dup, ack.status(), msg, wire.length);
+        Object reason = ack.body().get("holdReason");
+        return new Sent(ack.ok(), dup, ack.status(), msg, wire.length, held, reason == null ? null : reason.toString());
     }
 
     /** REST — 전이중 스트리밍(gzip + chunked)으로 보내고 2xx 를 확인한다. */
@@ -522,8 +561,11 @@ public class AgentConnectorClient {
                 props.gzip(), out -> out.write(body), props.connectTimeoutMs(), props.readTimeoutMs(), RESP_TAIL_BYTES);
         boolean aborted = r.tail() != null && r.tail().contains("\"aborted\"");
         if (r.ok2xx() && !aborted) {
-            boolean dup = r.tail() != null && r.tail().replace(" ", "").contains("\"duplicate\":true");
-            return new Sent(true, dup, r.status(), "HTTP " + r.status() + (dup ? " duplicate" : ""), body.length);
+            String compact = r.tail() == null ? "" : r.tail().replace(" ", "");
+            boolean dup = compact.contains("\"duplicate\":true");
+            boolean held = compact.contains("\"held\":true");
+            return new Sent(true, dup, r.status(), "HTTP " + r.status() + (dup ? " duplicate" : "") + (held ? " held" : ""),
+                    body.length, held, held ? holdReasonOf(r.tail()) : null);
         }
         String why = "에이전트 커넥터 HTTP " + r.status()
                 + (r.writeError() != null ? " writeErr=" + r.writeError() : "")
@@ -541,6 +583,18 @@ public class AgentConnectorClient {
             throw new UncheckedIOException("gzip 압축 실패", e);
         }
         return bos.toByteArray();
+    }
+
+    private static final java.util.regex.Pattern HOLD_REASON =
+            java.util.regex.Pattern.compile("\"holdReason\"\\s*:\\s*\"([^\"]*)\"");
+
+    /** 응답 꼬리에서 보류 사유 — 못 찾으면 "전송 보류". */
+    static String holdReasonOf(String tail) {
+        if (tail == null) {
+            return "전송 보류";
+        }
+        java.util.regex.Matcher m = HOLD_REASON.matcher(tail);
+        return m.find() ? m.group(1) : "전송 보류";
     }
 
     private static String tailSnippet(String tail) {

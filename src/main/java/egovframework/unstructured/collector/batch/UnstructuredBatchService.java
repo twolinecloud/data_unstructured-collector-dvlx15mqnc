@@ -198,21 +198,22 @@ public class UnstructuredBatchService {
     }
 
     /**
-     * 재처리 단계(C05) → 이어서 할 단계. 비정형은 3단계({@link StepType})라 1:1 이다.
+     * 재처리 단계(C05) → 이어서 할 단계. 비정형 4단계({@link StepType}) — DEIDENT 실패는 SEND 와 같이 FROM_SEND 다
+     * (보존된 전사를 다시 비식별하고 보낸다 — STT 를 다시 돌리지 않는다).
      * 비어 있으면 처음부터 — admin 이 실패 단계를 못 찾으면(단계 기록 없이 죽은 배치) {@code stepTypeCd} 없이 보낸다.
      *
-     * @throws IllegalArgumentException 비정형 3단계(COLLECT · ANALYZE · SEND)가 아닌 코드
+     * @throws IllegalArgumentException 비정형 4단계(COLLECT · ANALYZE · DEIDENT · SEND)가 아닌 코드
      */
     public static ResumeMode resumeOf(String stepTypeCd) {
         if (stepTypeCd == null || stepTypeCd.isBlank()) {
             return ResumeMode.FULL;
         }
         StepType step = StepType.parse(stepTypeCd).orElseThrow(() -> new IllegalArgumentException(
-                "비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · SEND 만 재처리할 수 있다"));
+                "비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · DEIDENT · SEND 만 재처리할 수 있다"));
         return switch (step) {
             case COLLECT -> ResumeMode.FULL;
             case ANALYZE -> ResumeMode.FROM_ANALYZE;
-            case SEND -> ResumeMode.FROM_SEND;
+            case DEIDENT, SEND -> ResumeMode.FROM_SEND;
         };
     }
 

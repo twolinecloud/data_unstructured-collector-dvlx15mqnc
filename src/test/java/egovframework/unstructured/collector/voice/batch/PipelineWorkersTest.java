@@ -143,7 +143,8 @@ class PipelineWorkersTest {
         assertThat(r.outcomes()).extracting(o -> o.target().idempotencyKey())
                 .as("한 건도 빠지거나 겹치지 않는다").hasSize(10).doesNotHaveDuplicates();
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_SEND);
+                .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_DEIDENT,
+                        FileProcOutcome.STEP_SEND);
         Map<String, Object> p = progress.snapshot();
         assertThat(p.get("pipeline")).isEqualTo(true);
         assertThat(p.get("acquireWorkers")).isEqualTo(1);

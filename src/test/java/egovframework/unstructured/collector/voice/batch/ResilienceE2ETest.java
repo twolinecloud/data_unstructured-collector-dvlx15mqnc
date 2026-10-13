@@ -262,10 +262,15 @@ class ResilienceE2ETest {
         VoiceBatchResult r = service.run(wide(), null, "TEST", true);
 
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
-                .containsExactly("COLLECT", "ANALYZE", "SEND");
+                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
         VoiceBatchResult.StepLog collect = r.steps().get(0);
         VoiceBatchResult.StepLog analyze = r.steps().get(1);
-        VoiceBatchResult.StepLog send = r.steps().get(2);
+        VoiceBatchResult.StepLog deident = r.steps().get(2);
+        VoiceBatchResult.StepLog send = r.steps().get(3);
+        // STT 를 통과한 것만 비식별로 넘어간다 — 비식별 자체는 깨지지 않았다
+        assertThat(deident.inCnt()).isEqualTo(SOURCE_STT);
+        assertThat(deident.outCnt()).isEqualTo(SOURCE_STT);
+        assertThat(deident.stepStsCd()).isEqualTo("SUCCESS");
         assertThat(collect.stepStsCd()).isEqualTo("SUCCESS");
         assertThat(collect.inCnt()).isEqualTo(TOTAL);
         assertThat(collect.outCnt()).isEqualTo(TOTAL);

@@ -12,17 +12,19 @@ import java.util.Arrays;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** 비정형 파이프라인 3단계(C05) — 코드 · 순번 · 이미지 세부 단계 대응 · 재처리 · T4 오류 표기. */
+/** 비정형 파이프라인 4단계(C05) — 코드 · 순번 · 이미지 세부 단계 대응 · 재처리 · T4 오류 표기. */
 class StepTypeTest {
 
     @Test
-    @DisplayName("비정형은 3단계뿐 — COLLECT 1 · ANALYZE 2 · SEND 3. 정형 · 외부 체인의 단계는 거절한다")
-    void onlyThreeSteps() {
-        assertThat(Arrays.stream(StepType.values()).map(Enum::name)).containsExactly("COLLECT", "ANALYZE", "SEND");
+    @DisplayName("비정형은 4단계뿐 — COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4(로그 컬렉터 체인과 같다). 정형 · 외부 체인의 단계는 거절한다")
+    void onlyFourSteps() {
+        assertThat(Arrays.stream(StepType.values()).map(Enum::name)).containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
         assertThat(StepType.COLLECT.seq()).isEqualTo((short) 1);
-        assertThat(StepType.SEND.seq()).isEqualTo((short) 3);
+        assertThat(StepType.DEIDENT.seq()).isEqualTo((short) 3);
+        assertThat(StepType.SEND.seq()).isEqualTo((short) 4);
         assertThat(StepType.parse(" analyze ")).contains(StepType.ANALYZE);
-        for (String other : new String[] {"DEIDENT", "CLEANSE", "STORE"}) {
+        assertThat(StepType.parse("deident")).contains(StepType.DEIDENT);
+        for (String other : new String[] {"CLEANSE", "STORE"}) {
             assertThat(StepType.parse(other)).as(other).isEmpty();
             assertThatThrownBy(() -> StepType.of(other)).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> UnstructuredBatchService.resumeOf(other)).isInstanceOf(IllegalArgumentException.class);

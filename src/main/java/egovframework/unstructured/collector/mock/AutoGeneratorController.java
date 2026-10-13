@@ -57,15 +57,22 @@ public class AutoGeneratorController {
 
     @Operation(summary = "일 단위 자동 생성 — 즉시 1회",
             description = """
-                    새벽을 기다리지 않고 지금 한 번 — `targetDate`(비우면 어제) 치 대시보드 더미를 만들고, 그 다음 날을 실행일로 보고
-                    보존 일수 이전 DMY 를 지운다(새벽 스케줄과 같은 일). ON/OFF 와 상관없이 돈다.
-                    응답 `days` — 대상일 앞뒤 날짜별 DMY 건수(접견 · 전화 행 · 이미지 수용자).
+                    새벽을 기다리지 않고 지금 한 번 — `targetDate`(비우면 어제) 치를 만든다. ON/OFF 와 상관없이 돈다.
+                    `target` 으로 용도를 고른다(상단 [시뮬레이션 데이터 생성] 과 같은 두 갈래):
+
+                    - `DASHBOARD`(기본) — 대시보드 · 배치용 DMY. 그 다음 날을 실행일로 보고 보존 일수 이전 DMY 도 지운다(새벽 스케줄과 같은 일).
+                      실제 배치(스케줄 · 바로 실행 · 긴급 실행 · EXEC_ID **UNS**)가 읽는다
+                    - `SIMULATOR` — 시뮬레이터용 SIM 을 추가만 한다(정리 없음). 시뮬레이터 시험 실행(test=true · EXEC_ID **TST**)만 읽는다
+
+                    응답 `days` — 날짜별 그 용도 건수(접견 · 전화 행 · 이미지 수용자) · `readBy` — 이 데이터를 읽는 배치.
                     """)
     @PostMapping("/trigger")
     public Map<String, Object> trigger(
             @Parameter(description = "생성 대상일 yyyy-MM-dd — 비우면 어제. 미래는 안 된다", example = "2026-10-04")
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate targetDate) {
-        return scheduler.trigger(targetDate);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate targetDate,
+            @Parameter(description = "용도 — DASHBOARD(대시보드 · 배치용 DMY · UNS) | SIMULATOR(시뮬레이터용 SIM · TST)", example = "DASHBOARD")
+            @RequestParam(defaultValue = "DASHBOARD") DummyTarget target) {
+        return scheduler.trigger(targetDate, target);
     }
 
     @Operation(summary = "일 단위 자동 생성 — N일 경과 시뮬레이션",

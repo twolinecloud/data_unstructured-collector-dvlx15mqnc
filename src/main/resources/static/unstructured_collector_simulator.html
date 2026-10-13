@@ -547,7 +547,7 @@
       <span class="grow hint" id="ag-sum"></span>
       <input type="date" class="form-control form-control-sm ag-date" id="ag-date" title="[즉시 실행] 의 생성 대상일 — 기본 어제(새벽 스케줄과 같음). 이 날의 다음 날을 실행일로 보고 보존 일수 이전을 지웁니다">
       <button class="btn btn-sm btn-outline-primary py-0" type="button" id="ag-run" disabled
-              title="POST /api/v1/mock/auto-generator/trigger?targetDate= — 새벽을 기다리지 않고 지금 한 번: 대상일 치 DMY 생성 + 보존 일수 지난 DMY 삭제. ON/OFF 와 상관없이 돕니다">즉시 실행 (1일 치 생성)</button>
+              title="POST /api/v1/mock/auto-generator/trigger?targetDate=&amp;target= — 새벽을 기다리지 않고 지금 한 번. 용도를 고릅니다: 대시보드·배치용(DMY · 실제 배치 UNS — 보존 일수 지난 DMY 삭제 포함) / 시뮬레이터용(SIM · 시험 실행 TST — 추가만). ON/OFF 와 상관없이 돕니다">즉시 실행 (1일 치 생성)</button>
       <button class="btn btn-sm btn-outline-dark py-0" type="button" id="ag-sim" disabled
               title="POST /api/v1/mock/auto-generator/simulate?days= — 가상 실행일을 하루씩 넘기며 N+1번 돌려, 첫날 만든 데이터가 보존 일수를 넘겨 지워지는지 날짜별 건수로 확인합니다">7일 경과 시뮬레이션</button>
       <button class="acc-tgl" type="button">&#9660;</button>
@@ -3711,7 +3711,7 @@ function agRender() {
   sw.checked = on;
   sw.disabled = AG_BUSY;
   $('ag-switch-lbl').textContent = on ? 'ON' : 'OFF';
-  $('ag-run').disabled = busy || !dash;
+  $('ag-run').disabled = busy;   // 시뮬레이터용(SIM)은 대시보드 생성이 꺼진 서버에서도 된다 — 확인 창이 대시보드용을 막는다
   $('ag-sim').disabled = busy || !dash;
   $('ag-sim').textContent = `${agSimDays()}일 경과 시뮬레이션`;
   const what = `${agCronText(s.cron)}(한국 시각) 어제 날짜 DMY ${agTypesText(s.types)} 유형별 ${s.count}건`
@@ -3779,11 +3779,14 @@ function agTriggerHtml(r) {
   }).join('');
   const g = r.generated || {}, p = r.purged || {};
   const err = r.generateError || r.purgeError || r.skipped;
+  const sim = r.target === 'SIMULATOR';
   return `<div class="mb-1"><span class="vf-b ${r.ok ? 'SUCCESS' : 'FAIL'}">${r.ok ? '완료' : '일부 실패'}</span>
+      <span class="badge ${sim ? 'text-bg-secondary' : 'text-bg-danger'}">${sim ? '시뮬레이터용 · SIM · TST' : '대시보드·배치용 · DMY · UNS'}</span>
       즉시 실행 — 대상일 <b>${esc(r.targetDate)}</b>(실행일 ${esc(r.runDate)}) · 생성 ${esc(g.rows ?? 0)}건(정상 ${esc(g.normal ?? 0)} · 장애 ${esc(g.fail ?? 0)} · 더미 원본 ${esc(g.files ?? 0)}개)
       · ${r.purgeBefore ? `${esc(r.purgeBefore)} 이전 정리 — 행 ${esc(p.dbRows ?? 0)} · 파일 ${esc(p.files ?? 0)}` : '정리 없음'}
       ${err ? `<div class="ks-ng">${esc(err)}</div>` : ''}</div>
-    <div class="hint">대상일별 DMY 건수 (접견 / 전화 / 이미지 수용자) — 실행 뒤</div>
+    ${r.readBy ? `<div class="hint mb-1">이 데이터를 읽는 배치 — <b>${esc(r.readBy)}</b></div>` : ''}
+    <div class="hint">대상일별 ${sim ? 'SIM' : 'DMY'} 건수 (접견 / 전화 / 이미지 수용자) — 실행 뒤</div>
     <div class="table-responsive"><table class="table table-sm mb-0 dm-tbl" style="max-width:34rem"><thead class="table-light"><tr><th>대상일</th><th>건수</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
 }
@@ -3793,28 +3796,44 @@ $('ag-run').onclick = async () => {
   const target = $('ag-date').value || ymdShift(today, -1);
   if (target > today) { showPopup('즉시 실행', '<div class="pop-lead">대상일은 오늘 이전이어야 합니다.</div>'); return; }
   const runDate = ymdShift(target, 1), rd = AG?.retainDays ?? 0;
-  const ok = await confirmPopup('일 단위 자동 생성 — 즉시 실행', `<div class="pop-lead">새벽 스케줄이 하는 일을 지금 한 번 합니다.</div>
-    <ul class="pop-list">
-      <li>생성 — 대상일 <b>${esc(target)}</b> · DMY ${esc(agTypesText(AG?.types))} 유형별 ${esc(AG?.count ?? '?')}건 추가</li>
-      <li>정리 — 실행일 ${esc(runDate)} 기준 ${rd > 0 ? `<b>${esc(ymdShift(runDate, -rd))}</b> 이전 대상일의 DMY 삭제` : '없음'}</li>
-      <li>ON/OFF 와 상관없이 돕니다. 실제 배치(스케줄 · 바로 실행 · 긴급 재처리)가 읽어 로그 컬렉터 이력 · 대시보드에 나옵니다</li>
-    </ul>`, '실행', '취소');
+  const dash = !!AG?.dashboardEnabled;
+  // 용도 — 상단 [시뮬레이션 데이터 생성] 과 같은 두 갈래. 기본은 지금 실행 용도(이어서 돌릴 배치와 맞춘다)
+  const def = dash ? runTarget() : 'SIMULATOR';
+  const ok = await confirmPopup('일 단위 자동 생성 — 즉시 실행', `<div class="pop-lead">대상일 <b>${esc(target)}</b> 치를 지금 만듭니다 — 용도를 고르십시오.</div>
+    <div class="d-grid gap-2 my-2">
+      <label class="border rounded p-2 d-flex gap-2 align-items-start"><input type="radio" name="ag-target" value="SIMULATOR" ${def === 'SIMULATOR' ? 'checked' : ''}>
+        <span><b>시뮬레이터용</b> <code>SIM</code> · simadm
+          <span class="d-block hint">${esc(agTypesText(AG?.types))} 유형별 ${esc(AG?.count ?? '?')}건 추가 — 시뮬레이터 시험 실행(test=true · EXEC_ID <b>TST</b>)만 읽습니다. 정리는 하지 않습니다</span></span></label>
+      <label class="border rounded p-2 d-flex gap-2 align-items-start${dash ? '' : ' opacity-50'}"><input type="radio" name="ag-target" value="DASHBOARD" ${def === 'DASHBOARD' ? 'checked' : ''} ${dash ? '' : 'disabled'}>
+        <span><b>대시보드·배치용</b> <code>DMY</code> · dmyadm
+          <span class="d-block hint">새벽 스케줄과 같은 일 — 유형별 ${esc(AG?.count ?? '?')}건 추가 · 실행일 ${esc(runDate)} 기준 ${rd > 0 ? `<b>${esc(ymdShift(runDate, -rd))}</b> 이전 DMY 삭제` : '정리 없음'}.
+            실제 배치(스케줄 · 바로 실행 · 긴급 실행 · EXEC_ID <b>UNS</b>)가 읽어 로그 컬렉터 이력 · 대시보드에 나옵니다${dash ? '' : ' — 이 서버는 대시보드 생성이 꺼져 있습니다'}</span></span></label>
+    </div>
+    <div class="pop-note">상단 실행 용도가 고른 용도와 다르면 함께 바꿉니다 — 이어서 돌리는 배치가 이 데이터를 읽게(SIM ↔ TST · DMY ↔ UNS).</div>`, '실행', '취소');
   if (!ok) return;
+  const purpose = document.querySelector('input[name="ag-target"]:checked')?.value || def;
   await agExclusive(async () => {
-    const info = await callFull('POST', `/api/v1/mock/auto-generator/trigger?targetDate=${encodeURIComponent(target)}`,
-      `일 단위 자동 생성 — 즉시 실행 (대상일 ${target})`);
+    const info = await callFull('POST', `/api/v1/mock/auto-generator/trigger?targetDate=${encodeURIComponent(target)}&target=${purpose}`,
+      `일 단위 자동 생성 — 즉시 실행 (${purpose === 'DASHBOARD' ? '대시보드·배치용 DMY' : '시뮬레이터용 SIM'} · 대상일 ${target})`);
     if (!info.ok || !info.body) return;
     const r = info.body, g = r.generated || {};
+    if (purpose !== runTarget()) {
+      // 이어서 돌리는 배치가 방금 만든 데이터를 읽게 실행 용도를 맞춘다(SIM → TST 시험 실행 · DMY → UNS 실제 배치)
+      RUN_MODE = purpose === 'DASHBOARD' ? 'REAL' : 'SIM';
+      try { localStorage.setItem('vcsim.runMode', RUN_MODE); } catch (err) {}
+      rmApply(true);
+    }
     log(`  └ 대상일 ${r.targetDate} 생성 ${g.rows ?? 0}건(정상 ${g.normal ?? 0} · 장애 ${g.fail ?? 0} · 파일 ${g.files ?? 0}) · `
       + (r.purgeBefore ? `${r.purgeBefore} 이전 정리 — 행 ${r.purged?.dbRows ?? 0} · 파일 ${r.purged?.files ?? 0}` : '정리 없음'), r.ok ? 'ok' : 'er');
     if (r.generateError || r.purgeError) log(`  └ ${r.generateError || r.purgeError}`, 'er');
     $('ag-result').innerHTML = agTriggerHtml(r);
     accToggle('ag-acc', true);
     await dmLoadStatus();
-    showPopup(r.ok ? '즉시 실행 완료' : '즉시 실행 — 일부 실패', `<div class="pop-lead">대상일 ${esc(r.targetDate)} 치를 만들었습니다.</div>
+    showPopup(r.ok ? '즉시 실행 완료' : '즉시 실행 — 일부 실패', `<div class="pop-lead">대상일 ${esc(r.targetDate)} 치를 ${r.target === 'SIMULATOR' ? '시뮬레이터용(SIM)' : '대시보드·배치용(DMY)'}으로 만들었습니다.</div>
+      ${r.readBy ? `<div class="hint mb-1">읽는 배치 — <b>${esc(r.readBy)}</b></div>` : ''}
       <ul class="pop-list">
         <li>생성: <span class="n">${esc(g.rows ?? 0)}</span>건 <div class="sub">정상 ${esc(g.normal ?? 0)} · 장애 ${esc(g.fail ?? 0)} · 더미 원본 ${esc(g.files ?? 0)}개</div></li>
-        <li>정리(${esc(r.purgeBefore || '-')} 이전): DB <span class="n">${esc(r.purged?.dbRows ?? 0)}</span>행 · 파일 ${esc(r.purged?.files ?? 0)}개</li>
+        ${r.purgeBefore ? `<li>정리(${esc(r.purgeBefore)} 이전): DB <span class="n">${esc(r.purged?.dbRows ?? 0)}</span>행 · 파일 ${esc(r.purged?.files ?? 0)}개</li>` : '<li>정리: 없음(시뮬레이터용은 추가만)</li>'}
         ${r.generateError || r.purgeError ? `<li class="ks-ng">${esc(r.generateError || r.purgeError)}</li>` : ''}
       </ul>
       <div class="pop-note">날짜별 건수는 상단 [일 단위 자동 생성 스케줄러] 패널에 있습니다.</div>`);
@@ -5866,7 +5885,7 @@ async function zrFix() {
 async function zrGo() {
   if (!ZR_EXEC) { zrLog('FAIL', '긴급 재처리', 'EXEC_ID 가 아직 없습니다 — 먼저 ① 오류 상황 재현을 실행하십시오.'); return; }
   zrBusy(true);
-  zrLog('RUN', '③ 긴급 재처리', `admin 과 같은 경로 — POST /internal/batch/reprocess {execId:${esc(ZR_EXEC)}, dataTypeCd:UNSTRUCTURED, stepTypeCd:SEND, stepSeq:3} · 끝날 때까지 기다립니다`);
+  zrLog('RUN', '③ 긴급 재처리', `admin 과 같은 경로 — POST /internal/batch/reprocess {execId:${esc(ZR_EXEC)}, dataTypeCd:UNSTRUCTURED, stepTypeCd:SEND, stepSeq:4} · 끝날 때까지 기다립니다`);
   try {
     const info = await callFull('POST', `/api/v1/mock/agent-connector/sim/reprocess/run?execId=${encodeURIComponent(ZR_EXEC)}&stepTypeCd=SEND`, '[⑦ 전송 재처리] ③ 긴급 재처리');
     if (!info.ok) { zrLog('FAIL', '긴급 재처리 실패', esc(info.body?.message || info.error || ('HTTP ' + info.status))); return; }

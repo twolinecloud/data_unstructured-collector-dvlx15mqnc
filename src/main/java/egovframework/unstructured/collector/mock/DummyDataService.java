@@ -666,7 +666,11 @@ public class DummyDataService {
      * @return 대상일(yyyy-MM-dd, from ~ to 양끝 포함) → 접견 · 전화 행 수 · 이미지 수용자 수. 세지 못하면 -1
      */
     public Map<String, Map<String, Integer>> dashboardDays(LocalDate from, LocalDate to) {
-        DummyTarget t = DummyTarget.DASHBOARD;
+        return days(DummyTarget.DASHBOARD, from, to);
+    }
+
+    /** 용도별 대상일 건수 — 키 접두(SIM · DMY) + 생성자(simadm · dmyadm)로 센다. */
+    public Map<String, Map<String, Integer>> days(DummyTarget t, LocalDate from, LocalDate to) {
         Map<String, Map<String, Integer>> out = new LinkedHashMap<>();
         for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
             Map<String, Integer> m = new LinkedHashMap<>();

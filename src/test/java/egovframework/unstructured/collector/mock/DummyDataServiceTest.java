@@ -450,12 +450,22 @@ class DummyDataServiceTest {
         }
         assertThat(f).doesNotExist();
 
-        Map<String, Object> r = autoGen.trigger(D);
-        assertThat(r).containsEntry("ok", true).containsEntry("targetDate", D.toString()).containsEntry("runDate", D.plusDays(1).toString());
+        Map<String, Object> r = autoGen.trigger(D, DummyTarget.DASHBOARD);
+        assertThat(r).containsEntry("ok", true).containsEntry("targetDate", D.toString()).containsEntry("runDate", D.plusDays(1).toString())
+                .containsEntry("target", "DASHBOARD");
         Map<String, Map<String, Integer>> days = (Map<String, Map<String, Integer>>) r.get("days");
         assertThat(days.get(D.toString())).containsEntry("meet", 5).containsEntry("phone", 5).containsEntry("image", 5);
         assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(D) + "-%")).isEqualTo(5);
         assertThat((Map<String, Object>) autoGen.status().get("lastRun")).containsEntry("trigger", "MANUAL");
+
+        // 시뮬레이터용 — 같은 설정으로 SIM 을 추가만(DMY 는 그대로) · 시험 실행(TST)이 읽는다
+        Map<String, Object> sim = autoGen.trigger(D, DummyTarget.SIMULATOR);
+        assertThat(sim).containsEntry("ok", true).containsEntry("target", "SIMULATOR");
+        assertThat((String) sim.get("readBy")).contains("TST");
+        Map<String, Map<String, Integer>> simDays = (Map<String, Map<String, Integer>>) sim.get("days");
+        assertThat(simDays.get(D.toString())).containsEntry("meet", 5).containsEntry("phone", 5).containsEntry("image", 5);
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "SIM-PHONE-" + DummyKeys.ymd8(D) + "-%")).isEqualTo(5);
+        assertThat(count(tables.imphUcdrDs(), "VRFC_ESTL_ID LIKE ?", "DMY-PHONE-" + DummyKeys.ymd8(D) + "-%")).isEqualTo(5);
     }
 
     // ── 정형 오염 방지 ────────────────────────────────────────────────────

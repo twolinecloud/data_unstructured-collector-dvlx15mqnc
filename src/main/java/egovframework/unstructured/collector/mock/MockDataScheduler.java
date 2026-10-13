@@ -131,19 +131,7 @@ public class MockDataScheduler {
             out.put("skipped", "dashboard disabled");
             return out;
         }
-        try {
-            Map<FailureScenario, Integer> failures = new EnumMap<>(FailureScenario.class);
-            failures.put(FailureScenario.COLLECT_FAIL, d.collectFail());
-            failures.put(FailureScenario.ANALYZE_FAIL, d.analyzeFail());
-            failures.put(FailureScenario.SEND_FAIL, d.sendFail());
-            Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, d.types(),
-                    today.minusDays(1), d.count(), failures, true, null));
-            out.put("generated", g.get("totals"));
-            log.info("[Dummy:daily] {} 대시보드 더미 추가 — {}", today.minusDays(1), g.get("totals"));
-        } catch (Exception e) {
-            out.put("generateError", e.getMessage());
-            log.error("[Dummy:daily] 생성 실패 — {}", e.getMessage(), e);
-        }
+        generate(DummyTarget.DASHBOARD, today.minusDays(1), out);
         if (d.retainDays() > 0) {
             try {
                 Map<String, Object> p = dummy.purgeDashboardBefore(today.minusDays(d.retainDays()));
@@ -224,10 +212,41 @@ public class MockDataScheduler {
      * @throws BusyException            다른 생성이 돌고 있다
      */
     public Map<String, Object> trigger(LocalDate targetDate) {
+        return trigger(targetDate, DummyTarget.DASHBOARD);
+    }
+
+    /**
+     * 즉시 1회 — 용도를 고른다(상단 [시뮬레이션 데이터 생성] 과 같은 두 갈래).
+     *
+     * <ul>
+     *   <li>{@link DummyTarget#DASHBOARD}(기본) — 새벽 스케줄과 같다: DMY 추가 + 보존 기간 정리. 실제 배치(스케줄 · 바로 실행 ·
+     *       긴급 실행 · EXEC_ID UNS)가 읽어 대시보드에 나온다</li>
+     *   <li>{@link DummyTarget#SIMULATOR} — 같은 설정(유형 · 건수 · 장애)으로 SIM 을 추가만 한다. 시뮬레이터 시험 실행
+     *       (test=true · EXEC_ID TST)만 읽는다. 보존 기간 정리는 하지 않는다(SIM 은 [시뮬레이터 데이터 초기화]가 지운다).
+     *       마지막 실행(lastRun)에도 남기지 않는다 — 그 칸은 새벽 스케줄과 같은 DMY 실행만 보여 준다</li>
+     * </ul>
+     */
+    public Map<String, Object> trigger(LocalDate targetDate, DummyTarget purpose) {
+        DummyTarget t = purpose == null ? DummyTarget.DASHBOARD : purpose;
         LocalDate today = LocalDate.now(ZONE);
         LocalDate target = targetDate == null ? today.minusDays(1) : targetDate;
         if (target.isAfter(today)) {
             throw new IllegalArgumentException("대상일은 오늘 이전이어야 합니다: " + target);
+        }
+        if (t == DummyTarget.SIMULATOR) {
+            return exclusive("즉시 실행(시뮬레이터용)", () -> {
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("trigger", "MANUAL");
+                out.put("target", t.name());
+                out.put("runDate", target.plusDays(1).toString());
+                out.put("targetDate", target.toString());
+                out.put("purgeBefore", null);
+                generate(t, target, out);
+                out.put("ok", !out.containsKey("generateError"));
+                out.put("readBy", READ_BY_SIMULATOR);
+                out.put("days", dummy.days(t, target, target));
+                return out;
+            });
         }
         requireDashboard();
         return exclusive("즉시 실행", () -> {
@@ -235,12 +254,18 @@ public class MockDataScheduler {
             remember("MANUAL", target.plusDays(1), r);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("trigger", "MANUAL");
+            out.put("target", t.name());
             out.putAll(r);
             out.put("ok", !r.containsKey("generateError") && !r.containsKey("purgeError") && !r.containsKey("skipped"));
+            out.put("readBy", READ_BY_DASHBOARD);
             out.put("days", dummy.dashboardDays(target.minusDays(Math.max(props.daily().retainDays(), 0) + 1L), target));
             return out;
         });
     }
+
+    /** 이 데이터를 읽는 배치 — 화면이 그대로 보여 준다(TST/UNS 혼동 방지). */
+    static final String READ_BY_DASHBOARD = "실제 배치(스케줄 · 바로 실행 · 긴급 실행) — EXEC_ID UNS · 시뮬레이터 시험 실행은 읽지 않는다";
+    static final String READ_BY_SIMULATOR = "시뮬레이터 시험 실행(test=true) — EXEC_ID TST · 실제 배치는 읽지 않는다";
 
     /**
      * N일 경과 시뮬레이션 — 가상 실행일을 N일 앞당겨 시작해 하루씩 N+1번(0일째 + N일 경과) 돌린다.
@@ -347,6 +372,25 @@ public class MockDataScheduler {
             case PHONE -> "phone";
             case IMAGE -> "image";
         };
+    }
+
+    /** 일 단위 설정(유형 · 건수 · 장애)으로 그 용도 데이터를 대상일에 추가한다 — 실패는 out.generateError 로. */
+    private void generate(DummyTarget t, LocalDate targetDate, Map<String, Object> out) {
+        MockDataProperties.Daily d = props.daily();
+        try {
+            Map<FailureScenario, Integer> failures = new EnumMap<>(FailureScenario.class);
+            failures.put(FailureScenario.COLLECT_FAIL, d.collectFail());
+            failures.put(FailureScenario.ANALYZE_FAIL, d.analyzeFail());
+            failures.put(FailureScenario.SEND_FAIL, d.sendFail());
+            Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(t, d.types(),
+                    targetDate, d.count(), failures, true, null));
+            out.put("generated", g.get("totals"));
+            log.info("[Dummy:daily] {} {} 추가 — {}", targetDate, t == DummyTarget.DASHBOARD ? "대시보드 더미(DMY)" : "시뮬레이터 데이터(SIM)",
+                    g.get("totals"));
+        } catch (Exception e) {
+            out.put("generateError", e.getMessage());
+            log.error("[Dummy:daily] 생성 실패 — {}", e.getMessage(), e);
+        }
     }
 
     private void requireDashboard() {

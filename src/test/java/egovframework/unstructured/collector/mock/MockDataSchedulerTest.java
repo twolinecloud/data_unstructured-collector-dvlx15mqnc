@@ -135,6 +135,48 @@ class MockDataSchedulerTest {
     }
 
     @Test
+    @DisplayName("즉시 실행 · 시뮬레이터용 — SIM 으로 추가만(정리 없음) · 마지막 실행 칸에 남기지 않음 · 읽는 배치는 TST · 대시보드가 꺼져도 돈다")
+    @SuppressWarnings("unchecked")
+    void triggerForSimulator() {
+        DummyDataService dummy = mock(DummyDataService.class);
+        when(dummy.generate(any())).thenReturn(Map.of("totals", Map.of("rows", 3)));
+        when(dummy.days(any(), any(), any())).thenReturn(Map.of());
+        MockDataProperties off = new MockDataProperties(new MockDataProperties.Dashboard(false), props(false).daily());
+        MockDataScheduler s = new MockDataScheduler(dummy, off);
+
+        Map<String, Object> r = s.trigger(LocalDate.of(2026, 10, 1), DummyTarget.SIMULATOR);
+
+        org.mockito.ArgumentCaptor<DummyDataService.GenerateRequest> req =
+                org.mockito.ArgumentCaptor.forClass(DummyDataService.GenerateRequest.class);
+        verify(dummy).generate(req.capture());
+        assertThat(req.getValue().target()).isEqualTo(DummyTarget.SIMULATOR);
+        assertThat(req.getValue().targetDate()).isEqualTo(LocalDate.of(2026, 10, 1));
+        verify(dummy, never()).purgeDashboardBefore(any());
+        assertThat(r).containsEntry("target", "SIMULATOR").containsEntry("ok", true).containsEntry("purgeBefore", null);
+        assertThat((String) r.get("readBy")).contains("TST");
+        assertThat(s.status().get("lastRun")).isNull();
+    }
+
+    @Test
+    @DisplayName("즉시 실행 · 대시보드용(기본) — DMY 이고 읽는 배치는 UNS")
+    void triggerDefaultIsDashboard() {
+        DummyDataService dummy = mock(DummyDataService.class);
+        when(dummy.generate(any())).thenReturn(Map.of("totals", Map.of("rows", 1)));
+        when(dummy.purgeDashboardBefore(any())).thenReturn(Map.of("counts", Map.of("dbRows", 0)));
+        when(dummy.dashboardDays(any(), any())).thenReturn(Map.of());
+        MockDataScheduler s = new MockDataScheduler(dummy, props(false));
+
+        Map<String, Object> r = s.trigger(LocalDate.of(2026, 10, 1), null);
+
+        org.mockito.ArgumentCaptor<DummyDataService.GenerateRequest> req =
+                org.mockito.ArgumentCaptor.forClass(DummyDataService.GenerateRequest.class);
+        verify(dummy).generate(req.capture());
+        assertThat(req.getValue().target()).isEqualTo(DummyTarget.DASHBOARD);
+        assertThat(r).containsEntry("target", "DASHBOARD");
+        assertThat((String) r.get("readBy")).contains("UNS");
+    }
+
+    @Test
     @DisplayName("대시보드 더미가 꺼져 있으면 즉시 실행 · 시뮬레이션을 거절한다(403)")
     void dashboardOffRejects() {
         MockDataProperties off = new MockDataProperties(new MockDataProperties.Dashboard(false), props(false).daily());

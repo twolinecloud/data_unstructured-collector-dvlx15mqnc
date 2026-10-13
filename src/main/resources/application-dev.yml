@@ -130,10 +130,11 @@ voice:
     seed-on-startup: ${VOICE_SIM_SEED_ON_STARTUP:false}
 
   batch:
-    # 스케줄은 기본으로 꺼 둔다. 개발계에서 예고 없이 배치가 돌면 대상이 소진되어
-    # 다른 사람의 시험을 방해한다. 켤 때는 VOICE_SCHEDULE_ENABLED=true.
-    #   실행 시각은 관리 화면(admin-api) 설정이 정한다(아래 unstructured.admin). 이 스위치가 꺼져 있으면 설정만 받는다.
-    schedule-enabled: ${VOICE_SCHEDULE_ENABLED:false}
+    # 스케줄 — 개발계 기본 켬(2026-10-13 사용자 지시). 매일 01:30 일 단위 자동 생성이 어제 날짜 DMY 를 만들고,
+    #   관리 화면(admin-api) UNSTRUCTURED 설정(사용 Y · 02:00 FIXED_TIME)대로 일배치가 그것을 읽어 대시보드에 남긴다.
+    #   전에는 꺼 두었다 — 예고 없이 배치가 돌면 대상이 소진되어 다른 사람의 시험을 방해할 수 있어서다. 실제 배치는 DMY · 실데이터만
+    #   집고 시뮬레이터 SIM 은 집지 않는다. 끌 때는 VOICE_SCHEDULE_ENABLED=false(또는 관리 화면에서 사용 N).
+    schedule-enabled: ${VOICE_SCHEDULE_ENABLED:true}
     periodic-lag-min: ${VOICE_PERIODIC_LAG_MIN:20}
     periodic-margin-min: ${VOICE_PERIODIC_MARGIN_MIN:10}
     specl-mng-se-cd: ${VOICE_SPECL_CODES:0,1,2,3,5}
@@ -156,7 +157,7 @@ logging:
 #   매핑 테이블 DDL(db/admin/V1__tb_src_inmate_photo.sql)은 개발계에 적용돼 있다(2026-09-29).
 
 # ── 비정형 admin 연동 — 개발계 admin-api 에서 UNSTRUCTURED 설정을 읽는다(조회 확인 2026-10-02, 인증 없음) ──
-#   VOICE_SCHEDULE_ENABLED=false 인 동안은 설정만 받고 자동 실행은 하지 않는다(관리 화면 값이 '사용 Y · 02:00').
+#   개발계는 VOICE_SCHEDULE_ENABLED 기본 true(2026-10-13) — 관리 화면 값(사용 Y · 02:00)대로 자동 실행한다. false 면 설정만 받는다.
 unstructured:
   admin:
     base-url: ${ADMIN_API_BASE_URL:http://admin-api-yo38xf9iff.service-core.svc.cluster.local:8080}

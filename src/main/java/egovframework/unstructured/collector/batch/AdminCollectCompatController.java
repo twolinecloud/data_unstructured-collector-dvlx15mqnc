@@ -64,7 +64,7 @@ public class AdminCollectCompatController {
                     - 이미 실행 중 → 200 `Response{result:{accepted:false, reason:"이미 실행 중", running:{kind, execId}}}`(data-collector 와 같다)
                     - 400 `{message}` — `to` 형식 오류 · 미래 · 이미 그 시각까지 수집함. `message` 는 **화면에 그대로 뜨는 짧은 안내**(공백 포함 60자 이내)만 —
                       targetToDtm · 실행 ID 같은 내부 값과 자세한 사유는 수집기 서버 로그(WARN `[Admin/PL] 요청 거절(400)`)에 남는다.
-                      예: `최근 수집 시점(10-15 11:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.`
+                      예: `최근 수집 시점(2026-10-15 11:00) 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.`
                     - `to` 는 ISO(`2026-10-05T10:00:00` · 공백 구분 · 오프셋)
                     """)
     @PostMapping("/unstructured-incremental")

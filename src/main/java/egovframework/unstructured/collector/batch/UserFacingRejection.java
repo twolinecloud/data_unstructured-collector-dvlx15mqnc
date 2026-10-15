@@ -6,7 +6,8 @@ package egovframework.unstructured.collector.batch;
  * <p>admin-api 가 수집기 400 의 {@code message} 를 그대로 화면 토스트에 올린다(admin-api {@code 5a6a45b}).
  * 기획은 두 줄(공백 포함 {@value #MAX_MESSAGE_LEN}자 이내)만 보여 준다 — 토스트도 폭 420px · 15px 라 두 줄이 그쯤이다.
  * 그래서 {@link #getMessage()} 에는 사용자가 바로 할 일만 담고, targetToDtm · 실행 ID 같은 내부 값과 구체적인 사유는
- * {@link #detail()} 로 따로 들고 가 거절 핸들러가 WARN 로그에 남긴다(2026-10-15).</p>
+ * {@link #detail()} 로 따로 들고 가 거절 핸들러가 WARN 로그에 남긴다(2026-10-15).
+ * 예외 하나 — 워터마크 충돌 안내는 사용자가 정한 원문 그대로라 69자다({@code UnstructuredBatchService.watermarkMessage}).</p>
  *
  * <p>{@link IllegalArgumentException} 을 상속해 기존 400 처리 · 테스트(예외 종류)는 그대로 둔다.
  * 이 예외가 아닌 {@link IllegalArgumentException} 은 원문에 내부 값이 섞였을 수 있어 화면에는 {@link #GENERIC} 을 낸다.</p>

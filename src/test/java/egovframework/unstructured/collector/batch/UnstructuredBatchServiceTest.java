@@ -128,14 +128,14 @@ class UnstructuredBatchServiceTest {
         assertRejected(() -> s.planRun(NOW.plusMinutes(5), NOW), UnstructuredBatchService.MSG_TO_FUTURE, "targetToDtm 이 미래다");
 
         // 워터마크 충돌 거절문은 <b>화면에 그대로 뜬다</b>(admin-api 가 400 과 함께 올린다).
-        //   기획이 두 줄(공백 포함 60자)만 보여 주므로 사용자가 바로 할 수 있는 말만 남긴다 —
+        //   사용자가 정한 문구 그대로 — 사용자가 바로 할 수 있는 말만 남긴다.
         //   targetToDtm · 배치 ID 같은 내부 값은 메시지에서 빼고 detail(서버 로그)로 돌렸다(2026-10-15).
         //   ① 워터마크가 더 나중 ② 워터마크와 같음(하루 두 번째 바로 실행) — 화면 문구는 같고, 로그에서 갈린다.
         assertRejected(() -> s.planRun(LocalDateTime.of(2026, 10, 1, 23, 0), NOW),
-                "최근 수집 시점(10-02 00:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
+                "최근 수집 시점(2026-10-02 00:00) 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
                 "워터마크 2026-10-02T00:00(20261002UNS001) · targetToDtm 2026-10-01T23:00 (워터마크가 더 나중)");
         assertRejected(() -> s.planRun(LocalDateTime.of(2026, 10, 2, 0, 0), NOW),
-                "최근 수집 시점(10-02 00:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
+                "최근 수집 시점(2026-10-02 00:00) 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
                 "워터마크 2026-10-02T00:00(20261002UNS001) · targetToDtm 2026-10-02T00:00 (같음)");
 
         when(logc.watermark(anyString(), anyString())).thenReturn(null);   // 첫 실행 — 최근 30일
@@ -183,22 +183,22 @@ class UnstructuredBatchServiceTest {
     }
 
     @Test
-    @DisplayName("화면 안내 — 모든 400 문구가 공백 포함 60자(토스트 두 줄) 이내 · 영문 식별자(targetToDtm · execId 등) · 실행 ID 없음")
+    @DisplayName("화면 안내 — 400 문구는 공백 포함 60자(토스트 두 줄) 이내(워터마크 안내만 사용자가 정한 원문 그대로) · 영문 식별자 · 실행 ID 없음")
     void userMessagesFitTwoLines() {
         List<String> all = List.of(UnstructuredBatchService.MSG_TO_FUTURE, UnstructuredBatchService.MSG_TO_FORMAT,
                 UnstructuredBatchService.MSG_NO_ORIGIN, UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND,
                 UnstructuredBatchService.MSG_NOT_UNSTRUCTURED_BATCH, UnstructuredBatchService.MSG_ORIGIN_NO_WINDOW,
                 UnstructuredBatchService.MSG_BAD_STEP, UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
-                UnstructuredBatchService.MSG_BAD_BODY, UserFacingRejection.GENERIC,
-                UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 12, 31, 23, 50)),
-                UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 1, 1, 0, 0)));
+                UnstructuredBatchService.MSG_BAD_BODY, UserFacingRejection.GENERIC);
         for (String m : all) {
             assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);
             assertThat(m).as("내부 변수 · 실행 ID 가 섞이지 않는다").doesNotContainPattern("[A-Za-z]");
         }
+        // 워터마크 안내 — 사용자 지정 문구 그대로(69자). 내부 값이 없다는 것만 같다
         assertThat(UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 10, 15, 11, 0)))
-                .isEqualTo("최근 수집 시점(10-15 11:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.")
-                .hasSize(60);
+                .isEqualTo("최근 수집 시점(2026-10-15 11:00) 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.")
+                .hasSize(69)
+                .doesNotContainPattern("[A-Za-z]");
     }
 
     /** 400 거절 — 화면 문구는 정확히 그 안내, 자세한 사유(내부 값)는 detail 에. */

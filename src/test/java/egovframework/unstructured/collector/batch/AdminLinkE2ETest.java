@@ -162,11 +162,11 @@ class AdminLinkE2ETest {
     }
 
     @Test
-    @DisplayName("긴급 재처리 — 로그 컬렉터 미연동이면 원배치를 찾을 수 없어 400")
+    @DisplayName("긴급 재처리 — 로그 컬렉터 미연동이면 원배치를 찾을 수 없어 400 · 화면에는 안내만(미연동 사유 · 실행 ID 는 서버 로그에)")
     void reprocessWithoutCollector() throws Exception {
         mvc.perform(post("/internal/batch/reprocess").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"ANALYZE\",\"stepSeq\":2}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("로그 컬렉터 미연동")));
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND));
     }
 }

@@ -159,14 +159,22 @@ class AdminLinkControllerTest {
     void runBadRequest() throws Exception {
         mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dataTypeCd\":\"STRUCTURED\",\"targetToDtm\":\"2026-10-02T10:00:00\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_NOT_UNSTRUCTURED));
         mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":\"10/02 10:00\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("형식")));
-        when(service.planRun(any(), any())).thenThrow(new IllegalArgumentException("targetToDtm 이 미래다"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_TO_FORMAT));
+        mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON).content("{\"dataTypeCd\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BAD_BODY));
+        when(service.planRun(any(), any())).thenThrow(new UserFacingRejection(UnstructuredBatchService.MSG_TO_FUTURE,
+                "바로 실행 거절 — targetToDtm 이 미래다: 2026-10-02T10:00"));
         mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":\"2026-10-02 10:00:00\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("targetToDtm 이 미래다"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_TO_FUTURE))
+                .andExpect(jsonPath("$.length()").value(1));
         verify(service, never()).execute(any(), any());
     }
 
@@ -198,13 +206,13 @@ class AdminLinkControllerTest {
     }
 
     @Test
-    @DisplayName("바로 실행 targetToDtm 배열 오류 — 13월 · 길이 · 문자 섞임은 400 + 형식 안내")
+    @DisplayName("바로 실행 targetToDtm 배열 오류 — 13월 · 길이 · 문자 섞임은 400 + 종료 시간 형식 안내(필드명 · 받는 형식은 로그에만)")
     void runRejectsBadArray() throws Exception {
         for (String f : new String[] {"[2026,13,2,10,0]", "[2026,10]", "[2026,\"10\",2,10,0]", "{\"y\":2026}"}) {
             mvc.perform(post("/internal/batch/run").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"dataTypeCd\":\"UNSTRUCTURED\",\"targetToDtm\":" + f + "}"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("targetToDtm 형식 오류")));
+                    .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_TO_FORMAT));
         }
         verify(service, never()).planRun(any(), any());
     }
@@ -233,11 +241,14 @@ class AdminLinkControllerTest {
     @Test
     @DisplayName("긴급 재처리 400 — 본문 없음 · 계획 거절(단계 · 원배치)")
     void reprocessBadRequest() throws Exception {
-        mvc.perform(post("/internal/batch/reprocess")).andExpect(status().isBadRequest());
-        when(service.planReprocess(anyString(), anyString(), any())).thenThrow(new IllegalArgumentException("비정형에 없는 단계(C05): DEIDENT"));
+        mvc.perform(post("/internal/batch/reprocess")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BAD_BODY));
+        when(service.planReprocess(anyString(), anyString(), any())).thenThrow(new UserFacingRejection(UnstructuredBatchService.MSG_BAD_STEP,
+                "재처리 거절 — 비정형에 없는 단계(C05): BOGUS"));
         mvc.perform(post("/internal/batch/reprocess").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"DEIDENT\"}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("DEIDENT")));
+                        .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"BOGUS\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BAD_STEP));
     }
 
     @Test

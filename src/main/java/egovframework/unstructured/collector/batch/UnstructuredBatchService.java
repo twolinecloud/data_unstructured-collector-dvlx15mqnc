@@ -42,8 +42,27 @@ import java.util.function.BiConsumer;
 @RequiredArgsConstructor
 public class UnstructuredBatchService {
 
-    /** 화면에 그대로 보이는 시각 표기 — ISO 의 'T' 를 빼고 분까지만. 사용자가 읽을 값이다. */
-    private static final DateTimeFormatter USER_DTM = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    /**
+     * 화면에 그대로 보이는 시각 표기 — 월-일 시:분. 연도를 빼야 워터마크 거절 안내가 공백 포함 60자(토스트 두 줄)에 든다
+     * ({@link UserFacingRejection#MAX_MESSAGE_LEN}). 워터마크는 늘 최근 시각이라 연도 없이도 헷갈리지 않는다.
+     */
+    private static final DateTimeFormatter USER_DTM = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+
+    // ── 화면 안내(400 message) — 공백 포함 60자 이내 · 내부 변수 · 실행 ID 없이. 자세한 사유는 UserFacingRejection.detail 로 로그에 ──
+    static final String MSG_TO_FUTURE = "종료 시간은 현재 시각 이전으로 선택해 주세요.";
+    static final String MSG_TO_FORMAT = "종료 시간 형식이 올바르지 않습니다. 다시 선택해 주세요.";
+    static final String MSG_NO_ORIGIN = "재처리할 배치를 선택해 주세요.";
+    static final String MSG_ORIGIN_NOT_FOUND = "선택한 배치를 찾을 수 없습니다. 목록을 새로고침해 주세요.";
+    static final String MSG_NOT_UNSTRUCTURED_BATCH = "비정형 배치만 재처리할 수 있습니다.";
+    static final String MSG_ORIGIN_NO_WINDOW = "선택한 배치에 수집 구간 정보가 없어 재처리할 수 없습니다.";
+    static final String MSG_BAD_STEP = "재처리 단계는 수집 · 분석 · 비식별 · 전송 중에서 선택해 주세요.";
+    static final String MSG_NOT_UNSTRUCTURED = "비정형 데이터 요청만 처리할 수 있습니다.";
+    static final String MSG_BAD_BODY = "요청 형식이 올바르지 않습니다. 다시 시도해 주세요.";
+
+    /** 워터마크 충돌 안내 — 최근 수집 시점 이후를 고르거나, 과거 구간은 긴급 재처리로. 정확히 60자. */
+    static String watermarkMessage(LocalDateTime watermark) {
+        return "최근 수집 시점(" + USER_DTM.format(watermark) + ") 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.";
+    }
 
     /** 관리 화면 데이터 구분(C01). */
     public static final String DATA_TYPE = "UNSTRUCTURED";
@@ -137,12 +156,12 @@ public class UnstructuredBatchService {
     /**
      * 바로 실행 — 시작 = 워터마크(로그 컬렉터 T1 의 SUCCESS 배치 {@code MAX(target_to_dtm)}), 끝 = {@code targetToDtm}(없으면 지금-lag).
      *
-     * @throws IllegalArgumentException 끝이 미래 · 끝이 워터마크보다 이르지 않음(이미 그 시각까지 수집함)
+     * @throws UserFacingRejection 끝이 미래 · 끝이 워터마크보다 이르지 않음(이미 그 시각까지 수집함)
      */
     public Plan planRun(LocalDateTime targetToDtm, LocalDateTime now) {
         LocalDateTime to = targetToDtm != null ? targetToDtm : now.minusMinutes(voiceProps.batch().periodicLagMin());
         if (to.isAfter(now)) {
-            throw new IllegalArgumentException("targetToDtm 이 미래다: " + to);
+            throw new UserFacingRejection(MSG_TO_FUTURE, "바로 실행 거절 — targetToDtm 이 미래다: " + to + " (now " + now + ")");
         }
         LogCollectorClient.Watermark wm = logCollector.watermark(DATA_TYPE, voiceProps.batch().jobId());
         LocalDateTime from = wm != null ? wm.at() : to.minusDays(Math.max(1, catchupLookbackDays));
@@ -150,14 +169,12 @@ public class UnstructuredBatchService {
             // 하루 두 번째 바로 실행이 여기 걸린다. 일배치(새벽)가 이미 어제 구간을 먹어 워터마크가
             //   '오늘 00:00' 이고, 바로 실행 창의 종료 시각을 그대로 두면 창이 빈다.
             //
-            //   메시지는 <b>화면에 그대로 뜬다</b>(admin-api 가 400 과 함께 올린다). 기획이 두 줄만
+            //   메시지는 <b>화면에 그대로 뜬다</b>(admin-api 가 400 과 함께 올린다). 기획이 두 줄(공백 포함 60자)만
             //   보여 주므로 사용자가 바로 할 수 있는 말만 남긴다 — targetToDtm · 배치 ID 같은 내부 값은 뺀다.
-            //   대신 추적 수단을 없애지 않도록 <b>자세한 값은 서버 로그에</b> 남긴다(2026-10-15).
-            log.warn("[Admin/PL] 바로 실행 거절 — 수집할 구간이 없다. 워터마크 {}{} · targetToDtm {} ({})",
-                    from, wm == null ? "" : "(" + wm.execId() + ")", to,
-                    from.equals(to) ? "같음" : "워터마크가 더 나중");
-            throw new IllegalArgumentException("최근 수집 시점(" + USER_DTM.format(from)
-                    + ") 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.");
+            //   대신 추적 수단을 없애지 않도록 <b>자세한 값은 서버 로그에</b> 남긴다(거절 핸들러가 detail 을 WARN 으로).
+            throw new UserFacingRejection(watermarkMessage(from),
+                    "바로 실행 거절 — 수집할 구간이 없다. 워터마크 " + from + (wm == null ? "" : "(" + wm.execId() + ")")
+                            + " · targetToDtm " + to + " (" + (from.equals(to) ? "같음" : "워터마크가 더 나중") + ")");
         }
         return new Plan(BatchWindow.manual(from, to), ResumeMode.FULL, null, false, "ADMIN", props.batch().includeImage());
     }
@@ -170,23 +187,24 @@ public class UnstructuredBatchService {
      * 실행 ID 는 <b>새로 받는다</b>(원배치 연결은 TRIGGER_BY {@code ADMIN/reprocess:<원 execId>} 로) — data-collector 는
      * 2026-10-02 부터 원 execId 를 다시 여는(reopen) 체인 방식이다. 비정형은 건마다 독립(멱등)이라 새 ID 로도 결과가 같다.</p>
      *
-     * @throws IllegalArgumentException 유형 · 단계 · execId 오류, 원배치를 찾을 수 없음
+     * @throws UserFacingRejection 유형 · 단계 · execId 오류, 원배치를 찾을 수 없음
      */
     public Plan planReprocess(String execId, String dataTypeCd, String stepTypeCd) {
         requireUnstructured(dataTypeCd);
         if (execId == null || execId.isBlank()) {
-            throw new IllegalArgumentException("execId 필수 — 재처리할 원배치 실행 ID");
+            throw new UserFacingRejection(MSG_NO_ORIGIN, "재처리 거절 — execId 필수(재처리할 원배치 실행 ID)");
         }
         ResumeMode resume = resumeOf(stepTypeCd);
         JsonNode d = logCollector.batchDetail(execId.trim());
         JsonNode b = d == null ? null : d.path("batch");
         if (b == null || b.isMissingNode() || b.isNull() || !b.hasNonNull("exec_id")) {
-            throw new IllegalArgumentException("원배치를 찾을 수 없다 — execId=" + execId
+            throw new UserFacingRejection(MSG_ORIGIN_NOT_FOUND, "재처리 거절 — 원배치를 찾을 수 없다: execId=" + execId
                     + (logCollector.isEnabled() ? "" : " (로그 컬렉터 미연동)"));
         }
         String type = b.path("data_type_cd").asText("");
         if (!DATA_TYPE.equals(type)) {
-            throw new IllegalArgumentException("비정형 배치가 아니다 — execId=" + execId + " data_type_cd=" + type);
+            throw new UserFacingRejection(MSG_NOT_UNSTRUCTURED_BATCH,
+                    "재처리 거절 — 비정형 배치가 아니다: execId=" + execId + " data_type_cd=" + type);
         }
         boolean testRun = voiceProps.batch().testJobId().equals(b.path("job_id").asText(""));
         if (isImageBatch(b)) {
@@ -198,7 +216,8 @@ public class UnstructuredBatchService {
         LocalDateTime from = dtm(b, "target_from_dtm");
         LocalDateTime to = dtm(b, "target_to_dtm");
         if (from == null || to == null || !from.isBefore(to)) {
-            throw new IllegalArgumentException("원배치 수집 구간이 없다 — execId=" + execId + " target=" + from + " ~ " + to);
+            throw new UserFacingRejection(MSG_ORIGIN_NO_WINDOW,
+                    "재처리 거절 — 원배치 수집 구간이 없다: execId=" + execId + " target=" + from + " ~ " + to);
         }
         return new Plan(BatchWindow.manual(from, to), resume, execId.trim(), testRun,
                 "ADMIN/reprocess:" + execId.trim(), false);
@@ -215,14 +234,14 @@ public class UnstructuredBatchService {
      * (보존된 전사를 다시 비식별하고 보낸다 — STT 를 다시 돌리지 않는다).
      * 비어 있으면 처음부터 — admin 이 실패 단계를 못 찾으면(단계 기록 없이 죽은 배치) {@code stepTypeCd} 없이 보낸다.
      *
-     * @throws IllegalArgumentException 비정형 4단계(COLLECT · ANALYZE · DEIDENT · SEND)가 아닌 코드
+     * @throws UserFacingRejection 비정형 4단계(COLLECT · ANALYZE · DEIDENT · SEND)가 아닌 코드
      */
     public static ResumeMode resumeOf(String stepTypeCd) {
         if (stepTypeCd == null || stepTypeCd.isBlank()) {
             return ResumeMode.FULL;
         }
-        StepType step = StepType.parse(stepTypeCd).orElseThrow(() -> new IllegalArgumentException(
-                "비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · DEIDENT · SEND 만 재처리할 수 있다"));
+        StepType step = StepType.parse(stepTypeCd).orElseThrow(() -> new UserFacingRejection(MSG_BAD_STEP,
+                "재처리 거절 — 비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · DEIDENT · SEND 만 재처리할 수 있다"));
         return switch (step) {
             case COLLECT -> ResumeMode.FULL;
             case ANALYZE -> ResumeMode.FROM_ANALYZE;
@@ -236,7 +255,8 @@ public class UnstructuredBatchService {
      */
     public static void requireUnstructured(String dataTypeCd) {
         if (!DATA_TYPE.equalsIgnoreCase(dataTypeCd == null ? "" : dataTypeCd.trim())) {
-            throw new IllegalArgumentException("비정형 수집기는 dataTypeCd=UNSTRUCTURED 만 받는다: " + dataTypeCd);
+            throw new UserFacingRejection(MSG_NOT_UNSTRUCTURED,
+                    "요청 거절 — 비정형 수집기는 dataTypeCd=UNSTRUCTURED 만 받는다: " + dataTypeCd + " (admin 주소 설정 확인)");
         }
     }
 

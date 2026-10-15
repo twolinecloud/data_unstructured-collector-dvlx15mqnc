@@ -125,18 +125,18 @@ class UnstructuredBatchServiceTest {
         assertThat(p.window().execTypeCd()).isEqualTo("MANUAL");
         assertThat(s.planRun(null, NOW).window().to()).isEqualTo(NOW.minusMinutes(20));
 
-        assertThatThrownBy(() -> s.planRun(NOW.plusMinutes(5), NOW)).hasMessageContaining("미래");
+        assertRejected(() -> s.planRun(NOW.plusMinutes(5), NOW), UnstructuredBatchService.MSG_TO_FUTURE, "targetToDtm 이 미래다");
 
         // 워터마크 충돌 거절문은 <b>화면에 그대로 뜬다</b>(admin-api 가 400 과 함께 올린다).
-        //   기획이 두 줄만 보여 주므로 사용자가 바로 할 수 있는 말만 남긴다 —
-        //   targetToDtm · 배치 ID 같은 내부 값은 메시지에서 빼고 서버 로그로 돌렸다(2026-10-15).
-        //   ① 워터마크가 더 나중 ② 워터마크와 같음(하루 두 번째 바로 실행) — 둘 다 같은 문구다.
-        for (LocalDateTime to : new LocalDateTime[]{
-                LocalDateTime.of(2026, 10, 1, 23, 0), LocalDateTime.of(2026, 10, 2, 0, 0)}) {
-            assertThatThrownBy(() -> s.planRun(to, NOW))
-                    .hasMessage("최근 수집 시점(2026-10-02 00:00) 이후의 시간을 선택해 주세요."
-                            + " 과거 구간은 '긴급 재처리'를 이용 바랍니다.");
-        }
+        //   기획이 두 줄(공백 포함 60자)만 보여 주므로 사용자가 바로 할 수 있는 말만 남긴다 —
+        //   targetToDtm · 배치 ID 같은 내부 값은 메시지에서 빼고 detail(서버 로그)로 돌렸다(2026-10-15).
+        //   ① 워터마크가 더 나중 ② 워터마크와 같음(하루 두 번째 바로 실행) — 화면 문구는 같고, 로그에서 갈린다.
+        assertRejected(() -> s.planRun(LocalDateTime.of(2026, 10, 1, 23, 0), NOW),
+                "최근 수집 시점(10-02 00:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
+                "워터마크 2026-10-02T00:00(20261002UNS001) · targetToDtm 2026-10-01T23:00 (워터마크가 더 나중)");
+        assertRejected(() -> s.planRun(LocalDateTime.of(2026, 10, 2, 0, 0), NOW),
+                "최근 수집 시점(10-02 00:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.",
+                "워터마크 2026-10-02T00:00(20261002UNS001) · targetToDtm 2026-10-02T00:00 (같음)");
 
         when(logc.watermark(anyString(), anyString())).thenReturn(null);   // 첫 실행 — 최근 30일
         assertThat(s.planRun(NOW, NOW).window().from()).isEqualTo(NOW.minusDays(30));
@@ -166,14 +166,45 @@ class UnstructuredBatchServiceTest {
     @DisplayName("재처리 400 — 비정형 아님 · execId 없음 · 원배치 없음 · 정형 배치 · 구간 없음")
     void reprocessRejects() throws Exception {
         UnstructuredBatchService s = service(false);
-        assertThatThrownBy(() -> s.planReprocess("X", "STRUCTURED", "SEND")).hasMessageContaining("UNSTRUCTURED");
-        assertThatThrownBy(() -> s.planReprocess(" ", "UNSTRUCTURED", "SEND")).hasMessageContaining("execId");
-        assertThatThrownBy(() -> s.planReprocess("NONE", "UNSTRUCTURED", "SEND")).hasMessageContaining("찾을 수 없다");
+        assertRejected(() -> s.planReprocess("X", "STRUCTURED", "SEND"), UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
+                "dataTypeCd=UNSTRUCTURED 만 받는다: STRUCTURED");
+        assertRejected(() -> s.planReprocess(" ", "UNSTRUCTURED", "SEND"), UnstructuredBatchService.MSG_NO_ORIGIN, "execId 필수");
+        assertRejected(() -> s.planReprocess("NONE", "UNSTRUCTURED", "SEND"), UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND,
+                "원배치를 찾을 수 없다: execId=NONE");
+        assertRejected(() -> s.planReprocess("NONE", "UNSTRUCTURED", "BOGUS"), UnstructuredBatchService.MSG_BAD_STEP,
+                "비정형에 없는 단계(C05): BOGUS");
         when(logc.batchDetail("20261002STR001")).thenReturn(detail("20261002STR001", "STRUCTURED_BATCH", "STRUCTURED",
                 "2026-10-01T00:00:00", "2026-10-02T00:00:00"));
-        assertThatThrownBy(() -> s.planReprocess("20261002STR001", "UNSTRUCTURED", null)).hasMessageContaining("비정형 배치가 아니다");
+        assertRejected(() -> s.planReprocess("20261002STR001", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_NOT_UNSTRUCTURED_BATCH,
+                "execId=20261002STR001 data_type_cd=STRUCTURED");
         when(logc.batchDetail("20261002UNS009")).thenReturn(detail("20261002UNS009", "VOICE_ANALYSIS", "UNSTRUCTURED", null, null));
-        assertThatThrownBy(() -> s.planReprocess("20261002UNS009", "UNSTRUCTURED", null)).hasMessageContaining("구간이 없다");
+        assertRejected(() -> s.planReprocess("20261002UNS009", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ORIGIN_NO_WINDOW,
+                "원배치 수집 구간이 없다: execId=20261002UNS009");
+    }
+
+    @Test
+    @DisplayName("화면 안내 — 모든 400 문구가 공백 포함 60자(토스트 두 줄) 이내 · 영문 식별자(targetToDtm · execId 등) · 실행 ID 없음")
+    void userMessagesFitTwoLines() {
+        List<String> all = List.of(UnstructuredBatchService.MSG_TO_FUTURE, UnstructuredBatchService.MSG_TO_FORMAT,
+                UnstructuredBatchService.MSG_NO_ORIGIN, UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND,
+                UnstructuredBatchService.MSG_NOT_UNSTRUCTURED_BATCH, UnstructuredBatchService.MSG_ORIGIN_NO_WINDOW,
+                UnstructuredBatchService.MSG_BAD_STEP, UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
+                UnstructuredBatchService.MSG_BAD_BODY, UserFacingRejection.GENERIC,
+                UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 12, 31, 23, 50)),
+                UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 1, 1, 0, 0)));
+        for (String m : all) {
+            assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);
+            assertThat(m).as("내부 변수 · 실행 ID 가 섞이지 않는다").doesNotContainPattern("[A-Za-z]");
+        }
+        assertThat(UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 10, 15, 11, 0)))
+                .isEqualTo("최근 수집 시점(10-15 11:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.")
+                .hasSize(60);
+    }
+
+    /** 400 거절 — 화면 문구는 정확히 그 안내, 자세한 사유(내부 값)는 detail 에. */
+    private static void assertRejected(org.assertj.core.api.ThrowableAssert.ThrowingCallable call, String message, String detailPart) {
+        assertThatThrownBy(call).isInstanceOf(UserFacingRejection.class).hasMessage(message)
+                .satisfies(e -> assertThat(((UserFacingRejection) e).detail()).contains(detailPart));
     }
 
     @Test

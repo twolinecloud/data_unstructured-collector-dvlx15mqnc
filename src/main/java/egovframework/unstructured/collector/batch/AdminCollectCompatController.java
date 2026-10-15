@@ -62,7 +62,9 @@ public class AdminCollectCompatController {
 
                     - 200 `Response{result:{accepted:true, kind, execId, status:"RUNNING", hint}}` — execId 는 로그 컬렉터 채번 값(잠깐 안 오면 접수 handle)
                     - 이미 실행 중 → 200 `Response{result:{accepted:false, reason:"이미 실행 중", running:{kind, execId}}}`(data-collector 와 같다)
-                    - 400 `{message}` — `to` 형식 오류 · 미래 · 이미 그 시각까지 수집함
+                    - 400 `{message}` — `to` 형식 오류 · 미래 · 이미 그 시각까지 수집함. `message` 는 **화면에 그대로 뜨는 짧은 안내**(공백 포함 60자 이내)만 —
+                      targetToDtm · 실행 ID 같은 내부 값과 자세한 사유는 수집기 서버 로그(WARN `[Admin/PL] 요청 거절(400)`)에 남는다.
+                      예: `최근 수집 시점(10-15 11:00) 이후로 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.`
                     - `to` 는 ISO(`2026-10-05T10:00:00` · 공백 구분 · 오프셋)
                     """)
     @PostMapping("/unstructured-incremental")
@@ -113,7 +115,8 @@ public class AdminCollectCompatController {
 
                     - `stepTypeCd`(선택) — 비정형 3단계 COLLECT · ANALYZE · SEND. **비우면 SEND**(자동 — 건마다 남은 보존물로 가장 늦은 단계부터:
                       전사가 있으면 전송만, 없고 복호화 오디오가 있으면 STT 부터, 둘 다 없으면 수집부터)
-                    - 202 `{execId, status:"RUNNING", originExecId, until, resume, …}` · 400 `{message}`(originExecId 없음 · 원배치 없음 · 비정형 아님) · 409 `{message, execId}`
+                    - 202 `{execId, status:"RUNNING", originExecId, until, resume, …}` · 400 `{message}`(originExecId 없음 · 원배치 없음 · 비정형 아님 —
+                      화면용 짧은 안내만, 자세한 사유는 서버 로그) · 409 `{message, execId}`
                     - 새 실행 ID 로 돈다(TRIGGER_BY `{triggerBy}/reprocess:{원 execId}`). 전송은 원배치 런이 마감 전이면 그 런을 이어 받는다
                     """)
     @PostMapping("/reprocess")
@@ -123,7 +126,7 @@ public class AdminCollectCompatController {
             @Parameter(description = "(선택) 단계 COLLECT · ANALYZE · SEND — 비우면 SEND(자동)", example = "SEND")
             @RequestParam(required = false) String stepTypeCd) {
         if (originExecId == null || originExecId.isBlank()) {
-            throw new IllegalArgumentException("originExecId 필수(재처리 대상 원배치 실행ID)");
+            throw new UserFacingRejection(UnstructuredBatchService.MSG_NO_ORIGIN, "재처리 거절 — originExecId 필수(재처리 대상 원배치 실행ID)");
         }
         String step = stepTypeCd == null || stepTypeCd.isBlank() ? "SEND" : stepTypeCd.trim();
         UnstructuredBatchService.Plan p = service.planReprocess(originExecId.trim(), UnstructuredBatchService.DATA_TYPE, step);
@@ -160,15 +163,20 @@ public class AdminCollectCompatController {
         try {
             return FlexibleLocalDateTimeDeserializer.parse(v);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("to " + e.getMessage());
+            throw new UserFacingRejection(UnstructuredBatchService.MSG_TO_FORMAT, "바로 실행 거절 — to=" + v + " " + e.getMessage());
         }
     }
 
+    /**
+     * 400 — 본문 {@code message} 는 화면(admin-api 가 토스트로 그대로 올린다)에 낼 짧은 안내만, 내부 값 · 구체적인 사유는 서버 로그에만.
+     * 미리 정하지 않은 거절은 원문에 내부 값이 섞였을 수 있어 일반 안내로 바꾼다({@link UserFacingRejection#GENERIC}).
+     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> badRequest(IllegalArgumentException e) {
-        log.warn("[Admin/PL] 요청 거절(400) — {}", e.getMessage());
+        String message = UserFacingRejection.messageOf(e);
+        log.warn("[Admin/PL] 요청 거절(400) — {} · 화면 안내: {}", UserFacingRejection.detailOf(e), message);
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("message", e.getMessage());
+        m.put("message", message);
         return ResponseEntity.badRequest().body(m);
     }
 

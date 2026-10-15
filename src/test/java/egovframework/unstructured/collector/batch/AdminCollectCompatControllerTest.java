@@ -94,15 +94,29 @@ class AdminCollectCompatControllerTest {
     }
 
     @Test
-    @DisplayName("바로 실행 400 — to 형식 오류 · 계획 거절(미래 · 이미 수집)")
+    @DisplayName("바로 실행 400 — 본문은 {message} 하나 · 화면 안내만(내부 변수 · 실행 ID 없음) · 미리 정하지 않은 거절은 일반 안내")
     void incrementalBadRequest() throws Exception {
         mvc.perform(post("/internal/collect/unstructured-incremental").param("to", "10/05 10:00"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("to ")));
-        when(service.planRun(any(), any())).thenThrow(new IllegalArgumentException("수집할 구간이 없다"));
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_TO_FORMAT));
+
+        // 워터마크 충돌 — 서비스가 화면 안내와 자세한 사유(워터마크 · 실행 ID · targetToDtm)를 함께 던진다. 본문에는 안내만.
+        String guide = UnstructuredBatchService.watermarkMessage(LocalDateTime.of(2026, 10, 5, 0, 0));
+        when(service.planRun(any(), any())).thenThrow(new UserFacingRejection(guide,
+                "수집할 구간이 없다. 워터마크 2026-10-05T00:00(20261005UNS001) · targetToDtm 2026-10-05T00:00 (같음)"));
+        String body = mvc.perform(post("/internal/collect/unstructured-incremental").param("to", "2026-10-05 00:00:00"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(guide))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).doesNotContain("targetToDtm", "UNS001", "워터마크");
+
+        // 원문에 내부 값이 섞였을 수 있는 거절 — 화면에는 일반 안내만(이미 던지게 스텁한 메서드라 doThrow 로 바꾼다)
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("targetToDtm 이 미래다: 2026-10-05T10:00"))
+                .when(service).planRun(any(), any());
         mvc.perform(post("/internal/collect/unstructured-incremental").param("to", "2026-10-05 10:00:00"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("수집할 구간이 없다"));
+                .andExpect(jsonPath("$.message").value(UserFacingRejection.GENERIC));
         verify(service, never()).execute(any(), any());
     }
 
@@ -135,11 +149,13 @@ class AdminCollectCompatControllerTest {
     void reprocessBadRequest() throws Exception {
         mvc.perform(post("/internal/collect/reprocess").param("triggerBy", "admin"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("originExecId 필수")));
-        when(service.planReprocess("X", "UNSTRUCTURED", "ANALYZE")).thenThrow(new IllegalArgumentException("원배치를 찾을 수 없다"));
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_NO_ORIGIN));
+        when(service.planReprocess("X", "UNSTRUCTURED", "ANALYZE")).thenThrow(new UserFacingRejection(
+                UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND, "재처리 거절 — 원배치를 찾을 수 없다: execId=X"));
         mvc.perform(post("/internal/collect/reprocess").param("originExecId", "X").param("stepTypeCd", "ANALYZE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("원배치를 찾을 수 없다"));
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND))
+                .andExpect(jsonPath("$.execId").doesNotExist());
     }
 
     @Test

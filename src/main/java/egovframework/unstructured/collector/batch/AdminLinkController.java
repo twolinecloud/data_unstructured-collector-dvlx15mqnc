@@ -112,7 +112,8 @@ public class AdminLinkController {
                     - **202** `{execId, status:"RUNNING", execIdSource, ...}` — 접수하고 곧바로 돌려준다. execId 는 로그 컬렉터가 채번한 실제 값
                       (`execIdSource=COLLECTOR`). 잠깐 기다려도 안 오면 접수 handle(`HANDLE`) — 진행은 `GET /internal/batch/status?execId=`
                     - **409** — 이미 실행 중(스케줄 · 재처리 · 시뮬레이터 수동 배치 포함). 본문에 실행 중 execId
-                    - **400** — `dataTypeCd` 가 `UNSTRUCTURED` 가 아님(주소 설정 오류) · `targetToDtm` 형식 오류 · 미래 · 이미 그 시각까지 수집함
+                    - **400** — `dataTypeCd` 가 `UNSTRUCTURED` 가 아님(주소 설정 오류) · `targetToDtm` 형식 오류 · 미래 · 이미 그 시각까지 수집함.
+                      `message` 는 화면용 짧은 안내(공백 포함 60자 이내)만 — 내부 값 · 자세한 사유는 서버 로그(WARN `[Admin] 요청 거절(400)`)
                     - `targetToDtm` 은 ISO 문자열(`2026-10-02T10:00:00` · 공백 구분)과 배열 `[2026,10,2,10,0]`(`[yyyy, MM, dd, HH, mm(, ss)]`)을 다 받는다
                     - 음성 → (`unstructured.batch.include-image=true` 면 — 개발계 기본) 이미지 순차
                     - 시뮬레이터 데이터(`SIM…`)는 집지 않는다 — 시뮬레이터 수동 시험 전용. 대시보드 더미(`DMY…`)와 실제 행만
@@ -144,7 +145,8 @@ public class AdminLinkController {
     @PostMapping("/batch/reprocess")
     public ResponseEntity<Map<String, Object>> reprocess(@RequestBody(required = false) ReprocessReq body) {
         if (body == null) {
-            throw new IllegalArgumentException("본문 필수 — {execId, dataTypeCd, stepTypeCd, stepSeq}");
+            throw new UserFacingRejection(UnstructuredBatchService.MSG_BAD_BODY,
+                    "재처리 거절 — 본문 필수 {execId, dataTypeCd, stepTypeCd, stepSeq}");
         }
         UnstructuredBatchService.Plan plan = service.planReprocess(body.execId(), body.dataTypeCd(), body.stepTypeCd());
         Map<String, Object> extra = new LinkedHashMap<>();
@@ -192,26 +194,34 @@ public class AdminLinkController {
         try {
             return FlexibleLocalDateTimeDeserializer.parse(v);
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("targetToDtm " + e.getMessage());
+            throw new UserFacingRejection(UnstructuredBatchService.MSG_TO_FORMAT, "바로 실행 거절 — targetToDtm=" + v + " " + e.getMessage());
         }
     }
 
-    /** 본문을 읽지 못함(JSON 문법 · 시각 형식) — 400 과 이유. 시각 형식 오류는 역직렬화기가 필드명과 받는 형식을 적어 준다. */
+    /**
+     * 본문을 읽지 못함(JSON 문법 · 시각 형식) — 400. 역직렬화기가 적어 주는 이유(필드명 · 받는 형식)는 서버 로그에만 남기고,
+     * 화면용 {@code message} 에는 짧은 안내만 — 시각 필드면 종료 시간 안내, 아니면 일반 형식 안내.
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> unreadable(HttpMessageNotReadableException e) {
         Throwable c = e.getMostSpecificCause();
         String why = c instanceof JsonMappingException jm ? jm.getOriginalMessage() : c.getMessage();
-        log.warn("[Admin] 본문 거절(400) — {}", why);
+        boolean timeField = c instanceof JsonMappingException jme
+                && jme.getPath().stream().anyMatch(r -> "targetToDtm".equals(r.getFieldName()));
+        String message = timeField ? UnstructuredBatchService.MSG_TO_FORMAT : UnstructuredBatchService.MSG_BAD_BODY;
+        log.warn("[Admin] 본문 거절(400) — {} · 화면 안내: {}", why, message);
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("message", why);
+        m.put("message", message);
         return ResponseEntity.badRequest().body(m);
     }
 
+    /** 400 — 화면용 짧은 안내만 본문에, 내부 값 · 구체적인 사유는 서버 로그에({@link UserFacingRejection}). */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> badRequest(IllegalArgumentException e) {
-        log.warn("[Admin] 요청 거절(400) — {}", e.getMessage());
+        String message = UserFacingRejection.messageOf(e);
+        log.warn("[Admin] 요청 거절(400) — {} · 화면 안내: {}", UserFacingRejection.detailOf(e), message);
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("message", e.getMessage());
+        m.put("message", message);
         return ResponseEntity.badRequest().body(m);
     }
 

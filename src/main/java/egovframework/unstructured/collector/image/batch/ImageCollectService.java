@@ -446,7 +446,11 @@ public class ImageCollectService {
         logCollector.createFileProcs(execId, rows);
 
         String sts = canceled ? "CANCELED" : ng == 0 ? "SUCCESS" : ok > 0 ? "PARTIAL" : "FAIL";
-        long target = outcomes.size();
+        // T1 대상 건수 — 이미 최신 사진이 매핑돼 건너뛴 건('변경 없음' · '더 최신 사진')은 대상이 아니다(성공률이 깎이지 않게).
+        //   중단으로 건너뛴 건은 대상에 남긴다. 음성(VoiceCollectService)과 같은 규칙이다.
+        long upToDate = outcomes.stream()
+                .filter(o -> "SKIPPED".equals(o.status()) && !CANCELED.equals(o.errMsg())).count();
+        long target = outcomes.size() - upToDate;
         if (reopen != null) {
             // 같은 실행 ID 로 다시 돈 배치 — T1 은 T4 최종 상태(원래 성공 + 해결된 실패)로 마감한다
             Map<String, Long> by = logCollector.fileStatusCounts(execId);

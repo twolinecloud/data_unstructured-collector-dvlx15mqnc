@@ -233,6 +233,25 @@ class ImageLogHistoryTest {
     }
 
     @Test
+    @DisplayName("음성 T1 대상 건수 — 앞선 배치가 이미 처리해 건너뛴 건은 빼고 센다(성공률 = 성공 ÷ 이번 대상 · 개발계 TST004 50% 회귀)")
+    void voiceT1TargetExcludesAlreadyProcessed() {
+        BatchWindow w = BatchWindow.manual(D.atStartOfDay(), D.plusDays(1).atStartOfDay());
+        dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.PHONE), D, 3,
+                new EnumMap<>(FailureScenario.class), true, null));
+        voice.run(w, List.of(VoiceKind.PHONE), "SCHEDULER", false);   // 지금 있는 전화 건을 모두 처리(멱등 표식)
+
+        dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.PHONE), D, 2,
+                new EnumMap<>(FailureScenario.class), true, null));
+        var r = voice.run(w, List.of(VoiceKind.PHONE), "SCHEDULER", false);
+
+        assertThat(r.skippedCnt()).as("앞 배치가 끝낸 건은 건너뜀").isGreaterThanOrEqualTo(3);
+        Map<String, Object> b = t1(r.execId());
+        assertThat(n(b, "target_cnt")).as("대상 = 이번에 새로 들어온 2건").isEqualTo(2);
+        assertThat(n(b, "success_cnt")).isEqualTo(2);
+        assertThat(b.get("exec_sts_cd")).isEqualTo("SUCCESS");
+    }
+
+    @Test
     @DisplayName("음성 T4 도 단계 코드를 싣는다 — 성공 SEND · 실패는 실패한 단계(ERR_STACK 에도 [단계])")
     void voiceT4CarriesStepType() {
         Map<FailureScenario, Integer> f = new EnumMap<>(FailureScenario.class);

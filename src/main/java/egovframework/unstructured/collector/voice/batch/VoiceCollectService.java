@@ -369,7 +369,12 @@ public class VoiceCollectService {
         //   MAX(target_to_dtm) 이 곧 워터마크다. PARTIAL·FAIL·CANCELED 는 로그 컬렉터가 세지 않으므로,
         //   빠진 건이 있는 구간이 '다 수집했다' 로 둔갑하지 않는다.
 
-        long t1Target = found.size();
+        // T1 대상 건수 — 이번 실행이 처리할 건. '이미 처리된 건'(멱등 표식 · 앞선 배치가 끝낸 것)은 대상이 아니다.
+        //   넣으면 성공률(성공 ÷ 대상)이 그만큼 깎인다(2026-10-15 개발계 TST004: 대상 20 · 성공 10 → 50%).
+        //   사용자가 중단해 건너뛴 건은 대상에 남긴다 — 처리해야 했는데 못 한 것이다.
+        long alreadyDone = outcomes.stream()
+                .filter(o -> o.status() == ProcStatus.SKIPPED && ALREADY_PROCESSED.equals(o.errMsg())).count();
+        long t1Target = found.size() - alreadyDone;
         long t1Success = success;
         long t1Fail = fail;
         String t1Sts = result.execStsCd();
@@ -379,7 +384,7 @@ public class VoiceCollectService {
             if (by != null) {
                 t1Success = by.getOrDefault("SUCCESS", 0L);
                 t1Fail = by.getOrDefault("FAIL", 0L);
-                t1Target = Math.max(found.size(), by.values().stream().mapToLong(Long::longValue).sum());
+                t1Target = Math.max(found.size() - alreadyDone, by.values().stream().mapToLong(Long::longValue).sum());
                 t1Sts = canceled ? "CANCELED" : t1Fail == 0 ? "SUCCESS" : t1Success > 0 ? "PARTIAL" : "FAIL";
                 log.info("[Batch] 다시 연 배치 {} — T4 최종 상태로 T1 마감: {} · 성공 {} · 실패 {} (이번 실행 성공 {} · 실패 {} · 건너뜀 {})",
                         execId, t1Sts, t1Success, t1Fail, success, fail, skipped);

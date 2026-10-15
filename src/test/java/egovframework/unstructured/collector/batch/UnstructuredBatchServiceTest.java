@@ -128,6 +128,15 @@ class UnstructuredBatchServiceTest {
         assertThatThrownBy(() -> s.planRun(NOW.plusMinutes(5), NOW)).hasMessageContaining("미래");
         assertThatThrownBy(() -> s.planRun(LocalDateTime.of(2026, 10, 1, 23, 0), NOW)).hasMessageContaining("이미 그 시각까지");
 
+        // 하루 두 번째 바로 실행 — 워터마크와 종료 시각이 <b>같다</b>. 실제로 여기 걸렸다(2026-10-15):
+        //   일배치가 어제 구간을 먹어 워터마크가 '오늘 00:00' 인데 바로 실행 종료 시각도 '오늘 00:00' 이었다.
+        //   같은 값인데 "이후다" 라고만 적혀 있었고 다음 수가 없었다 — 어드민 화면에는 '서버 오류' 로만 떴다.
+        assertThatThrownBy(() -> s.planRun(LocalDateTime.of(2026, 10, 2, 0, 0), NOW))
+                .hasMessageContaining("과 같다")
+                .hasMessageContaining("20261002UNS001")
+                .hasMessageContaining("종료 시각을 워터마크 이후")
+                .hasMessageContaining("긴급 재처리");
+
         when(logc.watermark(anyString(), anyString())).thenReturn(null);   // 첫 실행 — 최근 30일
         assertThat(s.planRun(NOW, NOW).window().from()).isEqualTo(NOW.minusDays(30));
     }

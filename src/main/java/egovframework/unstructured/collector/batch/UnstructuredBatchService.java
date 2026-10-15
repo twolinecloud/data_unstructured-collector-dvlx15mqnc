@@ -143,8 +143,15 @@ public class UnstructuredBatchService {
         LogCollectorClient.Watermark wm = logCollector.watermark(DATA_TYPE, voiceProps.batch().jobId());
         LocalDateTime from = wm != null ? wm.at() : to.minusDays(Math.max(1, catchupLookbackDays));
         if (!from.isBefore(to)) {
-            throw new IllegalArgumentException("수집할 구간이 없다 — 워터마크 " + from + "(" + wm.execId() + ") 가 targetToDtm "
-                    + to + " 이후다. 이미 그 시각까지 수집했다");
+            // 하루 두 번째 바로 실행이 여기 걸린다. 일배치(새벽)가 이미 어제 구간을 먹어 워터마크가
+            //   '오늘 00:00' 이고, 바로 실행 창의 종료 시각을 그대로 두면 창이 빈다 — 같은 값이라
+            //   "이후다" 라고만 하면 왜 거절됐는지도, 무엇을 하라는 것인지도 알 수 없다.
+            //   그래서 같음 · 이후를 갈라 적고 다음 수를 같이 준다(2026-10-15).
+            throw new IllegalArgumentException("수집할 구간이 없다 — 워터마크 " + from
+                    + (wm == null ? "" : "(" + wm.execId() + ")")
+                    + (from.equals(to) ? " 가 targetToDtm " + to + " 과 같다" : " 가 targetToDtm " + to + " 이후다")
+                    + ". 이미 그 시각까지 수집했다. 종료 시각을 워터마크 이후(예: 지금)로 올리거나,"
+                    + " 그 구간을 다시 돌리려면 긴급 재처리를 쓴다");
         }
         return new Plan(BatchWindow.manual(from, to), ResumeMode.FULL, null, false, "ADMIN", props.batch().includeImage());
     }

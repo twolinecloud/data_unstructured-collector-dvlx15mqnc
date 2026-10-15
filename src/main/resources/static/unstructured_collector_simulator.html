@@ -1420,7 +1420,7 @@
       <div class="row g-2">
         <div class="col-sm-4"><fieldset class="dm-fs h-100"><legend>대상 날짜</legend>
           <input type="date" class="form-control form-control-sm" id="dm-date">
-          <div class="hint mt-1">기본 어제 · CRT_DT 를 이 날 안에 고르게 나눕니다</div></fieldset></div>
+          <div class="hint mt-1" id="dm-date-hint">기본 어제 · CRT_DT 를 이 날 안에 고르게 나눕니다</div></fieldset></div>
         <div class="col-sm-8"><fieldset class="dm-fs h-100"><legend>장애 시나리오 건수 <span class="hint fw-normal">— 고른 유형마다 이만큼, 나머지는 정상</span></legend>
           <div class="d-flex flex-wrap gap-3">
             <div><label class="hint d-block" for="dm-cf" title="수집 단계에서 한 번 실패 → FULL 재처리(이미지: 수신)">COLLECT_FAIL <span class="text-secondary">수집</span></label>
@@ -3190,9 +3190,37 @@ function ymdLocal(d) { const p = (n) => String(n).padStart(2, '0'); return `${d.
 function ymdShift(ymd, days) { const d = new Date(ymd + 'T00:00:00'); d.setDate(d.getDate() + days); return ymdLocal(d); }
 function dmTarget() { return document.querySelector('input[name="dm-target"]:checked')?.value || 'SIMULATOR'; }
 
+/**
+ * 용도별 기본 대상 날짜 — DMY 는 <b>오늘</b>, SIM 은 어제.
+ *
+ * <p>DMY 는 실제 배치(EXEC_ID UNS)가 읽는다. 그런데 일배치는 새벽에 <b>어제 구간을 통째로</b> 먹고
+ * 워터마크를 '오늘 00:00' 으로 올린다. 그 뒤에 어제 날짜로 DMY 를 만들면 증분 창 밖이라
+ * [바로 실행]이 '수집할 구간이 없다' 로 거절한다 — 어드민에서는 그게 '서버 오류' 로만 보인다.
+ * 그래서 DMY 기본값을 오늘로 둔다(CRT_DT 는 지금 직전까지만 퍼진다 — 서버 Slots.of 가 그렇게 자른다).</p>
+ *
+ * <p>SIM 은 시험 실행(test=true)이 구간을 직접 주므로 워터마크와 무관하다 — 어제 그대로 둔다.</p>
+ */
+function dmDefaultDate(force) {
+  const today = ymdLocal(new Date());
+  const want = dmTarget() === 'DASHBOARD' ? today : ymdShift(today, -1);
+  const el = $('dm-date');
+  // 사용자가 직접 고른 값은 건드리지 않는다 — 비어 있거나 '다른 용도의 기본값' 일 때만 바꾼다.
+  const isDefault = !el.value || el.value === today || el.value === ymdShift(today, -1);
+  if (force || isDefault) el.value = want;
+  const hint = $('dm-date-hint');
+  if (hint) {
+    hint.innerHTML = dmTarget() === 'DASHBOARD'
+      ? "기본 <b>오늘</b> — 일배치가 이미 어제 구간을 먹어서, 어제로 만들면 [바로 실행]이 '수집할 구간이 없다' 로 거절합니다"
+      : "기본 어제 · CRT_DT 를 이 날 안에 고르게 나눕니다";
+  }
+}
+
+
 async function dmInit() {
   const today = ymdLocal(new Date());
-  ['dm-date', 'ks-date'].forEach(id => { $(id).max = today; if (!$(id).value) $(id).value = ymdShift(today, -1); });
+  ['dm-date', 'ks-date'].forEach(id => { $(id).max = today; });
+  if (!$('ks-date').value) $('ks-date').value = ymdShift(today, -1);
+  dmDefaultDate(true);   // dm-date 는 용도에 따라 다르다
   await dmLoadStatus();
 }
 
@@ -3280,9 +3308,9 @@ async function dmOpen() {
   if (!DM_INFO) await dmLoadStatus();   // 처음 불러올 때 실패했을 수 있다 — 열 때 한 번 더 묻는다
   const today = ymdLocal(new Date());
   $('dm-date').max = today;
-  if (!$('dm-date').value) $('dm-date').value = ymdShift(today, -1);
   const want = $(isReal() ? 'dm-t-dmy' : 'dm-t-sim');
   if (want && !want.disabled) want.checked = true;
+  dmDefaultDate(true);   // 용도가 정해진 뒤에 기본 날짜를 넣는다
   $('dm-err').textContent = '';
   dmPreview();
   $('dm-modal').hidden = false;
@@ -3340,6 +3368,8 @@ function dmPreview() {
   return f;
 }
 ['input', 'change'].forEach(ev => $('dm-box').addEventListener(ev, dmPreview));
+// 용도를 바꾸면 기본 대상 날짜와 안내도 따라간다 — DMY 는 오늘, SIM 은 어제(dmDefaultDate 주석 참조)
+document.querySelectorAll('input[name="dm-target"]').forEach(r => r.addEventListener('change', () => dmDefaultDate(false)));
 
 /** 완료 팝업 — Target · 유형별 생성 건수(음성 · 이미지) · 정상/실패. */
 function dmDonePopupHtml(g) {

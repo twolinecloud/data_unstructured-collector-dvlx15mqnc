@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -40,6 +41,9 @@ import java.util.function.BiConsumer;
 @Service
 @RequiredArgsConstructor
 public class UnstructuredBatchService {
+
+    /** 화면에 그대로 보이는 시각 표기 — ISO 의 'T' 를 빼고 분까지만. 사용자가 읽을 값이다. */
+    private static final DateTimeFormatter USER_DTM = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /** 관리 화면 데이터 구분(C01). */
     public static final String DATA_TYPE = "UNSTRUCTURED";
@@ -144,14 +148,16 @@ public class UnstructuredBatchService {
         LocalDateTime from = wm != null ? wm.at() : to.minusDays(Math.max(1, catchupLookbackDays));
         if (!from.isBefore(to)) {
             // 하루 두 번째 바로 실행이 여기 걸린다. 일배치(새벽)가 이미 어제 구간을 먹어 워터마크가
-            //   '오늘 00:00' 이고, 바로 실행 창의 종료 시각을 그대로 두면 창이 빈다 — 같은 값이라
-            //   "이후다" 라고만 하면 왜 거절됐는지도, 무엇을 하라는 것인지도 알 수 없다.
-            //   그래서 같음 · 이후를 갈라 적고 다음 수를 같이 준다(2026-10-15).
-            throw new IllegalArgumentException("수집할 구간이 없다 — 워터마크 " + from
-                    + (wm == null ? "" : "(" + wm.execId() + ")")
-                    + (from.equals(to) ? " 가 targetToDtm " + to + " 과 같다" : " 가 targetToDtm " + to + " 이후다")
-                    + ". 이미 그 시각까지 수집했다. 종료 시각을 워터마크 이후(예: 지금)로 올리거나,"
-                    + " 그 구간을 다시 돌리려면 긴급 재처리를 쓴다");
+            //   '오늘 00:00' 이고, 바로 실행 창의 종료 시각을 그대로 두면 창이 빈다.
+            //
+            //   메시지는 <b>화면에 그대로 뜬다</b>(admin-api 가 400 과 함께 올린다). 기획이 두 줄만
+            //   보여 주므로 사용자가 바로 할 수 있는 말만 남긴다 — targetToDtm · 배치 ID 같은 내부 값은 뺀다.
+            //   대신 추적 수단을 없애지 않도록 <b>자세한 값은 서버 로그에</b> 남긴다(2026-10-15).
+            log.warn("[Admin/PL] 바로 실행 거절 — 수집할 구간이 없다. 워터마크 {}{} · targetToDtm {} ({})",
+                    from, wm == null ? "" : "(" + wm.execId() + ")", to,
+                    from.equals(to) ? "같음" : "워터마크가 더 나중");
+            throw new IllegalArgumentException("최근 수집 시점(" + USER_DTM.format(from)
+                    + ") 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.");
         }
         return new Plan(BatchWindow.manual(from, to), ResumeMode.FULL, null, false, "ADMIN", props.batch().includeImage());
     }

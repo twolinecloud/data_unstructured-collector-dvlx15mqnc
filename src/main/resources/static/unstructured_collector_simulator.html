@@ -3504,7 +3504,7 @@ $('btn-e2e').onclick = async () => {
       log(`  └ ${x.order}. ${esc(x.label)} ${esc(x.requested)} → ${esc(x.execId)} · 구간 ${esc(String(x.window?.from || '').replace('T', ' '))} ~ ${esc(String(x.window?.to || '').slice(11))} · T1 ${esc(x.t1)} · 전송 ${esc(x.send ?? '-')}`, x.asRequested ? 'ok' : 'err');
       return `<li><b>${esc(x.label)}</b> ${esc(x.requested)} — <code>${esc(x.execId)}</code>
         <div class="sub">구간 ${esc(String(x.window?.from || '').replace('T', ' '))} ~ ${esc(String(x.window?.to || '').slice(11))} · T1 ${esc(x.t1)} · 전송 ${esc(x.send ?? '-')}
-          · 대상 ${x.counts?.target ?? '-'} · 성공 ${x.counts?.success ?? '-'} · 실패 ${x.counts?.fail ?? '-'}${x.asRequested ? '' : ' · <b class="text-danger">요청과 다름</b>'}</div></li>`;
+          · 성공 ${x.counts?.success ?? '-'} · 실패 ${x.counts?.fail ?? '-'}${x.counts?.skipped ? ` · 건너뜀 ${x.counts.skipped}(이미 처리된 다른 건)` : ''}${x.asRequested ? '' : ' · <b class="text-danger">요청과 다름</b>'}</div></li>`;
     }).join('');
     await dmLoadStatus();
     showPopup('E2E 재처리 데이터 생성 완료', `<div class="pop-lead">배치 ${(d.batches || []).length}건을 만들었습니다(아래가 실행 순서 = 재처리 체인 순서).</div>

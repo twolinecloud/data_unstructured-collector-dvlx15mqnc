@@ -65,6 +65,12 @@ class UnstructuredReprocessChainTest {
         when(vp.batch()).thenReturn(batch);
         when(logc.isEnabled()).thenReturn(true);
         when(logc.reopenBatch(anyString(), any(), any(), any())).thenReturn(true);
+        // 다시 연 배치는 자기 T4 건만 처리한다 — 기본은 T4 비어 있음(구간 전체)
+        try {
+            when(logc.fileProcs(anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(OM.readTree("{\"rows\":[]}"));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
         // 체인은 보내기 직전에 배치 상태를 다시 본다(전송 대기 · 실행 중이면 건너뜀) — 기본은 실패 배치 · 전송 단계 없음
         when(logc.batchDetail(anyString())).thenAnswer(inv -> OM.readTree(
                 "{\"batch\":{\"exec_id\":\"" + inv.getArgument(0) + "\",\"exec_sts_cd\":\"FAIL\"},\"steps\":[]}"));
@@ -123,10 +129,23 @@ class UnstructuredReprocessChainTest {
                     re.capture());
             assertThat(re.getValue().execId()).isEqualTo(id);
             assertThat(re.getValue().failedKeys()).containsExactly("K-" + id);   // 성공 행은 넘기지 않는다
+            assertThat(re.getValue().ownKeys()).as("자기 T4 건 전부 — 구간 조회를 이 건들로 좁힌다").containsExactlyInAnyOrder("K-" + id, "OK");
             assertThat(mode.getValue()).isEqualTo(id.equals("UNS17") ? ResumeMode.FROM_ANALYZE : ResumeMode.FROM_SEND);
         }
         verify(voice, never()).run(any(), any(), any(), anyBoolean(), any(), any(), any(), any());   // 새 실행 ID 경로는 안 탄다
         assertThat(sum).contains("체인(음성) 3건").contains("UNS15").contains("UNS17");
+    }
+
+    @Test
+    @DisplayName("다시 연 배치의 T4 를 못 읽으면 다시 돌지 않는다 — 자기 건을 모르면 구간 전체를 훑어 다른 배치 건을 가져갈 수 있다")
+    void noReopenWithoutT4() {
+        when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS17", 2)));
+        when(logc.fileProcs(anyString(), anyInt())).thenReturn(null);
+
+        String sum = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
+
+        assertThat(sum).contains("UNS17 T4 확인 실패 — 다시 돌지 않음");
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
     }
 
     @Test

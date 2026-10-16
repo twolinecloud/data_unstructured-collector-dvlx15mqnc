@@ -58,6 +58,12 @@ class UnstructuredBatchServiceTest {
         when(batch.jobId()).thenReturn("VOICE_ANALYSIS");
         when(batch.testJobId()).thenReturn("TEST_BATCH");
         when(logc.isEnabled()).thenReturn(true);
+        // 다시 연 배치는 자기 T4 건만 처리한다 — 기본은 T4 비어 있음(구간 전체)
+        try {
+            when(logc.fileProcs(anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(OM.readTree("{\"rows\":[]}"));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private UnstructuredBatchService service(boolean includeImage) {

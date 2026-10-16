@@ -206,8 +206,17 @@ public class VoiceCollectService {
      * @param execId     다시 연 원배치 실행 ID — T1 을 새로 만들지 않고 이 ID 로 돈다
      * @param failedKeys 원배치 T4 에서 실패였던 건(REC_FILE_ID) — 다른 실행이 이미 처리해 이번에 '이미 처리된 건' 으로 건너뛰면
      *                   그 행을 성공으로 덮어쓴다(V19). 원배치에서 성공한 건은 건너뛰어도 T4 를 건드리지 않는다
+     * @param ownKeys    원배치 T4 의 모든 건(REC_FILE_ID) — <b>비어 있지 않으면 구간 조회 결과를 이 건들로 좁힌다</b>(2026-10-16).
+     *                   다시 연 배치는 자기 건만 다시 처리해야 한다 — 옛 배치의 구간(예: 첫 바로 실행의 30일 되짚기)이 그 뒤에 생긴
+     *                   다른 배치의 건까지 덮어, 그 건들을 엉뚱한 실행 ID 로 보내고 원래 배치는 '이미 처리됨' 으로 성공 처리되던 문제(E2E 에서 발견).
+     *                   비어 있으면(파일 기록 전에 죽은 배치) 예전처럼 구간 전체
      */
-    public record Reopened(String execId, java.util.Set<String> failedKeys) {}
+    public record Reopened(String execId, java.util.Set<String> failedKeys, java.util.Set<String> ownKeys) {
+
+        public Reopened(String execId, java.util.Set<String> failedKeys) {
+            this(execId, failedKeys, java.util.Set.of());
+        }
+    }
 
     /**
      * 배치를 1회 실행한다 — {@code reopened} 가 있으면 그 실행 ID 로 다시 돌고, T1 건수를 <b>T4 최종 상태</b>로 마감한다
@@ -252,6 +261,15 @@ public class VoiceCollectService {
         ctx.collectStepId = logCollector.createStep(execId, StepType.COLLECT.seq(), StepType.COLLECT.name());
 
         List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
+        if (reopened != null && reopened.ownKeys() != null && !reopened.ownKeys().isEmpty()) {
+            // 다시 연 배치는 자기 건만 — 구간 안의 다른 배치 건(그 뒤에 생긴 것 포함)은 그 배치 몫이다
+            int before = found.size();
+            found = found.stream().filter(t -> reopened.ownKeys().contains(t.idempotencyKey())).toList();
+            if (found.size() < before) {
+                log.info("[Batch] 다시 연 배치 {} — 구간 조회 {}건 중 자기 T4 건 {}건만 처리(다른 배치 몫 {}건 제외)",
+                        execId, before, found.size(), before - found.size());
+            }
+        }
         List<FileProcOutcome> outcomes = new ArrayList<>(found.size());
 
         // 화면 진행률 — 대상 수가 확정된 지금부터 센다. 배치 REST 는 동기라 이것 없이는

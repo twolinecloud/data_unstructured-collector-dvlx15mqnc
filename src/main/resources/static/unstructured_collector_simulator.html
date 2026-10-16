@@ -510,6 +510,10 @@
               title="DELETE /api/v1/mock/sim-data?target=DASHBOARD — 대시보드 더미(DMY 접두 + 생성자 dmyadm 행 · Admin 사진 매핑 · 더미 원본 · 저장 사진 · DMY 멱등 표식)를 지웁니다. 시뮬레이터 데이터(SIM)와 로그 컬렉터 수행 이력(T1~T5)은 남습니다.">
         대시보드 테스트 데이터 초기화
       </button>
+      <button class="btn btn-sm btn-success" id="btn-e2e"
+              title="POST /api/v1/voice/simulator/e2e-dummy — 긴급 재처리 E2E 묶음을 만듭니다: 옛 더미 쓰레기(원본이 지워진 실패 배치) · 이전 E2E 묶음을 먼저 지우고, 어제(FAIL) → 오늘 오전(WAIT) → 방금(PARTIAL) 순서로 DMY 원본을 좁은 구간에 만들어 실제 배치(test=false · UNS)로 돕니다. 관리 화면 배치 수행 이력 맨 위에 3건이 뜨고, 맨 위(방금) [긴급 재처리]로 체인을 확인합니다.">
+        E2E 재처리 데이터
+      </button>
       <button class="btn btn-sm btn-outline-secondary" id="btn-health"
               title="5종 연계 상태를 지금 다시 확인합니다 (자동 확인은 1분마다, 배치·시나리오 중에는 멈춥니다)">연결 새로고침</button>
       <button class="btn btn-sm btn-outline-primary" id="btn-refresh">상태 새로고침</button>
@@ -3231,6 +3235,7 @@ async function dmLoadStatus() {
   const ok = !!d;
   document.querySelectorAll('#ks-box button').forEach(b => b.disabled = !ok);
   $('btn-dmy-clear').disabled = !ok;
+  $('btn-e2e').disabled = !ok || !d.dashboardEnabled;
   if (!ok) { dmPreview(); $('dm-sum').textContent = ' — 이 서버에는 더미 생성 기능이 없습니다(운영 프로필이거나 옛 버전)'; return; }
   const dash = !!d.dashboardEnabled;
   $('dm-t-dmy').disabled = !dash;
@@ -3464,6 +3469,54 @@ $('btn-dmy-clear').onclick = async () => {
       <li>그 외: 멱등 표식 ${l.idempotencyMarkers ?? 0}건 · 재처리 보존물(전사 ${l.sttTempFiles ?? 0} · 복호화 오디오 ${l.decryptedAudio ?? 0}) · 키 표식 장애 소진 표시 ${d.scenarioFaultsForgotten ?? 0}건</li>
     </ul>
     <div class="pop-note">${esc(d.historyKept || '로그 컬렉터 수행 이력(T1~T5)은 남습니다')} · 시뮬레이터 데이터(SIM)는 그대로입니다.</div>`);
+};
+
+// ── 상단 [E2E 재처리 데이터] — 어제(FAIL) → 오늘 오전(WAIT) → 방금(PARTIAL) 묶음 ────────────────
+//  2026-10-16 — 긴급 재처리 체인(오래된 순 · 하위 대기 포함)을 관리 화면에서 바로 확인하려고 만든 버튼. 로그를 DB 에 꽂지 않고 더미 원본을
+//  좁은 구간에 만들어 그 구간만 실제 배치로 돌린다(커넥터 보류 장부 · 재처리 보존물까지 진짜로 생기게).
+$('btn-e2e').onclick = async () => {
+  const ok = await confirmPopup('E2E 재처리 데이터 만들기', `<div class="pop-lead">긴급 재처리 체인 확인용 배치 3건을 새로 만듭니다.</div>
+    <ul class="pop-list">
+      <li><b>먼저 정리</b> — 이전 E2E 묶음 · 원본이 이미 지워져 재처리로 풀 수 없는 옛 더미 실패 배치(예: 10-02 ~ 05)의 수행 이력(T1 · T2 · T4 · T5)
+        <div class="sub">로그 컬렉터가 비정형 · 실행 중 아님 · 파일 전부 더미 키(DMY/SIM)인 배치만 지웁니다 — 실데이터가 섞인 배치는 남습니다</div></li>
+      <li><b>어제(FAIL)</b> — 접견 2건 모두 전송 실패 표식 → 배치 실패</li>
+      <li><b>오늘 오전(WAIT)</b> — 정상 2건 → 커넥터가 수동 확인으로 보류(전송 대기)</li>
+      <li><b>방금(PARTIAL)</b> — 3건 중 1건 분석 실패 표식 → 부분 성공(나머지 2건 보류)</li>
+    </ul>
+    <div class="pop-note">실제 배치(test=false · EXEC_ID UNS)로 돌아 관리 화면 <b>배치 수행 이력 맨 위</b>에 3건이 이 순서로 뜹니다.
+      맨 위(방금)의 [긴급 재처리]를 누르면 어제 → 오전 → 방금 순서로 처리됩니다. 장애 표식은 한 번만 실패합니다.</div>`, '만들기', '취소');
+  if (!ok) return;
+  const b = $('btn-e2e');
+  b.disabled = true;
+  try {
+    const info = await callFull('POST', '/api/v1/voice/simulator/e2e-dummy', 'E2E 재처리 데이터 — 정리 후 어제(FAIL) → 오늘 오전(WAIT) → 방금(PARTIAL)',
+      { json: { statuses: ['FAIL', 'WAIT', 'PARTIAL'], cleanup: true } });
+    if (!info.ok) {
+      showPopup('E2E 데이터를 만들지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+      return;
+    }
+    const d = info.body || {};
+    const c = d.cleanup || {};
+    const del = Array.isArray(c.deleted) ? c.deleted : [];
+    const skip = Array.isArray(c.skipped) ? c.skipped : [];
+    log(`  └ 정리 — 지움 ${del.length}건 ${esc(del.join(', '))}${skip.length ? ` · 남김 ${skip.length}건(${esc(skip.map(x => x.execId + ' ' + x.reason).join(' / '))})` : ''}`, 'ok');
+    const rows = (d.batches || []).map(x => {
+      log(`  └ ${x.order}. ${esc(x.label)} ${esc(x.requested)} → ${esc(x.execId)} · 구간 ${esc(String(x.window?.from || '').replace('T', ' '))} ~ ${esc(String(x.window?.to || '').slice(11))} · T1 ${esc(x.t1)} · 전송 ${esc(x.send ?? '-')}`, x.asRequested ? 'ok' : 'err');
+      return `<li><b>${esc(x.label)}</b> ${esc(x.requested)} — <code>${esc(x.execId)}</code>
+        <div class="sub">구간 ${esc(String(x.window?.from || '').replace('T', ' '))} ~ ${esc(String(x.window?.to || '').slice(11))} · T1 ${esc(x.t1)} · 전송 ${esc(x.send ?? '-')}
+          · 대상 ${x.counts?.target ?? '-'} · 성공 ${x.counts?.success ?? '-'} · 실패 ${x.counts?.fail ?? '-'}${x.asRequested ? '' : ' · <b class="text-danger">요청과 다름</b>'}</div></li>`;
+    }).join('');
+    await dmLoadStatus();
+    showPopup('E2E 재처리 데이터 생성 완료', `<div class="pop-lead">배치 ${(d.batches || []).length}건을 만들었습니다(아래가 실행 순서 = 재처리 체인 순서).</div>
+      <ul class="pop-list">${rows}
+        <li>정리: 지운 배치 <span class="n">${del.length}</span>건${skip.length ? ` · 남긴 배치 ${skip.length}건` : ''}
+          <div class="sub">${esc(del.join(', ') || '-')}</div></li>
+      </ul>
+      ${d.warning ? `<div class="pop-note" style="border-color:#f1aeb5;background:#fff5f5">${esc(d.warning)}</div>` : ''}
+      <div class="pop-note">관리 화면 <b>배치 수행 이력</b> 맨 위 → <b>방금(PARTIAL)</b> 행의 [긴급 재처리]. 진행은 수집기 로그 · <code>GET /internal/batch/status</code>.</div>`);
+  } finally {
+    b.disabled = false;
+  }
 };
 
 // ── 3번 탭 ⑤ — 키 표식 장애 시나리오 ────────────────────────────────────

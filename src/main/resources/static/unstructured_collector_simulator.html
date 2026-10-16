@@ -780,6 +780,8 @@
         <button class="btn btn-outline-secondary btn-sm" id="scen-reset">전체 해제 · 데이터 재생성</button>
         <span class="hint ms-auto" id="scen-preserved">보존물 —</span>
       </div>
+      <div class="hint mb-2">어드민 대시보드의 [긴급 재처리]로 볼 때 — <b>[장애 실행] → [장애 해제] → 어드민 배치 수행 이력 [긴급 재처리]</b>.
+        장애를 걷지 않고 누르면 재처리 체인이 돌아도 같은 이유로 다시 실패합니다(어드민은 시뮬레이터가 건 장애를 모릅니다).</div>
       <!-- 진행률 — 장애 실행·재처리가 도는 동안. 2번 탭의 진행률과 같은 값을 보여 준다 -->
       <div id="fprog-wrap" class="prog-wrap mb-2 d-none">
         <div class="prog-head">
@@ -2008,6 +2010,7 @@ async function loadStatus(quiet) {
   $('warnings').innerHTML = ws.length
     ? `<div class="alert alert-danger py-2 px-3 mb-0" style="font-size:.8rem"><b>배치 전 확인</b><ul class="mb-0 ps-3">${ws.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '';
   if (!quiet) ws.forEach(w => log(`⚠ ${w}`, 'er'));
+  scenFaultSync(s);
 }
 
 // 조회 DB 한 줄 — 어느 DB 를 보는지 + 마지막 연결 확인 결과
@@ -2509,7 +2512,7 @@ async function rtWaitBrokerReady(maxMs = 15000) {
     const p = await call('GET', '/api/v1/voice/broker/probe', '', true);
     last = p;
     if (p && p.reachable && p.pathMatched) {
-      log('  └ 브로커 준비 확인 — 재처리를 시작합니다', 'ok');
+      log('  └ 브로커 준비 확인', 'ok');
       return true;
     }
     await sleep(700);
@@ -2549,6 +2552,8 @@ const SC = {};   // key -> { state, fail, resume }
 // 시나리오 1 이 브로커를 건드리기 전 상태 — 복구는 '주입 전으로 되돌리기' 다.
 //   주소만 되돌리고 모드(MOCK→REST)를 그대로 두면, 다음 시나리오의 수집이 엉뚱한 브로커를
 //   보고 깨진다. 실제로 원클릭에서 2·3번이 COLLECT FAIL 로 무너졌다.
+// 이 값은 화면 메모리에만 있다 — 장애를 건 뒤 화면을 새로 열면 사라진다. 그때는 서버의 배포 설정값
+//   (configuredModes.broker · brokerBaseUrlConfigured)으로 되돌린다(brokerRestoreTarget).
 let BROKER_BEFORE = null;
 
 /**
@@ -2586,6 +2591,8 @@ function scenBuild() {
         <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
           ${modeSel}
           <button class="btn btn-sm btn-outline-danger" data-scen="${s.key}" data-act="fail">장애 실행</button>
+          <button class="btn btn-sm btn-outline-secondary" data-scen="${s.key}" data-act="clear"
+                  title="장애만 걷습니다 — 재처리는 돌리지 않습니다(어드민 [긴급 재처리]로 볼 때)">장애 해제</button>
           <button class="btn btn-sm btn-outline-primary" data-scen="${s.key}" data-act="resume">재처리</button>
           <button class="btn btn-sm btn-dark" data-scen="${s.key}" data-act="both">단독 실행</button>
         </div>
@@ -2612,7 +2619,28 @@ function scenPaint(key) {
   el.classList.toggle('done-fail', !st.running && st.result === 'ng');
   $('sc-res-' + key).innerHTML = st.html || '';
   $('sc-badge-' + key).textContent = st.running ? '실행 중…'
+      : st.faultOn ? '장애 주입 중'
       : st.result === 'ok' ? '완료' : st.result === 'ng' ? '장애 확인' : '';
+  $('sc-badge-' + key).className = 'hint' + (!st.running && st.faultOn ? ' text-danger fw-semibold' : '');
+}
+
+/**
+ * 서버에 지금 장애가 걸려 있는지를 카드 배지에 옮긴다 — 화면을 새로 열어도 보이게.
+ * 시나리오 1 은 브로커 주소가 장애 주소인지, 2 · 3 은 단계별 장애 스위치로 본다.
+ * 이걸 모르면 어드민 [긴급 재처리]가 계속 같은 이유로 떨어지는데 원인이 화면에 없다(10-17 실제 사례).
+ */
+function scenFaultSync(st) {
+  if (!st) return;
+  const faultUrl = $('rt-fault-url').value.trim();
+  SCEN.forEach(x => {
+    const stage = st.stageFaults?.[x.key];
+    const on = !!(stage && stage.mode && stage.mode !== 'OFF')
+        || (x.key === 'COLLECT' && !!faultUrl && st.endpoints?.brokerBaseUrl === faultUrl);
+    if (!!(SC[x.key] || {}).faultOn !== on) scenMark(x.key, { faultOn: on });
+  });
+}
+async function scenFaultRefresh() {
+  scenFaultSync(await call('GET', '/api/v1/voice/status', '', true));
 }
 
 function scenMark(key, patch) { SC[key] = Object.assign(SC[key] || {}, patch); scenPaint(key); }
@@ -2791,16 +2819,34 @@ async function scenPreserved() {
   if ($('scen-dir-audio')) $('scen-dir-audio').textContent = p.decryptedAudioDir || '';
 }
 
-/** 브로커를 주입 전 상태(모드 + 주소)로 되돌린다. 기억해 둔 것이 없으면 화면의 복구 주소를 쓴다. */
+/**
+ * 시나리오 1 을 걷을 때 되돌릴 브로커(모드 + 주소).
+ * 이 화면에서 주입했으면 그때 기억한 값. 기억이 없는데(화면을 새로 열었거나 다른 탭에서 주입) 지금 주소가
+ * 장애 주소면 서버의 배포 설정값. 둘 다 아니면 null — 아무것도 주입하지 않은 상태는 건드리지 않는다.
+ */
+async function brokerRestoreTarget() {
+  if (BROKER_BEFORE) return BROKER_BEFORE;
+  const st = await call('GET', '/api/v1/voice/status', '', true);
+  const faultUrl = $('rt-fault-url').value.trim();
+  if (!st || !faultUrl || st.endpoints?.brokerBaseUrl !== faultUrl) return null;
+  return { mode: st.configuredModes?.broker || 'MOCK',
+           url: st.endpoints?.brokerBaseUrlConfigured || $('rt-ok-url').value.trim() };
+}
+
+/** 브로커를 주입 전 상태(모드 + 주소)로 되돌린다. 되돌린 값을 돌려준다(없으면 null). */
 async function restoreBroker(label) {
   // 되돌릴 것이 없으면 건드리지 않는다. 기본값을 가정해 밀어 넣으면, 아무것도 주입하지 않은
   // 초기화가 브로커 모드를 바꿔 버려 이후 시나리오의 수집이 통째로 깨진다(실제로 그랬다).
-  if (!BROKER_BEFORE) {
-    return;
+  const target = await brokerRestoreTarget();
+  if (!target) {
+    return null;
   }
-  const { mode, url } = BROKER_BEFORE;
+  const { mode, url } = target;
   await call('PUT', `/api/v1/mock/endpoints/broker?value=${encodeURIComponent(url)}`, '', true);
   await call('PUT', `/api/v1/mock/modes/broker?value=${mode}`, label ? `${label} → ${mode} ${url}` : '', !label);
+  // 되돌렸으면 잊는다 — 그 사이 사람이 브로커를 바꿨다면 다음 [장애 실행]이 그때 상태를 새로 기억해야 한다
+  BROKER_BEFORE = null;
+  return target;
 }
 
 /** 앞 시나리오의 설정·데이터가 다음 시나리오에 새지 않게 한다 — 독립 실행의 전제다. */
@@ -2821,9 +2867,13 @@ async function scenFail(s) {
   if (s.key === 'COLLECT') {
     // 주입 스위치가 아니라 '주소를 틀리게' 해서 깨뜨린다 — 실제 장애 모양과 같다.
     if (!BROKER_BEFORE) {
-      const st = STATUS || await call('GET', '/api/v1/voice/status', '', true);
-      BROKER_BEFORE = { mode: st?.modes?.broker || 'MOCK',
-                        url: st?.endpoints?.brokerBaseUrl || $('rt-ok-url').value.trim() };
+      // 화면 캐시(STATUS)는 열 때 값이라 그 사이 바뀐 걸 모른다 — 지금 값을 읽는다.
+      // 이미 장애 주소면(앞서 주입한 채 화면을 새로 열었음) 그걸 '주입 전' 으로 기억하지 않는다 —
+      //   그러면 복구가 장애 주소로 '되돌려' 영영 풀리지 않는다(10-17 실제 사례).
+      const st = await call('GET', '/api/v1/voice/status', '', true);
+      BROKER_BEFORE = await brokerRestoreTarget()
+          || { mode: st?.modes?.broker || 'MOCK',
+               url: st?.endpoints?.brokerBaseUrl || $('rt-ok-url').value.trim() };
     }
     await call('PUT', '/api/v1/mock/modes/broker?value=REST', '', true);
     await call('PUT', '/api/v1/mock/endpoints/broker?value=' + encodeURIComponent($('rt-fault-url').value.trim()),
@@ -2839,16 +2889,23 @@ async function scenFail(s) {
   return info && info.body;
 }
 
-async function scenResume(s) {
-  // 장애를 먼저 걷는다 — 켜 둔 채 재처리하면 또 떨어진다.
+/** 장애만 걷는다 — 재처리는 돌리지 않는다. 어드민 [긴급 재처리]로 이어서 볼 때 쓴다. */
+async function scenClear(s) {
   if (s.key === 'COLLECT') {
-    await restoreBroker(`[${s.no}] 브로커 복구`);
-    if (BROKER_BEFORE?.mode === 'REST') {
+    const t = await restoreBroker(`[${s.no}] 브로커 복구`);
+    if (!t) {
+      log(`  └ [${s.no}] 걸려 있는 브로커 장애가 없습니다 — 그대로 둡니다`, 'ok');
+    } else if (t.mode === 'REST') {
       await rtWaitBrokerReady();   // 실물 브로커로 되돌린 경우에만 준비를 기다린다
     }
   } else {
-    await call('DELETE', '/api/v1/voice/faults', `[${s.no}] 장애 해제`);
+    await call('PUT', `/api/v1/voice/faults/${s.key}?mode=OFF`, `[${s.no}] ${s.key} 장애 해제`);
   }
+}
+
+async function scenResume(s) {
+  // 장애를 먼저 걷는다 — 켜 둔 채 재처리하면 또 떨어진다.
+  await scenClear(s);
   const q = `resume=${s.resume}` + (s.kinds ? `&kinds=${s.kinds}` : '') + (s.resumeQuery ? '&' + s.resumeQuery : '');
   const info = await runBatchInner('/api/v1/voice/batches/resume',
       `[${s.no}] 재처리 — ${s.resumeText}`, s.kinds || null, q);
@@ -2869,6 +2926,10 @@ async function scenRun(key, act) {
       log('  └ 앞 설정·데이터를 정리하고 픽스처를 재생성했습니다 (시나리오 간 간섭 차단)', 'ok');
     }
     let html = '';
+    if (act === 'clear') {
+      await scenClear(s);
+      log(`  └ [${s.no}] 장애를 걷었습니다 — 어드민 배치 수행 이력에서 실패 배치의 [긴급 재처리]를 누르면 오래된 순으로 다시 돕니다`, 'ok');
+    }
     if (act === 'fail' || act === 'both') {
       scenMark(key, { running:true, html:'' });
       const r = await scenFail(s);
@@ -2893,6 +2954,7 @@ async function scenRun(key, act) {
     //   시작되기 전 틈에 버튼이 살아나 사람이 누를 수 있다(원클릭과 겹쳐 돈다). 원클릭이 끝에서 푼다.
     if (!SCEN_AUTO) scenLock(false);
     healthResume();
+    await scenFaultRefresh();
   }
 }
 
@@ -2929,7 +2991,7 @@ $('scen-reset').onclick = async () => {
     Object.keys(SC).forEach(k => delete SC[k]);
     SCEN.forEach(x => { scenPaint(x.key); $('sc-vf-' + x.key).innerHTML = ''; });
     log('  └ 단계별 장애 해제 · 브로커 복구 · 픽스처 재생성', 'ok');
-  } finally { scenLock(false); }
+  } finally { scenLock(false); await scenFaultRefresh(); }
 };
 
 scenBuild();

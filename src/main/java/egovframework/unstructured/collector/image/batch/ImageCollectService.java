@@ -427,7 +427,7 @@ public class ImageCollectService {
         long ng = outcomes.stream().filter(ImageOutcome::isFail).count();
         long collectErr = failAt.getOrDefault(StepType.COLLECT, 0L);
         long analyzeErr = failAt.getOrDefault(StepType.ANALYZE, 0L);
-        long sendErr = failAt.getOrDefault(StepType.SEND, 0L);
+        long sendErr = failAt.getOrDefault(StepType.STORE, 0L);
         String topErr = topErrStack(outcomes);
         steps.finishAll(processed, collectErr, processed - collectErr, analyzeErr, processed - collectErr - analyzeErr, sendErr,
                 ok, topErr, System.currentTimeMillis() - t0, m);
@@ -490,7 +490,7 @@ public class ImageCollectService {
                 continue;
             }
             out.add(new LogCollectorClient.FileProcReq(rec, null, f.path("file_nm").asText(null), pid, 0L, "SUCCESS", null,
-                    StepType.SEND.name()));
+                    StepType.STORE.name()));
         }
         if (!out.isEmpty()) {
             log.info("[Image] 다시 연 배치 {} — 원래 실패 {}건 중 {}건이 지금 최신 사진으로 매핑돼 있어 성공으로 덮어쓴다",
@@ -517,7 +517,7 @@ public class ImageCollectService {
         String pid = pidGenerator.of(o.corrNo());
         String rec = t != null && t.imageCmmnFileId() != null && !t.imageCmmnFileId().isBlank() ? t.imageCmmnFileId()
                 : t != null && t.docId() != null ? t.docId() : pid + "#" + o.imageSn();
-        StepType step = o.isSuccess() ? StepType.SEND : stepOf(o);
+        StepType step = o.isSuccess() ? StepType.STORE : stepOf(o);
         String path = null;
         String name = t == null ? null : t.fileName();
         if (o.isSuccess() && o.photoPath() != null) {
@@ -578,7 +578,7 @@ public class ImageCollectService {
                                     long sendOut, String err, long wallMs, ImageMetrics m) {
             finish(StepType.COLLECT, collectIn, collectIn - collectErr, collectErr, err, wallMs, m);
             finish(StepType.ANALYZE, analyzeIn, analyzeIn - analyzeErr, analyzeErr, err, wallMs, m);
-            finish(StepType.SEND, sendIn, sendOut, sendErr, err, wallMs, m);
+            finish(StepType.STORE, sendIn, sendOut, sendErr, err, wallMs, m);
         }
 
         private void finish(StepType s, long in, long out, long errCnt, String err, long wallMs, ImageMetrics m) {
@@ -693,7 +693,7 @@ public class ImageCollectService {
             injectIf(injectAt, ImageStage.DECRYPT);
 
             // ── 저장 ──
-            steps.open(StepType.SEND);   // T2 적재/전송 — 처음 닿을 때 연다
+            steps.open(StepType.STORE);   // T2 적재/전송 — 처음 닿을 때 연다
             step = ImageStage.SAVE;
             s = ImageMetrics.start();
             ImageFileStore.Saved saved = store.save(t, plain);

@@ -52,7 +52,7 @@ public class UnstructuredBatchService {
     static final String MSG_ORIGIN_NOT_FOUND = "선택한 배치를 찾을 수 없습니다. 목록을 새로고침해 주세요.";
     static final String MSG_NOT_UNSTRUCTURED_BATCH = "비정형 배치만 재처리할 수 있습니다.";
     static final String MSG_ORIGIN_NO_WINDOW = "선택한 배치에 수집 구간 정보가 없어 재처리할 수 없습니다.";
-    static final String MSG_BAD_STEP = "재처리 단계는 수집 · 분석 · 비식별 · 전송 중에서 선택해 주세요.";
+    static final String MSG_BAD_STEP = "재처리 단계는 수집 · 분석 · 비식별 · 전송 · 저장 중에서 선택해 주세요.";
     static final String MSG_NOT_UNSTRUCTURED = "비정형 데이터 요청만 처리할 수 있습니다.";
     static final String MSG_BAD_BODY = "요청 형식이 올바르지 않습니다. 다시 시도해 주세요.";
     static final String MSG_ALREADY_DONE = "이미 처리가 끝난 배치입니다. 목록을 새로고침해 주세요.";
@@ -262,18 +262,19 @@ public class UnstructuredBatchService {
      * (보존된 전사를 다시 비식별하고 보낸다 — STT 를 다시 돌리지 않는다).
      * 비어 있으면 처음부터 — admin 이 실패 단계를 못 찾으면(단계 기록 없이 죽은 배치) {@code stepTypeCd} 없이 보낸다.
      *
-     * @throws UserFacingRejection 비정형 4단계(COLLECT · ANALYZE · DEIDENT · SEND)가 아닌 코드
+     * @throws UserFacingRejection 비정형 단계(COLLECT · ANALYZE · DEIDENT · SEND · STORE)가 아닌 코드
      */
     public static ResumeMode resumeOf(String stepTypeCd) {
         if (stepTypeCd == null || stepTypeCd.isBlank()) {
             return ResumeMode.FULL;
         }
         StepType step = StepType.parse(stepTypeCd).orElseThrow(() -> new UserFacingRejection(MSG_BAD_STEP,
-                "재처리 거절 — 비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · DEIDENT · SEND 만 재처리할 수 있다"));
+                "재처리 거절 — 비정형에 없는 단계(C05): " + stepTypeCd + " — COLLECT · ANALYZE · DEIDENT · SEND · STORE 만 재처리할 수 있다"));
         return switch (step) {
             case COLLECT -> ResumeMode.FULL;
             case ANALYZE -> ResumeMode.FROM_ANALYZE;
-            case DEIDENT, SEND -> ResumeMode.FROM_SEND;
+            // STORE 는 이미지의 마지막 단계(저장 · 매핑) — 이미지 재처리는 단계와 상관없이 실패 · 미처리 건만 다시 돈다
+            case DEIDENT, SEND, STORE -> ResumeMode.FROM_SEND;
         };
     }
 

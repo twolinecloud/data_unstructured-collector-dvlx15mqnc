@@ -169,21 +169,22 @@ class ImageLogHistoryTest {
         assertThat(n(b, "fail_cnt")).isEqualTo(3);
 
         Map<String, Map<String, Object>> steps = t2(r.execId());
-        assertThat(steps.keySet()).containsExactlyInAnyOrder("COLLECT", "ANALYZE", "SEND");
+        // 이미지의 마지막 단계는 STORE(저장 · 매핑) — 외부 클라우드로 보내지 않는다(2026-10-16, PL 확인). SEND 는 남기지 않는다
+        assertThat(steps.keySet()).containsExactlyInAnyOrder("COLLECT", "ANALYZE", "STORE");
         assertThat(List.of(n(steps.get("COLLECT"), "in_cnt"), n(steps.get("COLLECT"), "out_cnt"), n(steps.get("COLLECT"), "err_cnt")))
                 .containsExactly(4L, 3L, 1L);
         assertThat(List.of(n(steps.get("ANALYZE"), "in_cnt"), n(steps.get("ANALYZE"), "out_cnt"), n(steps.get("ANALYZE"), "err_cnt")))
                 .containsExactly(3L, 2L, 1L);
-        assertThat(List.of(n(steps.get("SEND"), "in_cnt"), n(steps.get("SEND"), "out_cnt"), n(steps.get("SEND"), "err_cnt")))
+        assertThat(List.of(n(steps.get("STORE"), "in_cnt"), n(steps.get("STORE"), "out_cnt"), n(steps.get("STORE"), "err_cnt")))
                 .containsExactly(2L, 1L, 1L);
         assertThat(steps.values()).allMatch(s -> "PARTIAL".equals(s.get("step_sts_cd")));
         assertThat(n(steps.get("COLLECT"), "step_seq")).isEqualTo(1);
-        assertThat(n(steps.get("SEND"), "step_seq")).as("비정형 체인 4번 칸 — 이미지는 DEIDENT 칸을 건너뛴다").isEqualTo(4);
+        assertThat(n(steps.get("STORE"), "step_seq")).as("수집기가 보내는 순번(진짜 로그 컬렉터는 체인 밖이라 뒤로 다시 매긴다)").isEqualTo(4);
 
         Map<String, Map<String, Object>> t4 = t4ByPid(r.execId());
         assertThat(t4).hasSize(4);
         Map<FailureScenario, String> stepOf = Map.of(FailureScenario.COLLECT_FAIL, "COLLECT",
-                FailureScenario.ANALYZE_FAIL, "ANALYZE", FailureScenario.SEND_FAIL, "SEND");
+                FailureScenario.ANALYZE_FAIL, "ANALYZE", FailureScenario.SEND_FAIL, "STORE");
         for (String corr : corrs) {
             Map<String, Object> row = t4.get(pid.of(corr));
             assertThat(row).as("가명ID 로 남는다 — 교정번호 원문이 아니다 %s", corr).isNotNull();
@@ -191,7 +192,7 @@ class ImageLogHistoryTest {
             FailureScenario s = FailureScenario.ofKey(corr).orElse(null);
             if (s == null) {
                 assertThat(row.get("proc_sts_cd")).isEqualTo("SUCCESS");
-                assertThat(row.get("step_type_cd")).isEqualTo("SEND");
+                assertThat(row.get("step_type_cd")).isEqualTo("STORE");
                 assertThat((String) row.get("file_path")).as("저장한 사진의 폴더").contains("/image/" + corr);
                 assertThat((String) row.get("file_nm")).endsWith(".jpg");
                 assertThat(n(row, "file_size")).isPositive();

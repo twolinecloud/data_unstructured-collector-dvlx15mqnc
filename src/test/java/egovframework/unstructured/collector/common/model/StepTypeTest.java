@@ -16,15 +16,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StepTypeTest {
 
     @Test
-    @DisplayName("비정형은 4단계뿐 — COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4(로그 컬렉터 체인과 같다). 정형 · 외부 체인의 단계는 거절한다")
+    @DisplayName("비정형 단계 — 음성 COLLECT 1 · ANALYZE 2 · DEIDENT 3 · SEND 4 · 이미지 마지막 STORE(저장). 정형 체인의 CLEANSE 는 거절한다")
     void onlyFourSteps() {
-        assertThat(Arrays.stream(StepType.values()).map(Enum::name)).containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
+        assertThat(Arrays.stream(StepType.values()).map(Enum::name)).containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND", "STORE");
         assertThat(StepType.COLLECT.seq()).isEqualTo((short) 1);
         assertThat(StepType.DEIDENT.seq()).isEqualTo((short) 3);
         assertThat(StepType.SEND.seq()).isEqualTo((short) 4);
         assertThat(StepType.parse(" analyze ")).contains(StepType.ANALYZE);
         assertThat(StepType.parse("deident")).contains(StepType.DEIDENT);
-        for (String other : new String[] {"CLEANSE", "STORE"}) {
+        assertThat(StepType.parse("store")).contains(StepType.STORE);
+        assertThat(UnstructuredBatchService.resumeOf("STORE")).as("이미지 저장 단계 재처리").isEqualTo(ResumeMode.FROM_SEND);
+        for (String other : new String[] {"CLEANSE", "SAVE"}) {
             assertThat(StepType.parse(other)).as(other).isEmpty();
             assertThatThrownBy(() -> StepType.of(other)).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> UnstructuredBatchService.resumeOf(other)).isInstanceOf(IllegalArgumentException.class);
@@ -36,15 +38,15 @@ class StepTypeTest {
     }
 
     @Test
-    @DisplayName("이미지 세부 단계 → 3단계 — 수집(조회 · FILEKEY · 수신) · 정제/분석(가상 지연 · 복호화) · 적재/전송(저장 · 매핑)")
+    @DisplayName("이미지 세부 단계 → 3단계 — 수집(조회 · FILEKEY · 수신) · 정제/분석(가상 지연 · 복호화) · 저장 STORE(저장 · 매핑, 외부 전송 없음)")
     void imageStagesMapToThreeSteps() {
         assertThat(ImageStage.QUERY.stepType()).isEqualTo(StepType.COLLECT);
         assertThat(ImageStage.FILEKEY.stepType()).isEqualTo(StepType.COLLECT);
         assertThat(ImageStage.ACQUIRE.stepType()).isEqualTo(StepType.COLLECT);
         assertThat(ImageStage.VIRTUAL.stepType()).isEqualTo(StepType.ANALYZE);
         assertThat(ImageStage.DECRYPT.stepType()).isEqualTo(StepType.ANALYZE);
-        assertThat(ImageStage.SAVE.stepType()).isEqualTo(StepType.SEND);
-        assertThat(ImageStage.MAP.stepType()).isEqualTo(StepType.SEND);
+        assertThat(ImageStage.SAVE.stepType()).isEqualTo(StepType.STORE);
+        assertThat(ImageStage.MAP.stepType()).isEqualTo(StepType.STORE);
     }
 
     @Test

@@ -19,15 +19,21 @@ import java.util.Optional;
  *   <tr><td>COLLECT</td><td>대상 조회 · 브로커 추출 / 전화 연계 · 수신 · 복호화</td><td>최신 사진 조회 · FILEKEY 추출 · 브로커 수신</td></tr>
  *   <tr><td>ANALYZE</td><td>STT</td><td>복호화 · 이미지 확인(매직 넘버)</td></tr>
  *   <tr><td>DEIDENT</td><td>전사 텍스트 비식별(에이전트 커넥터)</td><td>—</td></tr>
- *   <tr><td>SEND</td><td>에이전트 커넥터 전송</td><td>저장소 저장 · Admin DB 매핑(적재)</td></tr>
+ *   <tr><td>SEND</td><td>에이전트 커넥터 전송(클라우드)</td><td>—</td></tr>
+ *   <tr><td>STORE</td><td>—</td><td>내부 저장소 저장 · Admin DB 매핑</td></tr>
  * </table>
+ *
+ * <p><b>이미지의 마지막 단계는 STORE(C05 '저장')다</b>(2026-10-16). 이미지는 외부 클라우드로 보내지 않고 내부에만 저장한다(PL 확인) —
+ * 예전엔 SEND 로 남겨 화면 · 전송 대기 목록에서 클라우드로 보낸 것처럼 보였다. STORE 는 C05 · 로그 컬렉터 {@code StepType} 에 원래 있는 코드라
+ * 따로 등록할 것이 없다(로그 컬렉터 비정형 체인 밖이라 순번은 컬렉터가 체인 뒤로 매긴다).</p>
  */
 public enum StepType {
 
     COLLECT((short) 1, "수집"),
     ANALYZE((short) 2, "정제/분석"),
     DEIDENT((short) 3, "비식별"),
-    SEND((short) 4, "적재/전송");
+    SEND((short) 4, "적재/전송"),
+    STORE((short) 4, "저장");
 
     private final short seq;
     private final String label;
@@ -61,10 +67,10 @@ public enum StepType {
     /**
      * C05 코드 → 단계.
      *
-     * @throws IllegalArgumentException 비정형 4단계(COLLECT · ANALYZE · DEIDENT · SEND)가 아닌 코드
+     * @throws IllegalArgumentException 비정형 단계(COLLECT · ANALYZE · DEIDENT · SEND · STORE)가 아닌 코드
      */
     public static StepType of(String code) {
         return parse(code).orElseThrow(() -> new IllegalArgumentException(
-                "비정형 단계(C05)는 COLLECT · ANALYZE · DEIDENT · SEND 뿐이다: " + code));
+                "비정형 단계(C05)는 COLLECT · ANALYZE · DEIDENT · SEND · STORE 뿐이다: " + code));
     }
 }

@@ -16,8 +16,8 @@ public enum ImageStage {
     ACQUIRE("파일 수신(브로커)", StepType.COLLECT),
     VIRTUAL("가상 처리 지연", StepType.ANALYZE),
     DECRYPT("복호화", StepType.ANALYZE),
-    SAVE("저장", StepType.SEND),
-    MAP("DB 매핑", StepType.SEND);
+    SAVE("저장", StepType.STORE),
+    MAP("DB 매핑", StepType.STORE);
 
     private final String label;
     private final StepType stepType;

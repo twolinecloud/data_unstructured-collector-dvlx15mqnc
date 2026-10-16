@@ -551,7 +551,20 @@ public class UnstructuredBatchService {
             log.warn("[Unstructured] {} 는 수집 구간이 없어 건너뛴다", id);
             return "건너뜀(수집 구간 없음)";
         }
-        List<JsonNode> rows = failedRows != null ? failedRows : failedRows(id);
+        JsonNode t4 = logCollector.fileProcs(id, T4_LIMIT);
+        if (t4 == null || !t4.path("rows").isArray()) {
+            // 자기 건을 모르면 구간 전체를 훑게 된다 — 다른 배치 건을 가져갈 수 있어 다시 돌지 않는다(Fail-Safe)
+            log.warn("[Unstructured] {} 의 T4 를 읽지 못해 다시 돌지 않는다", id);
+            return "T4 확인 실패 — 다시 돌지 않음";
+        }
+        List<JsonNode> rows = failedRows != null ? failedRows : failedOf(t4);
+        java.util.Set<String> own = new java.util.HashSet<>();
+        t4.path("rows").forEach(n -> own.add(n.path("rec_file_id").asText("")));
+        own.remove("");
+        if (t4.path("rows").size() >= T4_LIMIT) {
+            log.warn("[Unstructured] {} 의 T4 가 {}건 이상 — 자기 건으로 좁히지 않고 구간 전체를 돈다", id, T4_LIMIT);
+            own.clear();
+        }
         if (!logCollector.reopenBatch(id, triggerBy, from, to)) {
             log.warn("[Unstructured] {} 를 다시 열지 못했다(이미 처리됐거나 로그 컬렉터 오류)", id);
             return "다시 열기 실패";
@@ -560,7 +573,7 @@ public class UnstructuredBatchService {
             java.util.Set<String> keys = new java.util.HashSet<>();
             rows.forEach(f -> keys.add(f.path("rec_file_id").asText("")));
             VoiceBatchResult v = voice.run(BatchWindow.manual(from, to), null, triggerBy, testRun, mode, id,
-                    voice.defaultWorkers(), null, new VoiceCollectService.Reopened(id, keys));
+                    voice.defaultWorkers(), null, new VoiceCollectService.Reopened(id, keys, own));
             return "음성 %s 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
                     mode, v.targetCnt(), v.successCnt(), v.failCnt(), v.skippedCnt(), rows.size());
         } catch (RuntimeException e) {
@@ -572,9 +585,15 @@ public class UnstructuredBatchService {
         }
     }
 
+    /** 다시 연 배치의 T4 를 읽는 상한 — 이 이상이면 자기 건으로 좁히지 않는다(다 못 읽었을 수 있다). */
+    static final int T4_LIMIT = 5000;
+
     /** 원배치 T4 의 실패 행 — 다시 돈 뒤 '해결됨' 을 가리는 근거. 못 읽으면 빈 목록(이번에 처리한 건만 덮어쓴다). */
     private List<JsonNode> failedRows(String execId) {
-        JsonNode r = logCollector.fileProcs(execId, 5000);
+        return failedOf(logCollector.fileProcs(execId, T4_LIMIT));
+    }
+
+    private static List<JsonNode> failedOf(JsonNode r) {
         List<JsonNode> out = new ArrayList<>();
         if (r != null && r.path("rows").isArray()) {
             r.path("rows").forEach(n -> {

@@ -204,6 +204,30 @@ class VoiceCollectE2ETest {
     }
 
     @Test
+    @DisplayName("다시 연 배치는 자기 T4 건만 처리한다 — 구간 안의 다른 배치 건은 손대지 않는다(2026-10-16 E2E 결함) · 자기 건이 없으면 구간 전체")
+    void reopenedProcessesOnlyOwnKeys() {
+        List<String> keys = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST", true).outcomes().stream()
+                .map(o -> o.target().idempotencyKey()).toList();
+        assertThat(keys).hasSize(7);
+        idempotency.clearAll();
+        java.util.Set<String> own = java.util.Set.copyOf(keys.subList(0, 3));
+
+        VoiceBatchResult reopened = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST", true, ResumeMode.FULL, "TST-OWN",
+                Workers.sequential(), null, new VoiceCollectService.Reopened("TST-OWN", own, own));
+
+        assertThat(reopened.outcomes()).extracting(o -> o.target().idempotencyKey()).containsExactlyInAnyOrderElementsOf(own);
+        assertThat(reopened.successCnt()).isEqualTo(3);
+        VoiceBatchResult next = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST", true);
+        assertThat(next.successCnt()).as("다른 배치 몫 4건은 손대지 않아 다음 실행이 처리한다").isEqualTo(4);
+        assertThat(next.skippedCnt()).as("다시 연 배치가 처리한 3건만 표식").isEqualTo(3);
+
+        idempotency.clearAll();
+        VoiceBatchResult whole = service.run(wideWindow(), List.of(VoiceKind.MEET), "TEST", true, ResumeMode.FULL, "TST-ALL",
+                Workers.sequential(), null, new VoiceCollectService.Reopened("TST-ALL", java.util.Set.of()));
+        assertThat(whole.targetCnt()).as("자기 건 목록이 없으면 예전처럼 구간 전체").isEqualTo(7);
+    }
+
+    @Test
     @DisplayName("SKIPPED 건은 T4 집계에서 빠진다 — 정합성 대사가 어긋나지 않게")
     void skippedNotCountedAsSuccess() {
         service.run(wideWindow(), null, "TEST", true);

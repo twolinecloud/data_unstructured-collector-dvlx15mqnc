@@ -482,6 +482,16 @@
   .zr-log { border:1px solid #dee2e6; border-radius:.4rem; padding:.45rem .55rem; max-height:330px; overflow:auto; background:#fff; }
   .zr-line { padding:.2rem 0; border-bottom:1px dashed #eceef0; font-size:.8rem; } .zr-line:last-child { border-bottom:0; }
   .zr-led { border:1px solid #dee2e6; border-radius:.4rem; padding:.45rem .55rem; background:#fff; font-size:.8rem; }
+  /* 8번 탭 — 클라우드 전송 시뮬레이션 · 상태 칩은 관리 화면 '클라우드 전송 제어' 상태 칩과 같은 결 */
+  .cs-chip { display:inline-block; padding:.05rem .45rem; border-radius:1rem; font-weight:600; font-size:.72rem; white-space:nowrap; }
+  .cs-WAIT { background:#e7f1ff; color:#0a58ca; } .cs-RUNNING { background:#e0f7fa; color:#055160; }
+  .cs-PARTIAL { background:#fff3cd; color:#664d03; } .cs-FAIL { background:#f8d7da; color:#842029; }
+  .cs-CANCELED { background:#e9ecef; color:#495057; } .cs-SUCCESS { background:#d1e7dd; color:#0f5132; } .cs-x { background:#f1f3f5; color:#6c757d; }
+  .cs-how { font-size:.7rem; padding:0 .35rem; border-radius:.25rem; border:1px solid #ced4da; color:#495057; white-space:nowrap; }
+  .cs-how.re { border-color:#f1aeb5; color:#842029; background:#fff5f5; }
+  .cs-table td, .cs-table th { font-size:.8rem; vertical-align:middle; }
+  .cs-chain { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; font-size:.78rem; }
+  .cs-chain .arrow { color:#adb5bd; }
 </style>
 </head>
 <body>
@@ -574,6 +584,7 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-ramp">5. 임계 성능 테스트</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-image">6. 수용자 이미지 수집 검증</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-transfer">7. 에이전트 커넥터 전송 시뮬레이션</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-cloud">8. 클라우드 전송 시뮬레이션</button></li>
   </ul>
   <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
   <div class="rm-bar" id="rm-bar">
@@ -1266,6 +1277,58 @@
   </div>
   </div>
 
+  <div class="tabp" id="tab-cloud">
+  <!-- 8번 탭 — 클라우드 전송 시뮬레이션(2026-10-17). 7번이 수집기 → 에이전트 커넥터 구간(수신 양식 · 용량 · 헤더 · 전송 재처리)이라면
+       여기는 커넥터 → 클라우드 구간 — 관리 화면 '파이프라인 운영 > 클라우드 전송 제어' 와 1:1 이다. 상태별 배치를 만들고, 연속 전송(체인)을 돌린다. -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>① 상태별 배치 만들기 <span class="hint fw-normal">— 관리 화면 '클라우드 전송 제어' 대기 목록의 다섯 상태 · 대시보드용(DMY 더미 · 실제 배치 · EXEC_ID UNS)</span></strong>
+    </div>
+    <div class="card-body py-2">
+      <table class="table table-sm mb-2 cs-table">
+        <thead class="table-light"><tr><th style="width:7rem">상태(화면)</th><th style="width:8rem">대기 사유(화면)</th><th>만드는 법</th><th style="width:7.5rem">개수 <span class="hint">(0 ~ 10)</span></th></tr></thead>
+        <tbody id="cs-kinds"></tbody>
+      </table>
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <label class="small"><input type="checkbox" class="form-check-input me-1" id="cs-cleanup" checked>이전 시뮬레이션 묶음 먼저 정리</label>
+        <span class="hint" id="cs-total"></span>
+        <button class="btn btn-sm btn-primary ms-auto" type="button" id="cs-make">상태별 배치 만들기</button>
+      </div>
+      <div class="zt-note mt-2">💡 <b>실제 흐름</b>(대기 · 실패)은 배치를 그냥 돌려 생긴 그대로입니다. <b>화면 재현</b>(부분 성공 · 전송중 · 취소)은 비정형에서 저절로 남지 않아
+        (수동 모드는 보류가 이기고 · 전송중은 순간이고 · 음성 전송은 중지할 수 없음) 보류된 실제 배치의 <b>전송 단계만</b> 커넥터 관리자 트리거와 같은 순서(전송 시작 → 마감)로 바꿉니다.
+        보류 장부는 그대로라 [클라우드 전송]이 실제로 보냅니다. 실행 순서는 상태를 돌아가며 섞고(전송중 → 취소 → 부분 성공 → 실패 → 대기 …) 마지막(목록 맨 위)은 대기입니다.</div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>② 이번 묶음 — 지금 상태 <span class="hint fw-normal">— 로그 컬렉터 T1 · T2 SEND · 에이전트 커넥터 보류 장부</span></strong>
+      <span class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-primary" type="button" id="cs-refresh">새로고침</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" id="cs-unstick" title="재현한 전송중(RUNNING)을 대기(WAIT)로 되돌립니다">전송중 풀기</button>
+        <button class="btn btn-sm btn-outline-danger" type="button" id="cs-clean" title="보류분은 먼저 보내 마감한 뒤 이 묶음의 이력을 지웁니다(더미 안전 조건)">묶음 정리</button>
+      </span>
+    </div>
+    <div class="card-body py-2" id="cs-batches"><div class="hint">아직 만든 묶음이 없습니다 — ① 에서 만드십시오.</div></div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white py-2">
+      <strong>③ 연속 전송 — 클라우드 전송 체인 <span class="hint fw-normal">— 누른 배치와 그 이전의 미완료 배치(대기 포함 · 전송중 제외)를 오래된 순으로 · admin-api 시험 브랜치가 부르는 수집기 API 와 같은 경로</span></strong>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-2 align-items-end">
+        <div><label class="hint d-block" for="cs-target">누를 배치 <span class="hint">(관리 화면에서 [클라우드 전송]을 누르는 행)</span></label>
+          <select class="form-select form-select-sm font-monospace" id="cs-target" style="min-width:20rem"><option value="">— 묶음을 먼저 만드십시오 —</option></select></div>
+        <button class="btn btn-sm btn-success" type="button" id="cs-chain">연속 전송 실행</button>
+      </div>
+      <div class="zt-note mt-2">관리 화면 [클라우드 전송]은 admin-api 반영 전까지 <b>그 배치 하나만</b> 커넥터로 보냅니다. 이 버튼은 반영 후의 동작(수집기 체인)을 지금 개발계에서 봅니다.
+        보류분은 커넥터가 보내 <b>성공(목록에서 빠짐)</b>, 장부가 없는 전송 실패는 같은 실행 ID 로 전송부터 다시 돌아 — 전송 방식이 수동이라 — 다시 <b>대기</b>가 됩니다(새 전사는 다시 승인).</div>
+      <div id="cs-chain-res" class="mt-2"></div>
+    </div>
+  </div>
+  </div>
+
   <div class="tabp" id="tab-image">
   <!-- ①·② 를 한 장으로 캡처하는 영역 — [📸 전체 리포트 저장] -->
   <div id="im-capture">
@@ -1687,6 +1750,7 @@ function showTab(id) {
   if (id === 'tab-perf' || id === 'tab-ramp') pfOnShow();
   if (id === 'tab-image') imOnShow();
   if (id === 'tab-transfer') ztOnShow();
+  if (id === 'tab-cloud') csOnShow();
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('#sim-tabs [data-tab]');
@@ -3631,6 +3695,225 @@ $('btn-e2e').onclick = async () => {
       <div class="pop-note">관리 화면 <b>배치 수행 이력</b> 맨 위 → <b>방금(PARTIAL)</b> 행의 [긴급 재처리]. 진행은 수집기 로그 · <code>GET /internal/batch/status</code>.</div>`);
   } finally {
     b.disabled = false;
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  8번 탭 — 클라우드 전송 시뮬레이션(2026-10-17)
+//  관리 화면 '클라우드 전송 제어' 대기 목록의 다섯 상태를 상태별 개수만큼 만들고(① · 수집기 POST /api/v1/voice/simulator/cloud-send-states),
+//  지금 상태를 보고(②), 연속 전송(③ · 클라우드 전송 체인 — /api/v1/mock/admin/batch/cloud-send = /internal/batch/cloud-send)을 돌린다.
+// ═══════════════════════════════════════════════════════════════════════
+const CS_KINDS = [
+  { key:'WAIT',     label:'대기',      reason:'수동 확인',      how:'실제 흐름', note:'정상 2건 → 커넥터가 수동 확인으로 보류' },
+  { key:'FAIL',     label:'실패',      reason:'전송 실패',      how:'실제 흐름', note:'2건 모두 커넥터에 닿기 전 실패(전송 실패 표식) — 보류 장부 없음' },
+  { key:'PARTIAL',  label:'부분 성공', reason:'전송 부분 성공', how:'화면 재현', note:'3건 중 1건 전송 실패 · 2건 보류 → 전송 단계를 부분 성공으로' },
+  { key:'RUNNING',  label:'전송중',    reason:'-',              how:'화면 재현', note:'정상 2건 보류 → 전송 시작만(실제로 보내지 않음 — [전송중 풀기]로 되돌림)' },
+  { key:'CANCELED', label:'취소',      reason:'전송 중지',      how:'화면 재현', note:'정상 2건 보류 → 시작 후 중지로 마감(보류분 유지 — 다시 전송하면 이어서)' },
+];
+const CS_DEFAULT = 2, CS_MAX = 10, CS_TOTAL_MAX = 30;
+const CS_LABEL = Object.assign(Object.fromEntries(CS_KINDS.map(k => [k.key, k.label])), { SUCCESS:'성공 · 목록에서 빠짐' });
+let CS_BUILT = false;
+
+function csChip(sts) { return `<span class="cs-chip cs-${esc(CS_LABEL[sts] ? sts : 'x')}">${esc(CS_LABEL[sts] || sts || '—')}</span>`; }
+function csHow(how) { return `<span class="cs-how ${how === '화면 재현' ? 're' : ''}">${esc(how)}</span>`; }
+
+function csBuild() {
+  if (CS_BUILT) return;
+  CS_BUILT = true;
+  $('cs-kinds').innerHTML = CS_KINDS.map(k => `<tr>
+      <td>${csChip(k.key)}</td><td>${esc(k.reason)}</td>
+      <td>${csHow(k.how)} <span class="small">${esc(k.note)}</span></td>
+      <td><input type="number" class="form-control form-control-sm dm-num" id="cs-n-${k.key}" value="${CS_DEFAULT}" min="0" max="${CS_MAX}" step="1"></td>
+    </tr>`).join('');
+  CS_KINDS.forEach(k => { $('cs-n-' + k.key).oninput = csTotal; });
+  csTotal();
+}
+function csCounts() {
+  const out = {};
+  CS_KINDS.forEach(k => { out[k.key] = Math.floor(Number($('cs-n-' + k.key).value || 0)); });
+  return out;
+}
+/** 개수 검사 — 맞으면 null, 아니면 안내. */
+function csInvalid(c) {
+  for (const k of CS_KINDS) {
+    const n = c[k.key];
+    if (!(n >= 0 && n <= CS_MAX)) return `${k.label} 개수는 0 ~ ${CS_MAX} 사이의 정수로 넣으십시오.`;
+  }
+  const total = Object.values(c).reduce((a, b) => a + b, 0);
+  if (total < 1 || total > CS_TOTAL_MAX) return `모두 합쳐 1 ~ ${CS_TOTAL_MAX}건이어야 합니다(지금 ${total}건).`;
+  return null;
+}
+function csTotal() {
+  const c = csCounts();
+  const total = Object.values(c).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+  const bad = csInvalid(c);
+  $('cs-total').innerHTML = bad ? `<span class="text-danger">${esc(bad)}</span>` : `합계 <b>${total}</b>건 · 실제 배치 ${total}건을 차례로 돕니다`;
+  $('cs-make').disabled = !!bad;
+}
+
+/** ② 표 — 순서 · 배치 · 요청 · 지금 전송 단계 · T1 · 보류 장부. */
+function csRender(rows) {
+  if (!rows || !rows.length) {
+    $('cs-batches').innerHTML = '<div class="hint">아직 만든 묶음이 없습니다 — ① 에서 만드십시오.</div>';
+    return;
+  }
+  const body = rows.map((r, i) => {
+    const same = r.send === r.state;
+    const after = r.send === 'SUCCESS' || r.purged ? '전송 끝(목록에서 빠짐)'
+        : r.exists === false ? '이력 없음(지워짐)'
+        : same ? '' : '<span class="text-warning-emphasis">요청과 다름</span>';
+    return `<tr>
+      <td class="text-secondary">${r.order ?? i + 1}</td>
+      <td class="font-monospace">${esc(r.execId)}</td>
+      <td>${csChip(r.state)}</td>
+      <td>${csChip(r.send)}</td>
+      <td>${vfBadge(r.t1)}</td>
+      <td>${r.held ? '<span class="cs-how">보류 중</span>' : '<span class="hint">없음</span>'}</td>
+      <td class="small">${after}${r.problem ? ' · <span class="text-danger">' + esc(r.problem) + '</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+  $('cs-batches').innerHTML = `<table class="table table-sm mb-1 cs-table">
+      <thead class="table-light"><tr><th>#</th><th>배치 ID</th><th>요청 상태</th><th>지금 전송 단계</th><th>배치(T1)</th><th>커넥터 보류</th><th>비고</th></tr></thead>
+      <tbody>${body}</tbody></table>
+    <div class="hint">관리 화면 '클라우드 전송 제어' 에서 기간 '오늘' · 상태 '전체'로 조회하면 이 배치들이 마지막 업데이트일시 순으로 보입니다(성공한 배치는 목록에서 빠짐).</div>`;
+}
+
+/** ③ 누를 배치 — 이번 묶음 중 미완료(대기 · 실패 · 부분 성공 · 취소). 전송중은 누를 수 없다(409). 기본은 가장 최근. */
+function csFillTarget(rows, pick) {
+  const sel = $('cs-target');
+  const ok = (rows || []).filter(r => ['WAIT', 'FAIL', 'PARTIAL', 'CANCELED'].includes(r.send)).reverse();
+  sel.innerHTML = ok.length
+    ? ok.map(r => `<option value="${esc(r.execId)}" ${r.execId === pick ? 'selected' : ''}>${esc(r.execId)} · ${esc(CS_LABEL[r.send] || r.send)}</option>`).join('')
+    : '<option value="">— 보낼 배치가 없습니다 —</option>';
+  $('cs-chain').disabled = !ok.length;
+}
+
+async function csRefresh(quiet) {
+  const d = await call('GET', '/api/v1/voice/simulator/cloud-send-states', '클라우드 전송 시뮬레이션 — 이번 묶음 상태', quiet);
+  if (!d) return null;
+  csRender(d.batches || []);
+  csFillTarget(d.batches || [], d.pick);
+  return d;
+}
+async function csOnShow() {
+  csBuild();
+  await csRefresh(true);
+}
+
+$('cs-make').onclick = async () => {
+  const counts = csCounts();
+  const bad = csInvalid(counts);
+  if (bad) { showPopup('개수를 확인하십시오', `<div class="pop-lead">${esc(bad)}</div>`); return; }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const cleanup = $('cs-cleanup').checked;
+  const ok = await confirmPopup('상태별 배치 만들기', `<div class="pop-lead">클라우드 전송 대기 목록용 배치 <b>${total}건</b>을 만듭니다.</div>
+    <ul class="pop-list">
+      ${CS_KINDS.filter(k => counts[k.key] > 0).map(k => `<li>${csChip(k.key)} <span class="n">${counts[k.key]}</span>건 ${csHow(k.how)}<div class="sub">${esc(k.note)}</div></li>`).join('')}
+      ${cleanup ? '<li><b>먼저 정리</b> — 이전 시뮬레이션 묶음(전송중은 대기로 되돌리고 · 보류분은 먼저 보내 마감한 뒤 이력 삭제)</li>' : ''}
+    </ul>
+    <div class="pop-note">실제 배치(test=false · EXEC_ID UNS)로 차례로 돕니다 — 건당 1초 안팎. 그동안 다른 배치는 돌릴 수 없습니다.</div>`, '만들기', '취소');
+  if (!ok) return;
+  const b = $('cs-make');
+  b.disabled = true;
+  b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>만드는 중…';
+  try {
+    const info = await callFull('POST', '/api/v1/voice/simulator/cloud-send-states', `클라우드 전송 시뮬레이션 — 상태별 배치 ${total}건 만들기`,
+      { json: { counts, cleanup } });
+    if (!info.ok) {
+      showPopup('배치를 만들지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+      return;
+    }
+    const d = info.body || {};
+    const rows = d.batches || [];
+    rows.forEach(x => log(`  └ ${x.order}. ${x.label} ${x.execId} · ${x.how} · T1 ${x.t1} · 전송 ${x.baseSend ?? '-'} → ${x.send ?? '-'}${x.held ? ' · 보류' : ''}${x.problem ? ' · ' + x.problem : ''}`,
+        x.asRequested ? 'ok' : 'wr'));
+    const c = d.cleanup || {};
+    const del = Array.isArray(c.deleted) ? c.deleted : [];
+    if (cleanup) log(`  └ 정리 — 이전 묶음 ${(c.previous || []).length}건 · 먼저 보냄 ${(c.releasedFirst || []).length}건 · 지움 ${del.length}건`, 'ok');
+    csRender(rows);
+    csFillTarget(rows, d.pick);
+    const byState = CS_KINDS.map(k => {
+      const mine = rows.filter(x => x.state === k.key);
+      if (!mine.length) return '';
+      const okN = mine.filter(x => x.asRequested).length;
+      return `<li>${csChip(k.key)} <span class="n">${okN}</span>/${mine.length}건 <div class="sub">${esc(mine.map(x => x.execId).join(', '))}</div></li>`;
+    }).join('');
+    showPopup('상태별 배치를 만들었습니다', `<div class="pop-lead">배치 ${rows.length}건 — 요청대로 된 것 ${rows.filter(x => x.asRequested).length}건.</div>
+      <ul class="pop-list">${byState}
+        ${cleanup ? `<li>정리: 지운 이전 묶음 <span class="n">${del.length}</span>건</li>` : ''}</ul>
+      ${d.warning ? `<div class="pop-note" style="border-color:#f1aeb5;background:#fff5f5">${esc(d.warning)}</div>` : ''}
+      <div class="pop-note">관리 화면 <b>클라우드 전송 제어</b>(기간 오늘 · 상태 전체) 에서 확인 → 아래 ③ [연속 전송 실행] 으로 체인을 봅니다.</div>`);
+  } finally {
+    b.innerHTML = '상태별 배치 만들기';
+    csTotal();
+  }
+};
+
+$('cs-refresh').onclick = () => csRefresh(false);
+
+$('cs-unstick').onclick = async () => {
+  const d = await call('POST', '/api/v1/voice/simulator/cloud-send-states/unstick', '전송중 풀기 — 재현한 전송중을 대기로');
+  if (!d) return;
+  const u = d.unstuck || [];
+  log(u.length ? `  └ ${u.map(x => x.execId + ' ' + x.result).join(' · ')}` : '  └ 이번 묶음에 전송중인 배치가 없습니다', 'ok');
+  await csRefresh(true);
+};
+
+$('cs-clean').onclick = async () => {
+  const ok = await confirmPopup('이번 묶음 정리', `<div class="pop-lead">이번 시뮬레이션 묶음을 정리합니다.</div>
+    <ul class="pop-list"><li>전송중(재현)은 대기로 되돌립니다</li><li>커넥터에 보류된 건은 <b>먼저 보내 마감</b>합니다(못 보내면 그 배치는 남깁니다)</li>
+      <li>로그 컬렉터가 안전 조건(비정형 · 실행 중 아님 · T4 전부 더미 키)을 다시 걸어 T1 · T2 · T4 · T5 를 지웁니다</li></ul>`, '정리', '취소');
+  if (!ok) return;
+  const d = await call('POST', '/api/v1/voice/simulator/cloud-send-states/cleanup', '클라우드 전송 시뮬레이션 — 묶음 정리');
+  if (!d) return;
+  const del = Array.isArray(d.deleted) ? d.deleted : [];
+  const skip = Array.isArray(d.skipped) ? d.skipped : [];
+  showPopup('묶음을 정리했습니다', `<ul class="pop-list"><li>먼저 보냄 <span class="n">${(d.releasedFirst || []).length}</span>건</li>
+    <li>지움 <span class="n">${del.length}</span>건<div class="sub">${esc(del.join(', ') || '-')}</div></li>
+    ${skip.length ? `<li>남김 ${skip.length}건<div class="sub">${esc(skip.map(x => x.execId + ' ' + x.reason).join(' / '))}</div></li>` : ''}</ul>`);
+  await csRefresh(true);
+};
+
+$('cs-chain').onclick = async () => {
+  const id = $('cs-target').value;
+  if (!id) return;
+  // PL 협의(10-16) — 하위 대기 건까지 보내므로 먼저 확인받는다(관리 화면 팝업과 같은 문구)
+  const ok = await confirmPopup('연속 전송 — 클라우드 전송', `<div class="pop-lead"><code>${esc(id)}</code> 를 클라우드로 전송합니다.</div>
+    <ul class="pop-list"><li>이 배치 <b>이전</b>의 전송 미완료 배치(대기 · 실패 · 부분 성공 · 취소)를 <b>오래된 순</b>으로 먼저 보내고 이 배치를 마지막에 보냅니다</li>
+      <li>전송중인 배치는 건너뜁니다</li></ul>
+    <div class="pop-note"><b>하위 대기 건을 모두 확인했습니까?</b></div>`, '클라우드 전송', '취소');
+  if (!ok) return;
+  const b = $('cs-chain');
+  b.disabled = true;
+  b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>보내는 중…';
+  try {
+    const info = await callFull('POST', '/api/v1/mock/admin/batch/cloud-send', `연속 전송 — ${id} (클라우드 전송 체인)`,
+      { json: { execId: id, dataTypeCd: 'UNSTRUCTURED', triggerBy: 'simulator' } });
+    if (!info.ok) {
+      showPopup('전송을 시작하지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+      return;
+    }
+    const acc = info.body || {};
+    const chain = acc.chain || [id];
+    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>체인 ${chain.length}건(오래된 순)</b> ${chain.map(x => `<code>${esc(x)}</code>`).join('<span class="arrow">→</span>')}</div>
+      <div class="hint mt-1">접수(202) · handle ${esc(acc.handle || '')} — 진행 중…</div>`;
+    log(`  └ 접수 — 체인 ${chain.length}건: ${chain.join(' → ')}`, 'ok');
+    let job = null;
+    for (let i = 0; i < 180; i++) {
+      await sleep(1000);
+      const st = await call('GET', '/api/v1/mock/admin/batch/status?execId=' + encodeURIComponent(acc.handle || id), '', true);
+      job = st?.job;
+      if (job && job.status && job.status !== 'RUNNING') break;
+    }
+    const lines = String(job?.result || '').replace(/^[^—]*—\s*/, '').split(' / ').filter(Boolean);
+    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>체인 ${chain.length}건(오래된 순)</b> ${chain.map(x => `<code>${esc(x)}</code>`).join('<span class="arrow">→</span>')}</div>
+      <div class="mt-1 small"><b>${esc(job?.status || '?')}</b> · ${job?.elapsedMs ?? '?'}ms</div>
+      <ol class="small mb-0 mt-1">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ol>`;
+    lines.forEach(l => log(`  └ ${l}`, /실패|못/.test(l) ? 'wr' : 'ok'));
+    await csRefresh(true);
+  } finally {
+    b.innerHTML = '연속 전송 실행';
+    b.disabled = !$('cs-target').value;
   }
 };
 

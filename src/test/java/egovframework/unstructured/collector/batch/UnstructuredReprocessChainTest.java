@@ -149,6 +149,23 @@ class UnstructuredReprocessChainTest {
     }
 
     @Test
+    @DisplayName("자기 건의 원본이 없으면 다시 열지 않는다 — 열어 봤자 못 하면서 T1 실행일시만 덮는다")
+    void noReopenWhenSourceGone() {
+        // 2026-10-16 개발계: 10-03 · 10-05 옛 더미 7건이 이랬다. 원본(DMY-…)이 보존 기간을 넘겨 지워져
+        //   구간 조회 27건 중 자기 건이 0건이었는데, 다시 열기가 먼저라 T1 의 실행일시 · 완료일시 ·
+        //   TRIGGER_BY 가 지금 값으로 덮였다. 화면에는 '방금 0초 실행' 인데 실패 건수는 그대로 —
+        //   [긴급 재처리]를 눌러도 아무 일도 안 일어나는 것처럼 보였다.
+        when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS17", 2)));
+        when(logc.fileProcs(anyString(), anyInt())).thenAnswer(inv -> t4("K-" + inv.getArgument(0)));
+        when(voice.noReopenTargets(any(), any(), anyBoolean())).thenReturn(true);
+
+        String sum = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
+
+        assertThat(sum).contains("건너뜀(원본 없음 — 재처리로 해소 불가");
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("중간 배치가 실패해도 다음 배치로 계속 — 실패한 배치만 FAIL 로 닫는다 · 다시 열기 실패는 건너뛴다")
     void continuesAfterFailure() {
         when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));

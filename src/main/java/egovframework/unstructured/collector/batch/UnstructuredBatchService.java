@@ -565,6 +565,15 @@ public class UnstructuredBatchService {
             log.warn("[Unstructured] {} 의 T4 가 {}건 이상 — 자기 건으로 좁히지 않고 구간 전체를 돈다", id, T4_LIMIT);
             own.clear();
         }
+        // 다시 열기 전에 — 할 수 있는 일이 있는지 먼저 본다.
+        //   원본이 지워진 배치는 다시 열어도 자기 건이 하나도 안 잡혀 아무 일도 못 한다. 그런데 다시 열기가
+        //   T1 의 실행일시 · 완료일시 · TRIGGER_BY 를 이미 덮은 뒤라, 화면에는 '방금 0초 실행' 으로 보이면서
+        //   실패 건수는 그대로다 — 눌러도 안 되는 것처럼 보이고, 원래 언제 돌았는지도 잃는다.
+        if (voice.noReopenTargets(BatchWindow.manual(from, to), own, testRun)) {
+            log.warn("[Unstructured] {} 는 자기 건의 원본이 남아 있지 않다 — 다시 열지 않는다(실패 {}건은 재처리로 해소 불가)",
+                    id, rows.size());
+            return "건너뜀(원본 없음 — 재처리로 해소 불가 · 실패 %d건)".formatted(rows.size());
+        }
         if (!logCollector.reopenBatch(id, triggerBy, from, to)) {
             log.warn("[Unstructured] {} 를 다시 열지 못했다(이미 처리됐거나 로그 컬렉터 오류)", id);
             return "다시 열기 실패";

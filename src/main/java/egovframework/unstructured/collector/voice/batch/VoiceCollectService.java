@@ -810,6 +810,31 @@ public class VoiceCollectService {
     }
 
     /**
+     * 다시 열기 <b>전에</b> — 이 배치가 실제로 다시 돌 수 있는 건이 몇 건인지 센다(원본 조회만 · 아무것도 바꾸지 않는다).
+     *
+     * <p>왜 미리 세나 — 원본이 지워진 배치(보존 기간이 지나 사라진 더미 등)를 다시 열면 구간 조회에서 자기 건이
+     * 하나도 안 잡혀 <b>아무 일도 하지 않는다.</b> 그런데 다시 열기는 이미 T1 의 실행일시 · 완료일시 ·
+     * TRIGGER_BY 를 지금 값으로 덮은 뒤다. 그러면 '배치 수행 이력' 화면에는 방금 0초 동안 실행한 것처럼 보이면서
+     * 실패 건수는 그대로라, [긴급 재처리]를 눌러도 아무 일도 안 일어나는 것처럼 보인다
+     * (2026-10-16 개발계에서 10-03 · 10-05 옛 더미 7건이 그랬다). 할 일이 없으면 열지 않는 편이 맞다.</p>
+     *
+     * <p><b>확실할 때만 {@code true}</b> 다. 좁힐 기준이 없으면(= {@code ownKeys} 가 빔) 모른다는 뜻이라
+     * {@code false} 를 준다 — 모를 때는 열고 도는 쪽이 안전하다. 이름과 반환을 이렇게 잡은 이유가 있다:
+     * "몇 건인가" 로 두면 값을 모르는 자리(모의 객체의 기본값 0 등)가 곧 '건너뜀' 이 되어, 아무 말 없이
+     * 재처리를 통째로 멈출 수 있다.</p>
+     *
+     * @param ownKeys 이 배치 몫(T4 의 REC_FILE_ID). 비면 판단하지 않는다
+     * @return 자기 건이 <b>하나도 없다고 확인</b>했을 때만 {@code true}
+     */
+    public boolean noReopenTargets(BatchWindow window, java.util.Set<String> ownKeys, boolean testRun) {
+        if (ownKeys == null || ownKeys.isEmpty()) {
+            return false;
+        }
+        List<VoiceTarget> found = scopeForRun(findTargets(window, List.of(VoiceKind.MEET, VoiceKind.PHONE), true), testRun);
+        return found.stream().noneMatch(t -> ownKeys.contains(t.idempotencyKey()));
+    }
+
+    /**
      * 위와 같되, 실행 종류에 맞춰 센다 — 시험 실행이면 대시보드 더미({@code DMY-…})를, 실제 실행이면 시뮬레이터 데이터
      * ({@code SIM-…})를 뺀다. 그 실행이 실제로 집는 것과 같게({@link #scopeForRun}).
      */

@@ -57,9 +57,17 @@ public class UnstructuredBatchService {
     static final String MSG_BAD_BODY = "요청 형식이 올바르지 않습니다. 다시 시도해 주세요.";
     static final String MSG_ALREADY_DONE = "이미 처리가 끝난 배치입니다. 목록을 새로고침해 주세요.";
     static final String MSG_CHAIN_UNAVAILABLE = "재처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    static final String MSG_ON_HOLD = "수동 확인 대기 중인 배치입니다. 클라우드 전송에서 처리해 주세요.";
+    static final String MSG_BUSY = "지금 처리 중인 배치입니다. 잠시 후 다시 시도해 주세요.";
 
     /** 긴급 재처리로 다시 열 수 있는 원배치 상태 — 로그 컬렉터 reopen 이 받는 상태와 같다. */
     static final java.util.Set<String> REOPENABLE_STS = java.util.Set.of("FAIL", "PARTIAL", "CANCELED");
+
+    /**
+     * 자동 순차 실행(재처리 · 클라우드 전송 체인)에 넣지 않는 전송 단계 상태 — WAIT 는 법적 수동 검수 대기, RUNNING 은 지금 보내는 중
+     * ({@link #notAutoReason}).
+     */
+    static final java.util.Set<String> NOT_AUTO_SEND_STS = java.util.Set.of("WAIT", "RUNNING");
 
     /**
      * 워터마크 충돌 안내 — 최근 수집 시점 이후를 고르거나, 과거 구간은 긴급 재처리로.
@@ -218,9 +226,22 @@ public class UnstructuredBatchService {
                     "재처리 거절 — 비정형 배치가 아니다: execId=" + execId + " data_type_cd=" + type);
         }
         String sts = b.path("exec_sts_cd").asText("");
+        if ("RUNNING".equals(sts) || "WAIT".equals(sts)) {
+            throw new UnstructuredJobRunner.AlreadyRunningException("BATCH", execId.trim(), MSG_BUSY);
+        }
         if (!REOPENABLE_STS.contains(sts)) {
             throw new UserFacingRejection(MSG_ALREADY_DONE,
                     "재처리 거절 — 실패/부분성공/취소 배치가 아니다(다시 열 수 없음): execId=" + execId + " exec_sts_cd=" + sts);
+        }
+        String send = sendStepStatus(d);
+        if ("WAIT".equals(send)) {
+            // 법적 수동 검수 대기 — 다시 돌면 보류된 전사를 다시 보내게 된다(그새 전송 방식이 자동으로 바뀌었으면 검수 없이 나간다).
+            //   관리자가 [클라우드 전송]으로 먼저 처리(승인 · 전송)해야 한다
+            throw new UserFacingRejection(MSG_ON_HOLD, "재처리 거절 — 전송 대기(수동 확인) 중인 배치: execId=" + execId
+                    + " exec_sts_cd=" + sts + " · 클라우드 전송(보류 해제)으로 먼저 처리");
+        }
+        if ("RUNNING".equals(send)) {
+            throw new UnstructuredJobRunner.AlreadyRunningException("SENDING", execId.trim(), MSG_BUSY);
         }
         boolean testRun = voiceProps.batch().testJobId().equals(b.path("job_id").asText(""));
         boolean image = isImageBatch(b);
@@ -249,6 +270,57 @@ public class UnstructuredBatchService {
             throw new UserFacingRejection(MSG_ALREADY_DONE, "재처리 거절 — 재처리 체인이 비었다(그새 처리됨): execId=" + execId);
         }
         return plan;
+    }
+
+    /**
+     * 전송(SEND) 단계 상태 — 배치 상세(T1 + T2)의 단계 중 SEND, 여럿이면 마지막 순번. 없으면 null.
+     * 음성은 SEND 가 한 번이고(청크는 로그 컬렉터가 한 행으로 병합), 이미지는 SEND 대신 STORE 라 null 이다.
+     */
+    static String sendStepStatus(JsonNode detail) {
+        if (detail == null || !detail.path("steps").isArray()) {
+            return null;
+        }
+        String sts = null;
+        int seq = Integer.MIN_VALUE;
+        for (JsonNode st : detail.path("steps")) {
+            if (!"SEND".equals(st.path("step_type_cd").asText(""))) {
+                continue;
+            }
+            int q = st.path("step_seq").asInt(0);
+            if (sts == null || q >= seq) {
+                sts = st.path("step_sts_cd").asText(null);
+                seq = q;
+            }
+        }
+        return sts;
+    }
+
+    /**
+     * 자동 순차 실행에 넣으면 안 되는 이유 — 보내기 <b>직전에</b> 로그 컬렉터로 다시 본다(계획 뒤 그새 바뀌었을 수 있다).
+     *
+     * <p><b>정책(2026-10-16)</b>: 전송 단계 WAIT 는 <b>법적 수동 검수 대기</b>다(커넥터 전송 가드가 보류한 건 · T7 수동 확인 등).
+     * 재처리 · 클라우드 전송 체인이 자동으로 앞 배치를 다시 돌 때 절대 넣지 않는다 — 관리자가 그 배치를 골라 [클라우드 전송]을
+     * 누를 때만 보낸다. 실행 중(T1 RUNNING/WAIT) · 전송 중(SEND RUNNING)인 배치도 뺀다(중복 방지).</p>
+     *
+     * @return 사유(건너뛴다). 넣어도 되면 null. 상태를 못 읽으면 넣지 않는다(Fail-Safe)
+     */
+    String notAutoReason(String execId) {
+        JsonNode d = logCollector.batchDetail(execId);
+        if (d == null || !d.path("batch").hasNonNull("exec_id")) {
+            return "상태 확인 실패";
+        }
+        String t1 = d.path("batch").path("exec_sts_cd").asText("");
+        if ("RUNNING".equals(t1) || "WAIT".equals(t1)) {
+            return "실행 중(" + t1 + ")";
+        }
+        String send = sendStepStatus(d);
+        if ("WAIT".equals(send)) {
+            return "전송 대기(수동 확인)";
+        }
+        if ("RUNNING".equals(send)) {
+            return "전송 중";
+        }
+        return null;
     }
 
     /** 원배치가 수용자 이미지 배치인가 — 작업명('수용자 이미지 수집…') 또는 작업 ID({@code IMAGE_COLLECT}). */
@@ -366,6 +438,18 @@ public class UnstructuredBatchService {
                 log.warn("[Unstructured] 체인 — {} 는 수집 구간이 없어 건너뛴다", id);
                 continue;
             }
+            if (!p.imageOnly()) {
+                // 전송 대기(WAIT — 법적 수동 검수) · 실행 중 · 전송 중인 배치는 자동 순차 실행에서 뺀다(notAutoReason)
+                String skip = notAutoReason(id);
+                if (skip != null) {
+                    lines.add(id + " 건너뜀(" + skip + ")");
+                    log.warn("[Unstructured] 체인 — {} 는 자동 재처리 대상이 아니다({}) · 다음 배치로", id, skip);
+                    continue;
+                }
+                ResumeMode mode = id.equals(p.originExecId()) ? p.resume() : ResumeMode.FROM_SEND;
+                lines.add(reopenAndRunVoice(id, b.targetFrom(), b.targetTo(), p.triggerBy(), p.testRun(), mode, null));
+                continue;
+            }
             List<JsonNode> failedRows = failedRows(id);
             if (!logCollector.reopenBatch(id, p.triggerBy(), b.targetFrom(), b.targetTo())) {
                 lines.add(id + " 다시 열기 실패");
@@ -373,21 +457,11 @@ public class UnstructuredBatchService {
                 continue;
             }
             try {
-                if (p.imageOnly()) {
-                    ImageCollectService.ImageRunResult r = image.runReopened(new ImageCollectService.ImageRunRequest(
-                            null, p.testRun() ? egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX : null,
-                            null, null, false, 0L, p.triggerBy(), p.testRun(), p.testRun(), null), id, failedRows);
-                    lines.add("%s 이미지 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
-                            id, r.total(), r.success(), r.fail(), r.skipped(), failedRows.size()));
-                } else {
-                    ResumeMode mode = id.equals(p.originExecId()) ? p.resume() : ResumeMode.FROM_SEND;
-                    java.util.Set<String> keys = new java.util.HashSet<>();
-                    failedRows.forEach(f -> keys.add(f.path("rec_file_id").asText("")));
-                    VoiceBatchResult v = voice.run(BatchWindow.manual(b.targetFrom(), b.targetTo()), null, p.triggerBy(),
-                            p.testRun(), mode, id, voice.defaultWorkers(), null, new VoiceCollectService.Reopened(id, keys));
-                    lines.add("%s 음성 %s 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
-                            id, mode, v.targetCnt(), v.successCnt(), v.failCnt(), v.skippedCnt(), failedRows.size()));
-                }
+                ImageCollectService.ImageRunResult r = image.runReopened(new ImageCollectService.ImageRunRequest(
+                        null, p.testRun() ? egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX : null,
+                        null, null, false, 0L, p.triggerBy(), p.testRun(), p.testRun(), null), id, failedRows);
+                lines.add("%s 이미지 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
+                        id, r.total(), r.success(), r.fail(), r.skipped(), failedRows.size()));
             } catch (RuntimeException e) {
                 // 이 배치만 실패로 닫고 다음 배치로 — 비정형은 건마다 독립이라 앞 배치 실패가 뒤를 막을 이유가 없다
                 log.error("[Unstructured] 체인 — {} 재처리 실패(다음 배치로 계속) · {}", id, e.getMessage(), e);
@@ -397,6 +471,41 @@ public class UnstructuredBatchService {
             }
         }
         return "긴급 재처리 체인(%s) %d건 — %s".formatted(p.imageOnly() ? "이미지" : "음성", chain.size(), String.join(" / ", lines));
+    }
+
+    /**
+     * 음성 배치 한 건을 <b>같은 EXEC_ID 로 다시 열어</b> 그 구간을 {@code mode} 부터 다시 돈다 — 긴급 재처리 체인 · 클라우드 전송(재전송)이 같이 쓴다.
+     * 처리된 건은 멱등 표식이 건너뛰고, 원래 실패 행은 다시 돈 결과로 덮어쓴다. 실패해도 예외를 밖으로 던지지 않는다
+     * (그 배치만 실패로 닫고 요약 한 줄을 돌려준다 — 비정형은 건마다 독립이라 체인의 다음 배치를 막지 않는다).
+     *
+     * @param failedRows 원배치 T4 실패 행. null 이면 여기서 읽는다
+     * @return 요약 한 줄
+     */
+    String reopenAndRunVoice(String id, LocalDateTime from, LocalDateTime to, String triggerBy, boolean testRun, ResumeMode mode,
+                             List<JsonNode> failedRows) {
+        if (from == null || to == null || !from.isBefore(to)) {
+            log.warn("[Unstructured] {} 는 수집 구간이 없어 건너뛴다", id);
+            return id + " 건너뜀(수집 구간 없음)";
+        }
+        List<JsonNode> rows = failedRows != null ? failedRows : failedRows(id);
+        if (!logCollector.reopenBatch(id, triggerBy, from, to)) {
+            log.warn("[Unstructured] {} 를 다시 열지 못했다(이미 처리됐거나 로그 컬렉터 오류)", id);
+            return id + " 다시 열기 실패";
+        }
+        try {
+            java.util.Set<String> keys = new java.util.HashSet<>();
+            rows.forEach(f -> keys.add(f.path("rec_file_id").asText("")));
+            VoiceBatchResult v = voice.run(BatchWindow.manual(from, to), null, triggerBy, testRun, mode, id,
+                    voice.defaultWorkers(), null, new VoiceCollectService.Reopened(id, keys));
+            return "%s 음성 %s 대상%d 성공%d 실패%d 건너뜀%d · 원래 실패 %d".formatted(
+                    id, mode, v.targetCnt(), v.successCnt(), v.failCnt(), v.skippedCnt(), rows.size());
+        } catch (RuntimeException e) {
+            // 이 배치만 실패로 닫고 다음 배치로 — 비정형은 건마다 독립이라 앞 배치 실패가 뒤를 막을 이유가 없다
+            log.error("[Unstructured] {} 다시 돌기 실패(다음 배치로 계속) · {}", id, e.getMessage(), e);
+            logCollector.finishBatch(id, "FAIL", 0, null, null, null,
+                    LogCollectorClient.FileProcReq.errStackOf("재처리 실패 — " + e.getClass().getSimpleName()));
+            return id + " 실패: " + e.getClass().getSimpleName();
+        }
     }
 
     /** 원배치 T4 의 실패 행 — 다시 돈 뒤 '해결됨' 을 가리는 근거. 못 읽으면 빈 목록(이번에 처리한 건만 덮어쓴다). */

@@ -65,6 +65,9 @@ class UnstructuredReprocessChainTest {
         when(vp.batch()).thenReturn(batch);
         when(logc.isEnabled()).thenReturn(true);
         when(logc.reopenBatch(anyString(), any(), any(), any())).thenReturn(true);
+        // 체인은 보내기 직전에 배치 상태를 다시 본다(전송 대기 · 실행 중이면 건너뜀) — 기본은 실패 배치 · 전송 단계 없음
+        when(logc.batchDetail(anyString())).thenAnswer(inv -> OM.readTree(
+                "{\"batch\":{\"exec_id\":\"" + inv.getArgument(0) + "\",\"exec_sts_cd\":\"FAIL\"},\"steps\":[]}"));
         when(voice.defaultWorkers()).thenReturn(Workers.sequential());
         when(voice.run(any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any()))
                 .thenAnswer(inv -> result(((VoiceCollectService.Reopened) inv.getArgument(8)).execId()));

@@ -178,6 +178,43 @@ class AgentConnectorClientTest {
     }
 
     @Test
+    @DisplayName("같은 EXEC_ID 로 다시 연 배치 — 앞 런이 마감됐으면 새 런(<실행 ID>-R…)으로 1번부터(마감된 런에 2번을 붙이면 수신단이 빈 순번을 기다린다 · 10-16 E2E)")
+    void reopenedSameExecIdAfterClosedRunStartsNewRun() {
+        AgentConnectorMockReceiver recv = new AgentConnectorMockReceiver(props(AgentConnectorProperties.Mode.MOCK, "", 50, 512L << 20), om);
+        TransferRuns runs = TransferRuns.inMemory();
+        AgentConnectorClient c = client(props(AgentConnectorProperties.Mode.MOCK, "", 50, 512L << 20), recv, runs, ScenarioFaults.inactive());
+        sendAll(c, "20261016UNS010", null, 2, new ArrayList<>(), new TreeMap<>());
+        assertThat(runs.isOpen("20261016UNS010")).isFalse();
+
+        AgentConnectorClient.Report again = sendAll(c, "20261016UNS010", "20261016UNS010", 1, new ArrayList<>(), new TreeMap<>());
+
+        assertThat(again.continued()).isFalse();
+        assertThat(again.runId()).startsWith("20261016UNS010-R").matches("20261016UNS010-R[0-9]{10}");
+        assertThat(again.fromSeq()).isEqualTo(1);
+        assertThat(again.execId()).isEqualTo("20261016UNS010");
+        assertThat(recv.ledger(again.runId()).get("state")).isEqualTo("COMPLETE");
+        assertThat(recv.ledger("20261016UNS010").get("receivedSeqs")).as("원래 런은 그대로").isEqualTo(List.of(1));
+    }
+
+    @Test
+    @DisplayName("같은 EXEC_ID 로 다시 연 배치 — 앞 런이 중간 실패로 열려 있으면 그 런을 실패 순번부터 이어 마감한다")
+    void reopenedSameExecIdContinuesOpenRun() {
+        AgentConnectorMockReceiver recv = new AgentConnectorMockReceiver(props(AgentConnectorProperties.Mode.MOCK, "", 2, 512L << 20), om);
+        TransferRuns runs = TransferRuns.inMemory();
+        AgentConnectorClient c = client(props(AgentConnectorProperties.Mode.MOCK, "", 2, 512L << 20), recv, runs, ScenarioFaults.inactive());
+        recv.setFault(AgentConnectorMockReceiver.FaultMode.FAIL_FROM_SEQ, 2);
+        sendAll(c, "20261016UNS013", null, 4, new ArrayList<>(), new TreeMap<>());
+        assertThat(runs.isOpen("20261016UNS013")).isTrue();
+        recv.setFault(AgentConnectorMockReceiver.FaultMode.UP, 0);
+
+        AgentConnectorClient.Report again = sendAll(c, "20261016UNS013", "20261016UNS013", 2, new ArrayList<>(), new TreeMap<>());
+
+        assertThat(again.runId()).isEqualTo("20261016UNS013");
+        assertThat(again.chunks()).extracting(AgentConnectorClient.Chunk::seq).containsExactly(2);
+        assertThat(recv.ledger("20261016UNS013").get("state")).isEqualTo("COMPLETE");
+    }
+
+    @Test
     @DisplayName("키 표식(SF) — 그 레코드만 한 번 거부(precheck) · 두 번째는 통과")
     void scenarioMarkerRejectsOnce() {
         AgentConnectorMockReceiver recv = new AgentConnectorMockReceiver(props(AgentConnectorProperties.Mode.MOCK, "", 50, 512L << 20), om);

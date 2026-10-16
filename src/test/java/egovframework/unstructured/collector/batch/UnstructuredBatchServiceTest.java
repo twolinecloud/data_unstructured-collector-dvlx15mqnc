@@ -206,6 +206,70 @@ class UnstructuredBatchServiceTest {
         assertThat(s.planReprocess("20261016UNS003", "UNSTRUCTURED", null).originExecId()).isEqualTo("20261016UNS003");
     }
 
+    @Test
+    @DisplayName("재처리 — 전송 대기(WAIT · 수동 확인) 배치는 400(클라우드 전송으로 먼저) · 실행 중 · 전송 중 배치는 409")
+    void reprocessRejectsHeldOrBusy() throws Exception {
+        UnstructuredBatchService s = service(false);
+        when(logc.failedChain(anyString(), anyBoolean())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
+        when(logc.batchDetail("H")).thenReturn(detailWithSend("H", "PARTIAL", "WAIT"));
+        assertRejected(() -> s.planReprocess("H", "UNSTRUCTURED", "COLLECT"), UnstructuredBatchService.MSG_ON_HOLD,
+                "전송 대기(수동 확인) 중인 배치: execId=H");
+        when(logc.batchDetail("R")).thenReturn(detailWithSend("R", "RUNNING", null));
+        assertThatThrownBy(() -> s.planReprocess("R", "UNSTRUCTURED", null))
+                .isInstanceOf(UnstructuredJobRunner.AlreadyRunningException.class).hasMessage(UnstructuredBatchService.MSG_BUSY);
+        when(logc.batchDetail("S")).thenReturn(detailWithSend("S", "FAIL", "RUNNING"));
+        assertThatThrownBy(() -> s.planReprocess("S", "UNSTRUCTURED", "SEND"))
+                .isInstanceOf(UnstructuredJobRunner.AlreadyRunningException.class);
+        when(logc.batchDetail("F")).thenReturn(detailWithSend("F", "FAIL", "FAIL"));
+        assertThat(s.planReprocess("F", "UNSTRUCTURED", "SEND").originExecId()).isEqualTo("F");
+        verify(logc, never()).failedChain(eq("H"), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("재처리 체인 — 이전 배치 중 전송 대기(WAIT · 법적 수동 검수) · 실행 중 · 상태를 못 읽는 배치는 다시 열지 않고 건너뛴다")
+    void chainSkipsWaitAndBusy() throws Exception {
+        UnstructuredBatchService s = service(false);
+        when(logc.failedChain("T", false)).thenReturn(List.of(chainBatch("P1"), chainBatch("P2"), chainBatch("P3"), chainBatch("T")));
+        when(logc.batchDetail("P1")).thenReturn(detailWithSend("P1", "PARTIAL", "WAIT"));
+        when(logc.batchDetail("P2")).thenReturn(detailWithSend("P2", "RUNNING", "FAIL"));
+        // P3 — 상세를 못 읽음(null) → 보내지 않는다
+        when(logc.batchDetail("T")).thenReturn(detailWithSend("T", "FAIL", null));
+        when(logc.reopenBatch(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(voice.defaultWorkers()).thenReturn(Workers.sequential());
+        VoiceBatchResult vr = new VoiceBatchResult("T", true, "MANUAL", 2, 2, 0, 0, 10L, Map.of(), List.of(), List.of(), false);
+        when(voice.run(any(), isNull(), anyString(), anyBoolean(), any(), anyString(), any(Workers.class), isNull(), any()))
+                .thenReturn(vr);
+        var plan = new UnstructuredBatchService.Plan(
+                egovframework.unstructured.collector.common.model.BatchWindow.manual(LocalDateTime.of(2026, 10, 15, 0, 0),
+                        LocalDateTime.of(2026, 10, 16, 0, 0)), ResumeMode.FULL, "T", false, "ADMIN/reprocess:T", false);
+
+        String sum = s.execute(plan, (id, c) -> { });
+
+        assertThat(sum).contains("P1 건너뜀(전송 대기(수동 확인))").contains("P2 건너뜀(실행 중(RUNNING))")
+                .contains("P3 건너뜀(상태 확인 실패)").contains("T 음성 FULL");
+        verify(logc, never()).reopenBatch(eq("P1"), anyString(), any(), any());
+        verify(logc, never()).reopenBatch(eq("P2"), anyString(), any(), any());
+        verify(logc, never()).reopenBatch(eq("P3"), anyString(), any(), any());
+        verify(logc).reopenBatch(eq("T"), eq("ADMIN/reprocess:T"), any(), any());
+    }
+
+    @Test
+    @DisplayName("전송 단계 상태 — SEND 중 마지막 순번 · 없으면 null")
+    void sendStepStatusPicksLastSend() throws Exception {
+        assertThat(UnstructuredBatchService.sendStepStatus(OM.readTree("""
+                {"steps":[{"step_type_cd":"SEND","step_seq":4,"step_sts_cd":"FAIL"},{"step_type_cd":"COLLECT","step_seq":1,"step_sts_cd":"SUCCESS"},
+                 {"step_type_cd":"SEND","step_seq":5,"step_sts_cd":"WAIT"}]}"""))).isEqualTo("WAIT");
+        assertThat(UnstructuredBatchService.sendStepStatus(OM.readTree("{\"steps\":[]}"))).isNull();
+        assertThat(UnstructuredBatchService.sendStepStatus(null)).isNull();
+    }
+
+    private static JsonNode detailWithSend(String execId, String t1, String send) throws Exception {
+        String steps = send == null ? "[]" : "[{\"step_type_cd\":\"SEND\",\"step_seq\":4,\"step_sts_cd\":\"" + send + "\"}]";
+        return OM.readTree("""
+                {"batch":{"exec_id":"%s","job_id":"VOICE_ANALYSIS","data_type_cd":"UNSTRUCTURED","exec_sts_cd":"%s",
+                 "target_from_dtm":"2026-10-15T00:00:00","target_to_dtm":"2026-10-16T00:00:00"},"steps":%s}""".formatted(execId, t1, steps));
+    }
+
     private static LogCollectorClient.ChainBatch chainBatch(String execId) {
         return new LogCollectorClient.ChainBatch(execId, "FAIL", "VOICE_ANALYSIS", null, null,
                 LocalDateTime.of(2026, 10, 15, 0, 0), LocalDateTime.of(2026, 10, 16, 0, 0));

@@ -40,18 +40,20 @@ class AdminLinkControllerTest {
     private UnstructuredBatchScheduler scheduler;
     private UnstructuredBatchService service;
     private UnstructuredJobRunner runner;
+    private CloudSendService cloudSend;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         scheduler = mock(UnstructuredBatchScheduler.class);
         service = mock(UnstructuredBatchService.class);
+        cloudSend = mock(CloudSendService.class);
         runner = new UnstructuredJobRunner(() -> null);
         UnstructuredBatchProperties props = new UnstructuredBatchProperties(
                 new UnstructuredBatchProperties.Admin("", Duration.ofSeconds(2), Duration.ofSeconds(3)),
                 new UnstructuredBatchProperties.Schedule(300000, "Asia/Seoul"),
                 new UnstructuredBatchProperties.Batch(false, 1000));
-        mvc = MockMvcBuilders.standaloneSetup(new AdminLinkController(scheduler, service, runner, props)).build();
+        mvc = MockMvcBuilders.standaloneSetup(new AdminLinkController(scheduler, service, runner, props, cloudSend)).build();
         when(scheduler.snapshot()).thenReturn(Map.of("schedVal", "02:00"));
     }
 
@@ -249,6 +251,59 @@ class AdminLinkControllerTest {
                         .content("{\"execId\":\"20260915UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"stepTypeCd\":\"BOGUS\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BAD_STEP));
+    }
+
+    // ── cloud-send ──
+
+    @Test
+    @DisplayName("클라우드 전송 — 본문 {execId, dataTypeCd, triggerBy} · 202 + 누른 배치 · 보낼 순서(chain) · 실행 중이면 409")
+    void cloudSendAcceptedThenConflict() throws Exception {
+        CloudSendService.Plan plan = new CloudSendService.Plan("20261016UNS003", "WAIT", java.util.List.of("20261015UNS001"),
+                "admin01", "admin01/cloud-send:20261016UNS003");
+        when(cloudSend.plan("20261016UNS003", "UNSTRUCTURED", "admin01")).thenReturn(plan);
+        CountDownLatch hold = new CountDownLatch(1);
+        when(cloudSend.execute(eq(plan), any())).thenAnswer(inv -> {
+            BiConsumer<String, Boolean> sink = inv.getArgument(1);
+            sink.accept("20261016UNS003", true);
+            hold.await(5, TimeUnit.SECONDS);
+            return "ok";
+        });
+        String body = "{\"execId\":\"20261016UNS003\",\"dataTypeCd\":\"UNSTRUCTURED\",\"triggerBy\":\"admin01\"}";
+        mvc.perform(post("/internal/batch/cloud-send").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.execId").value("20261016UNS003"))
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.originExecId").value("20261016UNS003"))
+                .andExpect(jsonPath("$.sendStsCd").value("WAIT"))
+                .andExpect(jsonPath("$.chain[0]").value("20261015UNS001"))
+                .andExpect(jsonPath("$.chain[1]").value("20261016UNS003"));
+
+        mvc.perform(post("/internal/batch/cloud-send").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.kind").value("CLOUD_SEND"));
+        hold.countDown();
+    }
+
+    @Test
+    @DisplayName("클라우드 전송 400 · 409 — 본문 없음 · 계획 거절(이미 보냄)은 화면 안내만 · 그 배치가 전송 중이면 409")
+    void cloudSendRejects() throws Exception {
+        mvc.perform(post("/internal/batch/cloud-send")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BAD_BODY));
+        when(cloudSend.plan(eq("20261016UNS001"), anyString(), any())).thenThrow(new UserFacingRejection(CloudSendService.MSG_SEND_DONE,
+                "클라우드 전송 거절 — 전송 단계가 SUCCESS: execId=20261016UNS001"));
+        mvc.perform(post("/internal/batch/cloud-send").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"execId\":\"20261016UNS001\",\"dataTypeCd\":\"UNSTRUCTURED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(CloudSendService.MSG_SEND_DONE))
+                .andExpect(jsonPath("$.length()").value(1));
+        when(cloudSend.plan(eq("20261016UNS002"), anyString(), any())).thenThrow(
+                new UnstructuredJobRunner.AlreadyRunningException("SENDING", "20261016UNS002", UnstructuredBatchService.MSG_BUSY));
+        mvc.perform(post("/internal/batch/cloud-send").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"execId\":\"20261016UNS002\",\"dataTypeCd\":\"UNSTRUCTURED\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_BUSY))
+                .andExpect(jsonPath("$.execId").value("20261016UNS002"));
+        verify(cloudSend, never()).execute(any(), any());
     }
 
     @Test

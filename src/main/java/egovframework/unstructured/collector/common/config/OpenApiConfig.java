@@ -40,7 +40,8 @@ public class OpenApiConfig {
                         관리자 화면(admin-api)의 비정형(UNSTRUCTURED) 한 행이 이 서비스를 움직입니다(data-collector 와 같은 방식).
                         `POST /internal/schedule/refresh`(설정 즉시 반영 — 기동 시·5분마다 admin 을 다시 읽기도 함) ·
                         `POST /internal/batch/run`(바로 실행) · `POST /internal/batch/reprocess`(긴급 재처리 — 원배치 구간 · 실패 단계부터) ·
-                        `GET /internal/batch/status`. 실행은 **비동기**(202 + execId, 실행 중이면 409)이고 스케줄·바로 실행·재처리가 한 잠금을 씁니다.
+                        `POST /internal/batch/cloud-send`(클라우드 전송 — 누른 배치와 이전 전송 실패 배치, 전송 대기 WAIT 는 누른 배치만) ·
+                        `GET /internal/batch/status`. 실행은 **비동기**(202 + execId, 실행 중이면 409)이고 스케줄·바로 실행·재처리·전송이 한 잠금을 씁니다.
                         클러스터 안(admin-api)에서만 부릅니다.
 
                         ### 시연 순서

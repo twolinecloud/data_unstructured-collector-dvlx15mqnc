@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class UnstructuredJobRunner {
 
     /** 실행 종류 — 상태 표기·로그용. 잠금은 종류와 무관하게 하나다. */
-    public enum Kind { SCHEDULE, RUN, REPROCESS }
+    public enum Kind { SCHEDULE, RUN, REPROCESS, CLOUD_SEND }
 
     /** 배치가 log-collector 채번 execId 를 받자마자 알려 준다 — 접수 응답·상태에 실린다. */
     @FunctionalInterface
@@ -337,7 +337,7 @@ public class UnstructuredJobRunner {
             this.execId = execId;
         }
 
-        /** 실행 중인 것 — {@code SCHEDULE/RUN/REPROCESS}, 실행기 밖이면 {@code OTHER}. */
+        /** 실행 중인 것 — {@code SCHEDULE/RUN/REPROCESS/CLOUD_SEND}, 실행기 밖이면 {@code OTHER} · 배치 자체가 실행 · 전송 중이면 {@code BATCH/SENDING}. */
         public String kind() {
             return kind;
         }

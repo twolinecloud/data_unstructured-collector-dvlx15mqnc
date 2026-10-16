@@ -30,6 +30,7 @@ import java.util.Map;
 
 /**
  * admin 연동 — 관리자 화면(admin-api)이 비정형 수집기를 부르는 <b>단일 진입점</b>(UNSTRUCTURED).
+ * 설정 반영 · 바로 실행 · 긴급 재처리 · 클라우드 전송({@code /internal/batch/cloud-send}, 2026-10-16).
  *
  * <p>경로·본문은 admin-api 의 호출 규약을 그대로 따른다(admin-api {@code DataCollectorApi} · {@code ReprocessApi}).
  * 처리 방식(비동기 202 · 실행 중 409 · 원배치 구간 기준 재처리)은 data-collector 를 따른다 — data-collector 에는
@@ -40,7 +41,7 @@ import java.util.Map;
  */
 @Log4j2
 @Tag(name = "0. 비정형 배치(admin 연동)",
-        description = "관리자 화면의 비정형(UNSTRUCTURED) 설정 저장 · 바로 실행 · 긴급 재처리를 받는다 — 스케줄 · 실행 · 재처리가 한 실행기 · 한 잠금")
+        description = "관리자 화면의 비정형(UNSTRUCTURED) 설정 저장 · 바로 실행 · 긴급 재처리 · 클라우드 전송을 받는다 — 스케줄 · 실행 · 재처리 · 전송이 한 실행기 · 한 잠금")
 @RestController
 @RequestMapping(value = "/internal", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
@@ -50,6 +51,7 @@ public class AdminLinkController {
     private final UnstructuredBatchService service;
     private final UnstructuredJobRunner runner;
     private final UnstructuredBatchProperties props;
+    private final CloudSendService cloudSend;
 
     /**
      * 바로 실행 본문 — admin-api {@code BatchRunRequest(dataTypeCd, targetToDtm)}.
@@ -72,6 +74,14 @@ public class AdminLinkController {
             @Schema(example = "UNSTRUCTURED") String dataTypeCd,
             @Schema(description = "단계(C05) COLLECT · ANALYZE · SEND. 비우면 처음부터(전체 재처리)", example = "SEND") String stepTypeCd,
             @Schema(description = "단계 순번 — 비정형은 단계가 한 번씩이라 쓰지 않는다(기록만)", example = "3") Integer stepSeq) {}
+
+    /** 클라우드 전송 본문 — 누른 배치 · 데이터 구분 · 요청한 관리자. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CloudSendReq(
+            @Schema(description = "전송할 배치 실행 ID(전송 대기 목록에서 누른 배치)", example = "20261016UNS001") String execId,
+            @Schema(example = "UNSTRUCTURED") String dataTypeCd,
+            @Schema(description = "요청한 관리자 ID — 커넥터 감사 로그 · T1 TRIGGER_BY(`<관리자>/cloud-send:<누른 배치>`). 비우면 admin",
+                    example = "admin01") String triggerBy) {}
 
     // ── 설정 반영 ────────────────────────────────────────────────────────
 
@@ -154,6 +164,43 @@ public class AdminLinkController {
         extra.put("stepTypeCd", body.stepTypeCd());
         extra.put("stepSeq", body.stepSeq());
         return accepted(UnstructuredJobRunner.Kind.REPROCESS, plan, extra);
+    }
+
+    // ── 클라우드 전송 ────────────────────────────────────────────────────
+
+    @Operation(summary = "클라우드 전송 (비동기)",
+            description = """
+                    전송 대기 목록에서 누른 음성 배치를 보낸다. **누른 배치와 그 이전의 전송 실패 배치**(같은 작업 · 전송 단계 실패/부분성공/취소)를
+                    오래된 순으로 보내고 누른 배치를 마지막에 보낸다. 배치마다 데이터를 가진 쪽이 보낸다.
+
+                    | 배치 | 보내는 쪽 |
+                    |---|---|
+                    | 커넥터 보류 장부에 있음(전송 대기 · 커넥터 쪽 실패) | 커넥터 전송 트리거(`/api/v1/transmit/holds/{execId}/release`) |
+                    | 장부에 없고 배치가 실패/부분성공/취소 | 수집기 — 같은 EXEC_ID 로 다시 열어 **전송부터**(보존 전사 · 처리된 건 건너뜀) |
+
+                    - **전송 대기(WAIT · 법적 수동 검수)는 누른 배치일 때만 보낸다** — 이전 배치를 함께 보낼 때 절대 넣지 않는다.
+                      실행 중 · 전송 중인 배치도 건너뛴다(중복 방지)
+                    - **202** `{execId, status:"RUNNING", chain:[…], …}` — 접수하고 곧바로 돌려준다. 결과는 전송 단계(T2)로 본다(목록 새로고침)
+                    - **409** — 수집기가 다른 작업을 돌리는 중이거나 그 배치가 지금 실행 · 전송 중
+                    - **400** — 유형 · execId 오류, 배치 없음, 수용자 이미지, 전송할 데이터 없음, 이미 전송됨, 커넥터 장부 · 전송 체인을 읽지 못함.
+                      `message` 는 화면용 짧은 안내(공백 포함 60자 이내)만 — 자세한 사유는 서버 로그(WARN `[Admin] 요청 거절(400)`)
+                    """)
+    @PostMapping("/batch/cloud-send")
+    public ResponseEntity<Map<String, Object>> cloudSend(@RequestBody(required = false) CloudSendReq body) {
+        if (body == null) {
+            throw new UserFacingRejection(UnstructuredBatchService.MSG_BAD_BODY,
+                    "클라우드 전송 거절 — 본문 필수 {execId, dataTypeCd, triggerBy}");
+        }
+        CloudSendService.Plan plan = cloudSend.plan(body.execId(), body.dataTypeCd(), body.triggerBy());
+        Map<String, Object> detail = plan.detail();
+        UnstructuredJobRunner.Job job = runner.submitAndAwaitExecId(UnstructuredJobRunner.Kind.CLOUD_SEND, plan.triggerBy(), detail,
+                sink -> cloudSend.execute(plan, sink::publish), props.batch().execIdWaitMs());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("execId", job.currentExecId());
+        out.put("status", job.running() ? "RUNNING" : job.snapshot().get("status"));
+        out.put("handle", job.handle());
+        out.putAll(detail);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(out);
     }
 
     // ── 상태 ────────────────────────────────────────────────────────────

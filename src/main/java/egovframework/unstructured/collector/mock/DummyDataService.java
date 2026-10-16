@@ -175,6 +175,30 @@ public class DummyDataService {
      * @throws DashboardDisabledException   DASHBOARD 인데 {@code unstructured.mock.dashboard.enabled=false}(403)
      */
     public synchronized Map<String, Object> generate(GenerateRequest req) {
+        return generate(req, null, null);
+    }
+
+    /**
+     * 지정 구간 안에 만든다 — CRT_DT 를 {@code [winFrom, winTo)} 에 고르게 나눈다(개발계 E2E: '어제 · 오전 · 방금' 처럼 좁은 구간을 그 구간만 도는
+     * 배치로 집게 한다). 대상일은 {@code winFrom} 의 날짜다. 둘 다 null 이면 대상일 하루 전체(기존 동작).
+     *
+     * @throws IllegalArgumentException 구간이 비었거나 · 날짜를 넘거나 · 미래
+     */
+    public synchronized Map<String, Object> generate(GenerateRequest req, LocalDateTime winFrom, LocalDateTime winTo) {
+        if (winFrom != null || winTo != null) {
+            if (winFrom == null || winTo == null || !winFrom.isBefore(winTo)) {
+                throw new IllegalArgumentException("생성 구간이 올바르지 않습니다: " + winFrom + " ~ " + winTo);
+            }
+            if (!winFrom.toLocalDate().equals(winTo.minusSeconds(1).toLocalDate())) {
+                throw new IllegalArgumentException("생성 구간은 하루 안이어야 합니다: " + winFrom + " ~ " + winTo);
+            }
+            if (winTo.isAfter(LocalDateTime.now())) {
+                throw new IllegalArgumentException("생성 구간은 지금 이전이어야 합니다: " + winTo);
+            }
+            req = req == null ? new GenerateRequest(null, null, winFrom.toLocalDate(), null, null, null, null)
+                    : new GenerateRequest(req.target(), req.dataTypes(), winFrom.toLocalDate(), req.count(), req.failures(),
+                    req.append(), req.counts());
+        }
         Plan p = plan(req);
         SqlLog sql = new SqlLog();
         Map<String, Object> out = new LinkedHashMap<>();
@@ -198,7 +222,7 @@ public class DummyDataService {
 
         MediaDecryptor enc = encryptor();
         LocalDateTime now = LocalDateTime.now().withNano(0);
-        Slots slots = Slots.of(p.date(), p.maxCount(), now);
+        Slots slots = winFrom != null ? Slots.range(winFrom, winTo, p.maxCount()) : Slots.of(p.date(), p.maxCount(), now);
         List<FileJob> jobs = new ArrayList<>();
         Map<String, Map<String, Object>> types = new LinkedHashMap<>();
         new TransactionTemplate(txManager).executeWithoutResult(st -> {
@@ -590,6 +614,12 @@ public class DummyDataService {
             LocalDateTime end = d.equals(now.toLocalDate()) ? now.minusMinutes(1) : start.plusDays(1).minusSeconds(1);
             long span = Math.max(1L, Duration.between(start, end).getSeconds() + 1);
             return new Slots(start, span, Math.max(1L, span / Math.max(1, count)));
+        }
+
+        /** 구간 {@code [from, to)} 을 건수만큼 고르게 나눈다(E2E 의 좁은 구간). */
+        static Slots range(LocalDateTime from, LocalDateTime to, int count) {
+            long span = Math.max(1L, Duration.between(from, to).getSeconds());
+            return new Slots(from, span, Math.max(1L, span / Math.max(1, count)));
         }
 
         /** i 번째 칸의 시각 — 칸 안에서 순번으로 비켜 놓는다. */

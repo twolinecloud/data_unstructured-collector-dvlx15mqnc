@@ -454,6 +454,35 @@ public class LogCollectorClient {
         return exchange(HttpMethod.DELETE, url("/api/v1/logs/test-data"), null);
     }
 
+    /**
+     * 배치 목록 첫 페이지 — {@code GET /api/v1/logs/batches?dataTypeCd=&stsCd=&page=0&size=}(최신순 · 크기 상한 200).
+     * 개발계 E2E 정리가 미완료 더미 배치를 찾는 데 쓴다.
+     *
+     * @param stsCds 실행 상태(C04) 쉼표 목록 — 예 {@code FAIL,PARTIAL,CANCELED}
+     * @return 행 배열(execId · execStsCd · jobId · targetFromDtm · targetToDtm …). 미연동 · 실패면 null
+     */
+    public JsonNode listBatches(String dataTypeCd, String stsCds, int size) {
+        if (!isEnabled()) {
+            return null;
+        }
+        JsonNode r = exchange(HttpMethod.GET, url("/api/v1/logs/batches?dataTypeCd=" + dataTypeCd + "&stsCd=" + stsCds
+                + "&page=0&size=" + Math.max(1, Math.min(200, size))), null);
+        return r == null || !r.path("content").isArray() ? null : r.path("content");
+    }
+
+    /**
+     * 비정형 더미 배치 정리 — {@code POST /api/v1/logs/dummy-batches/delete {execIds}}(로그 컬렉터 2026-10-16).
+     * 로그 컬렉터가 SQL 안에서 다시 건다 — 비정형 · 실행 중 아님 · T4 가 있고 전부 더미 키인 것만 지운다.
+     *
+     * @return {@code {deleted, skipped:[{execId, reason}], rows}}. 미연동 · 실패면 null
+     */
+    public JsonNode deleteDummyBatches(List<String> execIds) {
+        if (!isEnabled()) {
+            return null;
+        }
+        return exchange(HttpMethod.POST, url("/api/v1/logs/dummy-batches/delete"), Map.of("execIds", execIds));
+    }
+
     // ── 내부 ───────────────────────────────────────────────────────────────
 
     private String url(String path) {

@@ -3758,10 +3758,13 @@ function csRender(rows) {
     return;
   }
   const body = rows.map((r, i) => {
-    const same = r.send === r.state;
+    // 만든 직후(asRequested 가 있음)에 다르면 '요청과 다름', 그 뒤(연속 전송 · 전송중 풀기)에 바뀐 건 어떻게 바뀌었는지
     const after = r.send === 'SUCCESS' || r.purged ? '전송 끝(목록에서 빠짐)'
         : r.exists === false ? '이력 없음(지워짐)'
-        : same ? '' : '<span class="text-warning-emphasis">요청과 다름</span>';
+        : r.send === r.state ? ''
+        : r.asRequested === false ? '<span class="text-warning-emphasis">요청과 다름</span>'
+        : `바뀜 — ${esc(CS_LABEL[r.state] || r.state)} → ${esc(CS_LABEL[r.send] || r.send || '—')}`
+          + (r.state === 'FAIL' && r.send === 'WAIT' ? ' (다시 보낸 건이 수동 확인으로 보류)' : '');
     return `<tr>
       <td class="text-secondary">${r.order ?? i + 1}</td>
       <td class="font-monospace">${esc(r.execId)}</td>

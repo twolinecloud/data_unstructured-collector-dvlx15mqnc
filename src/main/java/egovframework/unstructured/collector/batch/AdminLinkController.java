@@ -137,10 +137,11 @@ public class AdminLinkController {
                     | `ANALYZE` | STT 부터 | 복호화 오디오 |
                     | `SEND` | 에이전트 커넥터 전송부터(STT 생략) | `stt_temp/{원 execId}` 전사 |
 
-                    - 실행 ID 는 **새로 받는다**(TRIGGER_BY `ADMIN/reprocess:<원 execId>`). 이미 성공한 건은 멱등 표식이 건너뛴다
+                    - **원배치를 같은 EXEC_ID 로 다시 연다(reopen) — 새 실행 ID 를 만들지 않는다.** 누른 배치와 그 이전의 실패/부분성공/취소 배치를
+                      오래된 순으로 각자 ID 로 다시 돈다(이미지 배치는 지금까지 전부). 이미 성공한 건은 멱등 표식이 건너뛴다
                     - 시험 배치(TST)를 재처리하면 재처리도 시험 이력으로 남는다
-                    - **202 / 409** 는 바로 실행과 같다. **400** — 유형 · 단계 오류, 원배치를 찾을 수 없음(로그 컬렉터 미연동 포함)
-                    - 음성 배치만 다시 돈다(이미지는 로그 컬렉터 배치가 없다)
+                    - **202 / 409** 는 바로 실행과 같다. **400** — 유형 · 단계 오류, 원배치를 찾을 수 없음(로그 컬렉터 미연동 포함),
+                      이미 처리됨(실패/부분성공/취소 아님), 재처리 체인(로그 컬렉터 failed-chain)을 읽지 못함
                     """)
     @PostMapping("/batch/reprocess")
     public ResponseEntity<Map<String, Object>> reprocess(@RequestBody(required = false) ReprocessReq body) {

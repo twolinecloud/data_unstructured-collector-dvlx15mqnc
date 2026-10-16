@@ -115,9 +115,11 @@ public class AdminCollectCompatController {
 
                     - `stepTypeCd`(선택) — 비정형 3단계 COLLECT · ANALYZE · SEND. **비우면 SEND**(자동 — 건마다 남은 보존물로 가장 늦은 단계부터:
                       전사가 있으면 전송만, 없고 복호화 오디오가 있으면 STT 부터, 둘 다 없으면 수집부터)
-                    - 202 `{execId, status:"RUNNING", originExecId, until, resume, …}` · 400 `{message}`(originExecId 없음 · 원배치 없음 · 비정형 아님 —
-                      화면용 짧은 안내만, 자세한 사유는 서버 로그) · 409 `{message, execId}`
-                    - 새 실행 ID 로 돈다(TRIGGER_BY `{triggerBy}/reprocess:{원 execId}`). 전송은 원배치 런이 마감 전이면 그 런을 이어 받는다
+                    - 202 `{execId, status:"RUNNING", originExecId, until, resume, …}` · 400 `{message}`(originExecId 없음 · 원배치 없음 · 비정형 아님 ·
+                      이미 처리됨(실패/부분성공/취소 아님) · 재처리 체인을 읽지 못함 — 화면용 짧은 안내만, 자세한 사유는 서버 로그) · 409 `{message, execId}`
+                    - **원배치를 같은 EXEC_ID 로 다시 연다(reopen) — 새 실행 ID 를 만들지 않는다.** 누른 배치와 그 이전의 실패/부분성공/취소 배치
+                      (같은 작업)를 오래된 순으로 각자 ID 로 다시 돈다(이미지 배치는 지금까지 전부). 해결되면 그 배치가 SUCCESS 가 된다.
+                      응답 `execId` = 누른 배치. 원배치 T1 TRIGGER_BY 는 `{triggerBy}/reprocess:{누른 배치}`
                     """)
     @PostMapping("/reprocess")
     public ResponseEntity<Map<String, Object>> reprocess(

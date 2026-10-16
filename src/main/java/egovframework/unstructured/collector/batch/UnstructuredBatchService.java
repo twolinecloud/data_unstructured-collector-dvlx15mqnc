@@ -55,6 +55,11 @@ public class UnstructuredBatchService {
     static final String MSG_BAD_STEP = "재처리 단계는 수집 · 분석 · 비식별 · 전송 중에서 선택해 주세요.";
     static final String MSG_NOT_UNSTRUCTURED = "비정형 데이터 요청만 처리할 수 있습니다.";
     static final String MSG_BAD_BODY = "요청 형식이 올바르지 않습니다. 다시 시도해 주세요.";
+    static final String MSG_ALREADY_DONE = "이미 처리가 끝난 배치입니다. 목록을 새로고침해 주세요.";
+    static final String MSG_CHAIN_UNAVAILABLE = "재처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+    /** 긴급 재처리로 다시 열 수 있는 원배치 상태 — 로그 컬렉터 reopen 이 받는 상태와 같다. */
+    static final java.util.Set<String> REOPENABLE_STS = java.util.Set.of("FAIL", "PARTIAL", "CANCELED");
 
     /**
      * 워터마크 충돌 안내 — 최근 수집 시점 이후를 고르거나, 과거 구간은 긴급 재처리로.
@@ -185,11 +190,15 @@ public class UnstructuredBatchService {
      * 긴급 재처리 — <b>원배치(execId)가 훑었던 구간</b>을 그 단계부터 다시 돈다.
      *
      * <p>예전 재처리 API({@code /api/v1/voice/batches/resume})는 "지금-2일 ~ 지금" 을 봤다. admin 은 특정 배치를 고르므로,
-     * 오래된 실패 배치도 빠짐없이 잡으려면 그 배치의 구간(T1 {@code target_from_dtm ~ target_to_dtm})을 써야 한다.
-     * 실행 ID 는 <b>새로 받는다</b>(원배치 연결은 TRIGGER_BY {@code ADMIN/reprocess:<원 execId>} 로) — data-collector 는
-     * 2026-10-02 부터 원 execId 를 다시 여는(reopen) 체인 방식이다. 비정형은 건마다 독립(멱등)이라 새 ID 로도 결과가 같다.</p>
+     * 오래된 실패 배치도 빠짐없이 잡으려면 그 배치의 구간(T1 {@code target_from_dtm ~ target_to_dtm})을 써야 한다.</p>
      *
-     * @throws UserFacingRejection 유형 · 단계 · execId 오류, 원배치를 찾을 수 없음
+     * <p><b>실행 ID 는 새로 받지 않는다 — 원배치를 같은 EXEC_ID 로 다시 연다(reopen 체인, {@link #execute} → executeChain).</b>
+     * 해결되면 원배치가 SUCCESS 가 되어 [긴급 재처리] 버튼이 사라지고, 또 실패해도 새 배치가 쌓이지 않는다.
+     * 그래서 여기서 미리 확인한다 — 원배치가 실패/부분성공/취소가 아니면, 또는 재처리 체인(로그 컬렉터 failed-chain)을 읽지 못하면
+     * 거절한다. 예전에는 그때 새 실행 ID 로 원배치 구간을 돌아 같은 실패가 새 배치로 계속 쌓일 수 있었다(2026-10-16 막음).
+     * TRIGGER_BY 에는 {@code <관리자>/reprocess:<누른 배치>} 가 남는다.</p>
+     *
+     * @throws UserFacingRejection 유형 · 단계 · execId 오류, 원배치를 찾을 수 없음 · 이미 처리됨 · 재처리 체인을 읽지 못함
      */
     public Plan planReprocess(String execId, String dataTypeCd, String stepTypeCd) {
         requireUnstructured(dataTypeCd);
@@ -208,21 +217,38 @@ public class UnstructuredBatchService {
             throw new UserFacingRejection(MSG_NOT_UNSTRUCTURED_BATCH,
                     "재처리 거절 — 비정형 배치가 아니다: execId=" + execId + " data_type_cd=" + type);
         }
+        String sts = b.path("exec_sts_cd").asText("");
+        if (!REOPENABLE_STS.contains(sts)) {
+            throw new UserFacingRejection(MSG_ALREADY_DONE,
+                    "재처리 거절 — 실패/부분성공/취소 배치가 아니다(다시 열 수 없음): execId=" + execId + " exec_sts_cd=" + sts);
+        }
         boolean testRun = voiceProps.batch().testJobId().equals(b.path("job_id").asText(""));
-        if (isImageBatch(b)) {
-            // 수용자 이미지 배치(수집 구간이 없다) — 이미지를 다시 돈다. 실패 · 미처리 건만 처리되고 T4 에 새 실행 ID 로 남는다
+        boolean image = isImageBatch(b);
+        Plan plan;
+        if (image) {
+            // 수용자 이미지 배치(수집 구간이 없다) — 지금까지의 실패 이미지 배치를 같은 ID 로 다시 연다(executeChain)
             LocalDateTime now = LocalDateTime.now().withNano(0);
-            return new Plan(BatchWindow.manual(now, now.plusSeconds(1)), resume, execId.trim(), testRun,
+            plan = new Plan(BatchWindow.manual(now, now.plusSeconds(1)), resume, execId.trim(), testRun,
                     "ADMIN/reprocess:" + execId.trim(), false, true);
+        } else {
+            LocalDateTime from = dtm(b, "target_from_dtm");
+            LocalDateTime to = dtm(b, "target_to_dtm");
+            if (from == null || to == null || !from.isBefore(to)) {
+                throw new UserFacingRejection(MSG_ORIGIN_NO_WINDOW,
+                        "재처리 거절 — 원배치 수집 구간이 없다: execId=" + execId + " target=" + from + " ~ " + to);
+            }
+            plan = new Plan(BatchWindow.manual(from, to), resume, execId.trim(), testRun,
+                    "ADMIN/reprocess:" + execId.trim(), false);
         }
-        LocalDateTime from = dtm(b, "target_from_dtm");
-        LocalDateTime to = dtm(b, "target_to_dtm");
-        if (from == null || to == null || !from.isBefore(to)) {
-            throw new UserFacingRejection(MSG_ORIGIN_NO_WINDOW,
-                    "재처리 거절 — 원배치 수집 구간이 없다: execId=" + execId + " target=" + from + " ~ " + to);
+        List<LogCollectorClient.ChainBatch> chain = logCollector.failedChain(execId.trim(), image);
+        if (chain == null) {
+            throw new UserFacingRejection(MSG_CHAIN_UNAVAILABLE, "재처리 거절 — 재처리 체인(failed-chain)을 읽지 못했다: execId=" + execId
+                    + " · 새 실행 ID 로는 돌지 않는다(원배치 reopen 만)");
         }
-        return new Plan(BatchWindow.manual(from, to), resume, execId.trim(), testRun,
-                "ADMIN/reprocess:" + execId.trim(), false);
+        if (chain.isEmpty()) {
+            throw new UserFacingRejection(MSG_ALREADY_DONE, "재처리 거절 — 재처리 체인이 비었다(그새 처리됨): execId=" + execId);
+        }
+        return plan;
     }
 
     /** 원배치가 수용자 이미지 배치인가 — 작업명('수용자 이미지 수집…') 또는 작업 ID({@code IMAGE_COLLECT}). */
@@ -271,15 +297,12 @@ public class UnstructuredBatchService {
             if (chained != null) {
                 return chained;
             }
-        }
-        if (p.imageOnly()) {
-            // 이미지 배치의 긴급 재처리 — 이미지를 다시 돈다(실패 · 미처리 건만 처리 · 새 실행 ID 로 T1 · T2 · T4)
-            //   시험(TST) 이미지 배치는 시뮬레이터 SIM 사진이다 — 6번 탭과 같게 SIMIMG 접두 · 수집기 내장 Mock 브로커로
-            ImageCollectService.ImageRunResult r = image.run(new ImageCollectService.ImageRunRequest(
-                    null, p.testRun() ? egovframework.unstructured.collector.image.sim.ImageSimulationService.PREFIX : null,
-                    null, null, false, 0L, p.triggerBy(), p.testRun(), p.testRun(), null), onExecId);
-            return "이미지 execId=%s 대상%d 성공%d 실패%d 건너뜀%d (재처리 — 원배치 %s)".formatted(
-                    r.execId(), r.total(), r.success(), r.fail(), r.skipped(), p.originExecId());
+            // 긴급 재처리는 원배치를 같은 ID 로 다시 여는 것만 한다(2026-10-16). 체인을 쓸 수 없으면 새 실행 ID 로 돌지 않는다 —
+            //   예전엔 여기서 새 배치로 원배치 구간을 돌아, 같은 실패가 새 배치로 쌓이고 원배치 버튼은 그대로 남았다.
+            //   (planReprocess 가 미리 거르므로 여기 오는 건 접수 뒤 그새 처리됐거나 로그 컬렉터가 끊긴 경우뿐)
+            log.warn("[Unstructured] 긴급 재처리 안 함 — 원배치 {} 의 재처리 체인을 쓸 수 없다(새 실행 ID 로 돌지 않는다)", p.originExecId());
+            return "재처리 안 함 — 원배치 %s 의 재처리 체인을 쓸 수 없다(이미 처리됐거나 로그 컬렉터 연결 실패) · 새 실행 ID 로 돌지 않는다"
+                    .formatted(p.originExecId());
         }
         VoiceBatchResult v = voice.run(p.window(), null, p.triggerBy(), p.testRun(), p.resume(), p.originExecId(),
                 voice.defaultWorkers(), onExecId);
@@ -313,7 +336,7 @@ public class UnstructuredBatchService {
      *   <li>T4 는 같은 (배치 · 수용자 · 파일)을 마지막 상태로 덮어쓰고(로그 컬렉터 V19), T1 은 T4 최종 상태로 마감한다</li>
      * </ul>
      *
-     * @return 요약. 체인을 쓸 수 없으면(로그 컬렉터 미연동 · 옛 컬렉터 · 원배치가 실패가 아님) null — 예전처럼 새 실행 ID 로 원배치 구간을 돈다
+     * @return 요약. 체인을 쓸 수 없으면(로그 컬렉터 미연동 · 호출 실패 · 원배치가 실패가 아님) null — 호출 측은 재처리하지 않는다(새 실행 ID 로 돌지 않음)
      */
     private String executeChain(Plan p, BiConsumer<String, Boolean> onExecId) {
         if (!logCollector.isEnabled()) {
@@ -321,7 +344,7 @@ public class UnstructuredBatchService {
         }
         List<LogCollectorClient.ChainBatch> chain = logCollector.failedChain(p.originExecId(), p.imageOnly());
         if (chain == null || chain.isEmpty()) {
-            log.info("[Unstructured] 재처리 체인 없음(원배치 {} 가 실패가 아니거나 옛 로그 컬렉터) — 새 실행 ID 로 원배치 구간을 돈다",
+            log.info("[Unstructured] 재처리 체인 없음(원배치 {} 가 실패가 아니거나 로그 컬렉터 호출 실패) — 재처리하지 않는다",
                     p.originExecId());
             return null;
         }

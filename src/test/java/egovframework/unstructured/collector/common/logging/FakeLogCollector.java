@@ -40,6 +40,9 @@ public final class FakeLogCollector implements AutoCloseable {
     private static final Pattern STEPS = Pattern.compile(".*/api/v1/logs/batches/([^/]+)/steps$");
     private static final Pattern FILES = Pattern.compile(".*/api/v1/logs/batches/([^/]+)/file-procs$");
     private static final Pattern STEP = Pattern.compile(".*/api/v1/logs/steps/([^/]+)$");
+    private static final Pattern CHAIN = Pattern.compile(".*/api/v1/logs/batches/([^/]+)/failed-chain$");
+    private static final Pattern REOPEN = Pattern.compile(".*/api/v1/logs/batches/([^/]+)/reopen$");
+    private static final List<String> REOPENABLE = List.of("FAIL", "PARTIAL", "CANCELED");
 
     private final HttpServer server;
     private final JdbcTemplate jdbc;
@@ -139,6 +142,21 @@ public final class FakeLogCollector implements AutoCloseable {
                 ObjectNode w = om.createObjectNode();
                 w.putNull("watermark");
                 result = w;
+            } else if ("GET".equals(method) && (m = CHAIN.matcher(path)).matches()) {
+                String q = ex.getRequestURI().getQuery();
+                result = failedChain(m.group(1), q != null && q.contains("all=true"));
+            } else if ("POST".equals(method) && (m = REOPEN.matcher(path)).matches()) {
+                List<Map<String, Object>> b = rows("SELECT * FROM tb_batch_exec_log WHERE exec_id = ?", m.group(1));
+                if (b.isEmpty() || !REOPENABLE.contains(String.valueOf(b.get(0).get("exec_sts_cd")))) {
+                    // 진짜 로그 컬렉터와 같다 — 없으면 404, 실패/부분성공/취소가 아니면 409
+                    respond(ex, b.isEmpty() ? 404 : 409, Map.of("success", false, "code", b.isEmpty() ? 404 : 409,
+                            "error_message", "재개 불가: " + m.group(1)));
+                    return;
+                }
+                jdbc.update("DELETE FROM tb_batch_step_log WHERE exec_id = ?", m.group(1));
+                jdbc.update("UPDATE tb_batch_exec_log SET exec_sts_cd='RUNNING', target_cnt=NULL, success_cnt=NULL, fail_cnt=NULL,"
+                        + " err_msg=NULL, trigger_by=? WHERE exec_id=?", text(body, "triggerBy"), m.group(1));
+                result = null;
             } else if ("POST".equals(method) && (m = STEPS.matcher(path)).matches()) {
                 result = createStep(m.group(1), body);
             } else if ("POST".equals(method) && (m = FILES.matcher(path)).matches()) {
@@ -172,7 +190,11 @@ public final class FakeLogCollector implements AutoCloseable {
             } else {
                 result = Map.of();
             }
-            respond(ex, 200, Map.of("success", true, "code", 0, "result", result));
+            Map<String, Object> ok = new LinkedHashMap<>();
+            ok.put("success", true);
+            ok.put("code", 0);
+            ok.put("result", result);
+            respond(ex, 200, ok);
         } catch (Exception e) {
             respond(ex, 500, Map.of("success", false, "code", 500, "error_message", String.valueOf(e.getMessage())));
         }
@@ -214,6 +236,29 @@ public final class FakeLogCollector implements AutoCloseable {
         return Map.of("execId", execId);
     }
 
+    /** 로그 컬렉터 {@code GET …/failed-chain?all=} 와 같다 — 같은 유형 · 작업의 실패/부분성공/취소, 오래된 순(all=false 면 지정 배치까지). */
+    private List<Map<String, Object>> failedChain(String execId, boolean all) {
+        List<Map<String, Object>> me = rows("SELECT * FROM tb_batch_exec_log WHERE exec_id = ?", execId);
+        if (me.isEmpty() || !REOPENABLE.contains(String.valueOf(me.get(0).get("exec_sts_cd")))) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : rows("SELECT * FROM tb_batch_exec_log WHERE data_type_cd = ? AND job_id = ?"
+                        + " AND exec_sts_cd IN ('FAIL','PARTIAL','CANCELED')" + (all ? "" : " AND exec_id <= ?") + " ORDER BY exec_id",
+                all ? new Object[] {me.get(0).get("data_type_cd"), me.get(0).get("job_id")}
+                    : new Object[] {me.get(0).get("data_type_cd"), me.get(0).get("job_id"), execId})) {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("execId", r.get("exec_id"));
+            c.put("execStsCd", r.get("exec_sts_cd"));
+            c.put("jobId", r.get("job_id"));
+            c.put("jobNm", r.get("job_nm"));
+            c.put("targetFromDtm", r.get("target_from_dtm"));
+            c.put("targetToDtm", r.get("target_to_dtm"));
+            out.add(c);
+        }
+        return out;
+    }
+
     private Map<String, Object> createStep(String execId, JsonNode b) {
         String id = execId + "-S" + text(b, "stepTypeCd");
         jdbc.update("INSERT INTO tb_batch_step_log (step_log_id, exec_id, step_seq, step_type_cd, step_sts_cd) VALUES (?,?,?,?, 'RUNNING')",
@@ -224,7 +269,19 @@ public final class FakeLogCollector implements AutoCloseable {
     private Map<String, Object> createFileProcs(String execId, JsonNode list) {
         List<String> ids = new ArrayList<>();
         for (JsonNode r : list) {
-            String id = execId + "-F" + "%04d".formatted(ids.size() + 1);
+            // 같은 (배치 · 파일)은 마지막 상태로 덮어쓴다 — 로그 컬렉터 V19 와 같다(긴급 재처리가 같은 배치를 다시 열어 돈다)
+            List<Map<String, Object>> same = rows("SELECT file_proc_id FROM tb_file_proc_log WHERE exec_id = ? AND rec_file_id = ?",
+                    execId, text(r, "recFileId"));
+            if (!same.isEmpty()) {
+                String id = String.valueOf(same.get(0).get("file_proc_id"));
+                jdbc.update("UPDATE tb_file_proc_log SET file_path=?, file_nm=?, inmate_pid=?, file_size=?, proc_sts_cd=?, err_stack=?,"
+                                + " step_type_cd=? WHERE file_proc_id=?",
+                        text(r, "filePath"), text(r, "fileNm"), text(r, "inmatePid"), num(r, "fileSize"), text(r, "procStsCd"),
+                        text(r, "errStack"), text(r, "stepTypeCd"), id);
+                ids.add(id);
+                continue;
+            }
+            String id = execId + "-F" + "%04d".formatted(rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", execId).size() + 1);
             jdbc.update("INSERT INTO tb_file_proc_log (file_proc_id, exec_id, rec_file_id, file_path, file_nm, inmate_pid, file_size,"
                             + " proc_sts_cd, err_stack, step_type_cd) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     id, execId, text(r, "recFileId"), text(r, "filePath"), text(r, "fileNm"), text(r, "inmatePid"),

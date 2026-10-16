@@ -166,14 +166,18 @@ class UnstructuredReprocessChainTest {
     }
 
     @Test
-    @DisplayName("체인을 못 쓰면(옛 로그 컬렉터 null · 원배치가 실패가 아님 빈 목록) 예전처럼 새 실행 ID 로 원배치 구간을 돈다")
-    void fallsBackWithoutChain() {
-        when(logc.failedChain("UNS17", false)).thenReturn(null);
-        when(voice.run(any(), any(), any(), anyBoolean(), any(), any(), any(), any())).thenReturn(result("NEW"));
+    @DisplayName("체인을 못 쓰면(호출 실패 null · 그새 처리돼 빈 목록) 재처리하지 않는다 — 새 실행 ID 로 원배치 구간을 돌지 않는다(2026-10-16)")
+    void noFallbackWithoutChain() {
+        for (List<LogCollectorClient.ChainBatch> none : java.util.Arrays.<List<LogCollectorClient.ChainBatch>>asList(null, List.of())) {
+            when(logc.failedChain("UNS17", false)).thenReturn(none);
 
-        service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
+            String summary = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
 
-        verify(voice, times(1)).run(any(), isNull(), anyString(), eq(false), eq(ResumeMode.FROM_SEND), eq("UNS17"), any(), any());
+            assertThat(summary).contains("재처리 안 함").contains("새 실행 ID 로 돌지 않는다");
+        }
+        verify(voice, never()).run(any(), any(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(voice, never()).run(any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any());
+        verify(image, never()).run(any(), any());
         verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
     }
 }

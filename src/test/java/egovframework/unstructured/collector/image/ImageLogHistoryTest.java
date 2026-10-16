@@ -207,29 +207,33 @@ class ImageLogHistoryTest {
     }
 
     @Test
-    @DisplayName("이미지 재처리(긴급 재처리 → 이미지 재실행) — 새 실행 ID 의 T4 에 실패했던 3건만 SUCCESS 로 추가(정상 건은 건너뜀 · 남기지 않음)")
-    void imageReprocessAddsT4ForFailedOnly() {
+    @DisplayName("이미지 재처리(긴급 재처리) — 원배치를 같은 EXEC_ID 로 다시 연다: 새 배치 없음 · 실패했던 3건이 원배치 T4 에서 SUCCESS 로 · T1 성공")
+    void imageReprocessReopensOrigin() {
         dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.IMAGE), D, 4, oneEach(), true, null));
         ImageCollectService.ImageRunResult first = image.run(new ImageCollectService.ImageRunRequest(null, "DMYIMG", null, 2, false,
                 0L, "SCHEDULER", false, null, null));
         assertThat(t1(first.execId()).get("exec_type_cd")).isEqualTo("SCHEDULED");
+        int batchesBefore = logc.rows("SELECT * FROM tb_batch_exec_log").size();
 
         UnstructuredBatchService.Plan p = unstructured.planReprocess(first.execId(), "UNSTRUCTURED", "ANALYZE");
         assertThat(p.imageOnly()).as("원배치가 이미지 배치 — 이미지를 다시 돈다").isTrue();
         AtomicReference<String> again = new AtomicReference<>();
         String summary = unstructured.execute(p, (id, fromCollector) -> again.set(id));
-        assertThat(again.get()).isNotNull().isNotEqualTo(first.execId());
-        assertThat(summary).contains("성공3 실패0 건너뜀1");
+        assertThat(again.get()).as("접수 응답은 누른 배치 그대로").isEqualTo(first.execId());
+        assertThat(summary).contains("긴급 재처리 체인").contains(first.execId());
+        assertThat(logc.rows("SELECT * FROM tb_batch_exec_log")).as("새 배치를 만들지 않는다").hasSize(batchesBefore);
 
-        Map<String, Object> b = t1(again.get());
+        Map<String, Object> b = t1(first.execId());
         assertThat(b.get("trigger_by")).isEqualTo("ADMIN/reprocess:" + first.execId());
         assertThat(b.get("exec_sts_cd")).isEqualTo("SUCCESS");
-        assertThat(n(b, "success_cnt")).isEqualTo(3);
         assertThat(n(b, "fail_cnt")).isZero();
-        List<Map<String, Object>> rows = logc.rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", again.get());
-        assertThat(rows).hasSize(3).allMatch(r -> "SUCCESS".equals(r.get("proc_sts_cd")) && "SEND".equals(r.get("step_type_cd")));
-        assertThat(logc.rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", first.execId()))
-                .as("원배치의 실패 이력은 그대로 남는다").hasSize(4);
+        List<Map<String, Object>> rows = logc.rows("SELECT * FROM tb_file_proc_log WHERE exec_id = ?", first.execId());
+        assertThat(rows).as("같은 파일 행을 마지막 상태로 덮어쓴다 — 늘지 않는다").hasSize(4)
+                .allMatch(r -> "SUCCESS".equals(r.get("proc_sts_cd")));
+
+        // 해결된 배치를 또 누르면 — 이미 처리됨으로 거절, 아무것도 돌지 않는다
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> unstructured.planReprocess(first.execId(), "UNSTRUCTURED", "ANALYZE"))
+                .isInstanceOf(egovframework.unstructured.collector.batch.UserFacingRejection.class);
     }
 
     @Test

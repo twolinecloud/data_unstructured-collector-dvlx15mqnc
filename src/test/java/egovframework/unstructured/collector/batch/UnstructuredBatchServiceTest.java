@@ -146,6 +146,7 @@ class UnstructuredBatchServiceTest {
     @DisplayName("재처리 — 원배치(T1)의 수집 구간 그대로 · 원 execId 의 보존물 · 시험 배치면 시험으로")
     void reprocessUsesOriginWindow() throws Exception {
         UnstructuredBatchService s = service(true);
+        when(logc.failedChain(anyString(), anyBoolean())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
         when(logc.batchDetail("20260915UNS003")).thenReturn(detail("20260915UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
                 "2026-09-14T00:00:00", "2026-09-15T00:00:00"));
         var p = s.planReprocess("20260915UNS003", "UNSTRUCTURED", "SEND");
@@ -183,13 +184,42 @@ class UnstructuredBatchServiceTest {
     }
 
     @Test
+    @DisplayName("재처리는 원배치 reopen 만 — 실패/부분성공/취소가 아니거나 재처리 체인을 못 읽으면 거절(새 실행 ID 로 돌지 않는다)")
+    void reprocessOnlyReopens() throws Exception {
+        UnstructuredBatchService s = service(false);
+        when(logc.batchDetail("20261016UNS001")).thenReturn(OM.readTree("""
+                {"batch":{"exec_id":"20261016UNS001","job_id":"VOICE_ANALYSIS","data_type_cd":"UNSTRUCTURED","exec_sts_cd":"SUCCESS",
+                 "target_from_dtm":"2026-10-15T00:00:00","target_to_dtm":"2026-10-16T00:00:00"},"steps":[]}"""));
+        assertRejected(() -> s.planReprocess("20261016UNS001", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ALREADY_DONE,
+                "exec_sts_cd=SUCCESS");
+        verify(logc, never()).failedChain(anyString(), anyBoolean());
+
+        when(logc.batchDetail("20261016UNS003")).thenReturn(detail("20261016UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
+                "2026-10-15T00:00:00", "2026-10-16T00:00:00"));
+        when(logc.failedChain("20261016UNS003", false)).thenReturn(null);
+        assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE,
+                "failed-chain)을 읽지 못했다");
+        when(logc.failedChain("20261016UNS003", false)).thenReturn(List.of());
+        assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ALREADY_DONE,
+                "재처리 체인이 비었다");
+        when(logc.failedChain("20261016UNS003", false)).thenReturn(List.of(chainBatch("20261016UNS003")));
+        assertThat(s.planReprocess("20261016UNS003", "UNSTRUCTURED", null).originExecId()).isEqualTo("20261016UNS003");
+    }
+
+    private static LogCollectorClient.ChainBatch chainBatch(String execId) {
+        return new LogCollectorClient.ChainBatch(execId, "FAIL", "VOICE_ANALYSIS", null, null,
+                LocalDateTime.of(2026, 10, 15, 0, 0), LocalDateTime.of(2026, 10, 16, 0, 0));
+    }
+
+    @Test
     @DisplayName("화면 안내 — 400 문구는 공백 포함 60자(토스트 두 줄) 이내(워터마크 안내만 사용자가 정한 원문 그대로) · 영문 식별자 · 실행 ID 없음")
     void userMessagesFitTwoLines() {
         List<String> all = List.of(UnstructuredBatchService.MSG_TO_FUTURE, UnstructuredBatchService.MSG_TO_FORMAT,
                 UnstructuredBatchService.MSG_NO_ORIGIN, UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND,
                 UnstructuredBatchService.MSG_NOT_UNSTRUCTURED_BATCH, UnstructuredBatchService.MSG_ORIGIN_NO_WINDOW,
                 UnstructuredBatchService.MSG_BAD_STEP, UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
-                UnstructuredBatchService.MSG_BAD_BODY, UserFacingRejection.GENERIC);
+                UnstructuredBatchService.MSG_BAD_BODY, UnstructuredBatchService.MSG_ALREADY_DONE,
+                UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE, UserFacingRejection.GENERIC);
         for (String m : all) {
             assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);
             assertThat(m).as("내부 변수 · 실행 ID 가 섞이지 않는다").doesNotContainPattern("[A-Za-z]");

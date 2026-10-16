@@ -483,6 +483,21 @@ public class LogCollectorClient {
         return exchange(HttpMethod.POST, url("/api/v1/logs/dummy-batches/delete"), Map.of("execIds", execIds));
     }
 
+    /**
+     * T2 SEND 전송 시작 — 커넥터 관리자 트리거가 보내기 직전에 하는 것과 같은 조건부 UPDATE
+     * ({@code POST …/steps/send/claim} · 대기 · 재시도 대상 → RUNNING, 종료 · 출력/오류 건수 비움). 시뮬레이터가 '전송중' · '부분 성공' · '취소'
+     * 화면을 재현할 때 쓴다 — 이어서 {@link #finishStep} 으로 마감하면 누적이 아니라 마감으로 들어간다.
+     *
+     * @return RUNNING 으로 바꾼 SEND STEP_LOG_ID. 미연동 · 409(이미 전송 중 · 성공) · 실패면 null
+     */
+    public String claimSendStep(String execId) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return null;
+        }
+        JsonNode r = exchange(HttpMethod.POST, url("/api/v1/logs/batches/" + execId.trim() + "/steps/send/claim"), null);
+        return r == null || !r.hasNonNull("stepLogId") ? null : r.path("stepLogId").asText();
+    }
+
     // ── 내부 ───────────────────────────────────────────────────────────────
 
     private String url(String path) {

@@ -53,6 +53,12 @@ public class AdminMockController {
         return admin.reprocess(body);
     }
 
+    @Operation(summary = "= POST /internal/batch/cloud-send (클라우드 전송 · 본문 규약)")
+    @PostMapping("/batch/cloud-send")
+    public ResponseEntity<Map<String, Object>> cloudSend(@RequestBody(required = false) AdminLinkController.CloudSendReq body) {
+        return admin.cloudSend(body);
+    }
+
     @Operation(summary = "= GET /internal/batch/status")
     @GetMapping("/batch/status")
     public Map<String, Object> status(@RequestParam(required = false) String execId) {

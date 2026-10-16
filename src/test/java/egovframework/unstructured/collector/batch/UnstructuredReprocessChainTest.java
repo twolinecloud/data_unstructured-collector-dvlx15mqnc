@@ -74,7 +74,8 @@ class UnstructuredReprocessChainTest {
         service = new UnstructuredBatchService(voice, image, vp, logc, new UnstructuredBatchProperties(
                 new UnstructuredBatchProperties.Admin("", Duration.ofSeconds(2), Duration.ofSeconds(3)),
                 new UnstructuredBatchProperties.Schedule(300000, "Asia/Seoul"),
-                new UnstructuredBatchProperties.Batch(true, 1500)));
+                new UnstructuredBatchProperties.Batch(true, 1500)),
+                mock(egovframework.unstructured.collector.common.transfer.TransmitHoldClient.class));
         ReflectionTestUtils.setField(service, "catchupLookbackDays", 30);
     }
 
@@ -105,7 +106,7 @@ class UnstructuredReprocessChainTest {
     @DisplayName("음성 17 클릭 — 15 → 16 → 17 을 같은 실행 ID 로 다시 열어 각자 구간으로 · 17 은 요청 단계, 앞 배치는 전송부터 · 원래 실패 키를 넘긴다")
     @SuppressWarnings("unchecked")
     void voiceChainOldestFirstSameIds() throws Exception {
-        when(logc.failedChain("UNS17", false)).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));
+        when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));
         when(logc.fileProcs(anyString(), anyInt())).thenAnswer(inv -> t4("K-" + inv.getArgument(0)));
         BiConsumer<String, Boolean> onExecId = mock(BiConsumer.class);
 
@@ -131,7 +132,7 @@ class UnstructuredReprocessChainTest {
     @Test
     @DisplayName("중간 배치가 실패해도 다음 배치로 계속 — 실패한 배치만 FAIL 로 닫는다 · 다시 열기 실패는 건너뛴다")
     void continuesAfterFailure() {
-        when(logc.failedChain("UNS17", false)).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));
+        when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));
         when(logc.reopenBatch(eq("UNS15"), any(), any(), any())).thenReturn(false);
         org.mockito.Mockito.doThrow(new IllegalStateException("broker down"))
                 .when(voice).run(any(), any(), any(), anyBoolean(), any(), eq("UNS16"), any(), any(), any());
@@ -172,7 +173,7 @@ class UnstructuredReprocessChainTest {
     @DisplayName("체인을 못 쓰면(호출 실패 null · 그새 처리돼 빈 목록) 재처리하지 않는다 — 새 실행 ID 로 원배치 구간을 돌지 않는다(2026-10-16)")
     void noFallbackWithoutChain() {
         for (List<LogCollectorClient.ChainBatch> none : java.util.Arrays.<List<LogCollectorClient.ChainBatch>>asList(null, List.of())) {
-            when(logc.failedChain("UNS17", false)).thenReturn(none);
+            when(logc.pendingChain("UNS17")).thenReturn(none);
 
             String summary = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
 

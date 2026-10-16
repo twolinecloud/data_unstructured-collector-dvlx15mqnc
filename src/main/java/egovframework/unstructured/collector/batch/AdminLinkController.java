@@ -67,13 +67,15 @@ public class AdminLinkController {
                     + "배열 `[2026,10,2,10,0]`(`[yyyy, MM, dd, HH, mm(, ss)]`)", type = "string", example = "2026-10-02T10:00:00")
             @JsonDeserialize(using = FlexibleLocalDateTimeDeserializer.class) LocalDateTime targetToDtm) {}
 
-    /** 긴급 재처리 본문 — admin-api {@code ReprocessRequest(execId, dataTypeCd, stepTypeCd, stepSeq)}. */
+    /** 긴급 재처리 본문 — admin-api {@code ReprocessRequest(execId, dataTypeCd, stepTypeCd, stepSeq)} + 요청한 관리자. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReprocessReq(
             @Schema(description = "재처리할 원배치 실행 ID", example = "20261002UNS001") String execId,
             @Schema(example = "UNSTRUCTURED") String dataTypeCd,
             @Schema(description = "단계(C05) COLLECT · ANALYZE · SEND. 비우면 처음부터(전체 재처리)", example = "SEND") String stepTypeCd,
-            @Schema(description = "단계 순번 — 비정형은 단계가 한 번씩이라 쓰지 않는다(기록만)", example = "3") Integer stepSeq) {}
+            @Schema(description = "단계 순번 — 비정형은 단계가 한 번씩이라 쓰지 않는다(기록만)", example = "3") Integer stepSeq,
+            @Schema(description = "(선택) 요청한 관리자 ID — T1 TRIGGER_BY(`<관리자>/reprocess:<누른 배치>`) · 커넥터 감사 로그. 비우면 ADMIN",
+                    example = "admin01") String triggerBy) {}
 
     /** 클라우드 전송 본문 — 누른 배치 · 데이터 구분 · 요청한 관리자. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -147,8 +149,11 @@ public class AdminLinkController {
                     | `ANALYZE` | STT 부터 | 복호화 오디오 |
                     | `SEND` | 에이전트 커넥터 전송부터(STT 생략) | `stt_temp/{원 execId}` 전사 |
 
-                    - **원배치를 같은 EXEC_ID 로 다시 연다(reopen) — 새 실행 ID 를 만들지 않는다.** 누른 배치와 그 이전의 실패/부분성공/취소 배치를
-                      오래된 순으로 각자 ID 로 다시 돈다(이미지 배치는 지금까지 전부). 이미 성공한 건은 멱등 표식이 건너뛴다
+                    - **원배치를 같은 EXEC_ID 로 다시 연다(reopen) — 새 실행 ID 를 만들지 않는다.** 누른 배치와 그 이전의 **미완료 배치**
+                      (배치 실패/부분성공/취소 · 전송 실패/부분성공/취소/**대기 WAIT**)를 오래된 순으로 각자 ID 로 처리한다(이미지 배치는 지금까지의 실패 전부).
+                      배치마다 커넥터 보류분(대기)을 먼저 보내고, 배치가 실패류면 다시 열어 실패 건을 다시 돈다. 이미 성공한 건은 멱등 표식이 건너뛴다
+                    - **대기(WAIT)도 포함한다(PL 협의 2026-10-16)** — 화면이 "하위 대기 건을 모두 확인했습니까?" 팝업으로 승인받고 부른다.
+                      지금 실행 · 전송 중인 배치는 건너뛴다(누른 배치면 409)
                     - 시험 배치(TST)를 재처리하면 재처리도 시험 이력으로 남는다
                     - **202 / 409** 는 바로 실행과 같다. **400** — 유형 · 단계 오류, 원배치를 찾을 수 없음(로그 컬렉터 미연동 포함),
                       이미 처리됨(실패/부분성공/취소 아님), 재처리 체인(로그 컬렉터 failed-chain)을 읽지 못함
@@ -159,7 +164,10 @@ public class AdminLinkController {
             throw new UserFacingRejection(UnstructuredBatchService.MSG_BAD_BODY,
                     "재처리 거절 — 본문 필수 {execId, dataTypeCd, stepTypeCd, stepSeq}");
         }
-        UnstructuredBatchService.Plan plan = service.planReprocess(body.execId(), body.dataTypeCd(), body.stepTypeCd());
+        UnstructuredBatchService.Plan p = service.planReprocess(body.execId(), body.dataTypeCd(), body.stepTypeCd());
+        UnstructuredBatchService.Plan plan = body.triggerBy() == null || body.triggerBy().isBlank() ? p
+                : new UnstructuredBatchService.Plan(p.window(), p.resume(), p.originExecId(), p.testRun(),
+                        body.triggerBy().trim() + "/reprocess:" + p.originExecId(), p.includeImage(), p.imageOnly());
         Map<String, Object> extra = new LinkedHashMap<>();
         extra.put("stepTypeCd", body.stepTypeCd());
         extra.put("stepSeq", body.stepSeq());
@@ -170,7 +178,7 @@ public class AdminLinkController {
 
     @Operation(summary = "클라우드 전송 (비동기)",
             description = """
-                    전송 대기 목록에서 누른 음성 배치를 보낸다. **누른 배치와 그 이전의 전송 실패 배치**(같은 작업 · 전송 단계 실패/부분성공/취소)를
+                    전송 대기 목록에서 누른 음성 배치를 보낸다. **누른 배치와 그 이전의 전송 미완료 배치**(같은 작업 · 전송 단계 실패/부분성공/취소/**대기**)를
                     오래된 순으로 보내고 누른 배치를 마지막에 보낸다. 배치마다 데이터를 가진 쪽이 보낸다.
 
                     | 배치 | 보내는 쪽 |
@@ -178,8 +186,8 @@ public class AdminLinkController {
                     | 커넥터 보류 장부에 있음(전송 대기 · 커넥터 쪽 실패) | 커넥터 전송 트리거(`/api/v1/transmit/holds/{execId}/release`) |
                     | 장부에 없고 배치가 실패/부분성공/취소 | 수집기 — 같은 EXEC_ID 로 다시 열어 **전송부터**(보존 전사 · 처리된 건 건너뜀) |
 
-                    - **전송 대기(WAIT · 법적 수동 검수)는 누른 배치일 때만 보낸다** — 이전 배치를 함께 보낼 때 절대 넣지 않는다.
-                      실행 중 · 전송 중인 배치도 건너뛴다(중복 방지)
+                    - **전송 대기(WAIT)도 함께 보낸다(PL 협의 2026-10-16)** — 화면이 "하위 대기 건을 모두 확인했습니까?" 팝업으로 승인받고 부른다.
+                      대기인데 커넥터 장부에 없으면 보내지 않는다. 실행 중 · 전송 중인 배치는 건너뛴다(중복 방지)
                     - **202** `{execId, status:"RUNNING", chain:[…], …}` — 접수하고 곧바로 돌려준다. 결과는 전송 단계(T2)로 본다(목록 새로고침)
                     - **409** — 수집기가 다른 작업을 돌리는 중이거나 그 배치가 지금 실행 · 전송 중
                     - **400** — 유형 · execId 오류, 배치 없음, 수용자 이미지, 전송할 데이터 없음, 이미 전송됨, 커넥터 장부 · 전송 체인을 읽지 못함.

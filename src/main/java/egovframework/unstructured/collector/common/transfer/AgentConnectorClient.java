@@ -298,6 +298,9 @@ public class AgentConnectorClient {
      * @param execId       이 실행 ID
      * @param originExecId 재처리면 원배치 ID — 원배치 런이 마감되지 않았으면 그 런을 이어 받는다(이어달리기)
      */
+    /** 다시 보내는 런의 ID 꼬리 — {@code <실행 ID>-R<MMddHHmmss>}(커넥터 drop 경로에 그대로 쓰여 경로 안전 문자만). */
+    private static final java.time.format.DateTimeFormatter RERUN_ID = java.time.format.DateTimeFormatter.ofPattern("MMddHHmmss");
+
     public Session openSession(String execId, String originExecId) {
         return new Session(execId, originExecId);
     }
@@ -342,6 +345,15 @@ public class AgentConnectorClient {
             boolean continued = originExecId != null && !originExecId.equals(execId) && runs.isOpen(originExecId);
             String runId = continued ? originExecId : execId;
             TransferRuns.RunState before = runs.get(runId);
+            if (!continued && (before == null || before.closed) && (before != null || execId.equals(originExecId))) {
+                // 이 실행 ID 의 앞 런이 이미 마감됐다(또는 같은 EXEC_ID 로 다시 연 배치) — 마감된 런에 순번을 이어 붙이면 커넥터는 앞 순번이
+                //   정리된 뒤라 '빈 순번' 을 기다리며 마감을 미루고, 같은 순번을 다시 보내면 중복으로 버린다(2026-10-16 개발계 E2E —
+                //   보류분 전송(release) 뒤 다시 돈 1건이 커넥터에 갇힘). 새 런 ID 로 1번부터 보낸다. 배치 키는 X-Collect-Exec-Id 라
+                //   커넥터 보류 장부 · T2 · T5 는 그대로 이 실행 ID 에 묶인다
+                runId = execId + "-R" + LocalDateTime.now(clock).format(RERUN_ID);
+                log.info("[Transfer] 앞 런 {} 이 마감돼 새 런 {} 으로 보낸다 — 이번 실행 {}", execId, runId, execId);
+                before = runs.get(runId);
+            }
             int base = before == null ? 0 : before.deliveredSeq;
             long prior = before == null ? 0 : before.deliveredRecords;
             runs.attach(runId, execId);

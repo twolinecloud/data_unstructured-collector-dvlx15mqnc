@@ -2591,6 +2591,8 @@ function scenBuild() {
         <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
           ${modeSel}
           <button class="btn btn-sm btn-outline-danger" data-scen="${s.key}" data-act="fail">장애 실행</button>
+          <button class="btn btn-sm btn-outline-danger" data-scen="${s.key}" data-act="fail-n"
+                  title="같은 장애로 배치를 여러 번 연달아 돌립니다 — 실패 배치가 횟수만큼 쌓입니다(긴급 재처리 체인 확인용)">연속 장애 실행</button>
           <button class="btn btn-sm btn-outline-secondary" data-scen="${s.key}" data-act="clear"
                   title="장애만 걷습니다 — 재처리는 돌리지 않습니다(어드민 [긴급 재처리]로 볼 때)">장애 해제</button>
           <button class="btn btn-sm btn-outline-primary" data-scen="${s.key}" data-act="resume">재처리</button>
@@ -2863,7 +2865,7 @@ async function scenReset(quiet) {
   await scenPreserved();
 }
 
-async function scenFail(s) {
+async function scenFail(s, runLabel) {
   if (s.key === 'COLLECT') {
     // 주입 스위치가 아니라 '주소를 틀리게' 해서 깨뜨린다 — 실제 장애 모양과 같다.
     if (!BROKER_BEFORE) {
@@ -2885,7 +2887,7 @@ async function scenFail(s) {
         `[${s.no}] ${s.key} 장애 주입 — ${mode === 'ALL' ? '전체 실패' : '부분 실패(실패율 ' + pct + '%)'}`);
   }
   const q = s.kinds ? `&kinds=${s.kinds}` : '';
-  const info = await runBatchInner('/api/v1/voice/batches/daily', `[${s.no}] 1차 배치 (장애 상태)`, s.kinds || null, null);
+  const info = await runBatchInner('/api/v1/voice/batches/daily', runLabel || `[${s.no}] 1차 배치 (장애 상태)`, s.kinds || null, null);
   return info && info.body;
 }
 
@@ -2912,11 +2914,45 @@ async function scenResume(s) {
   return info && info.body;
 }
 
+const SCEN_REPEAT_DEFAULT = 3, SCEN_REPEAT_MAX = 10;
+
+/** [연속 장애 실행] 횟수를 묻는다 — 기본 3. 취소면 0. */
+async function askScenRepeat(s) {
+  const how = s.modes
+    ? `카드에서 고른 장애(${$('sc-mode-' + s.key).value === 'PARTIAL' ? '부분 실패 ' + $('sc-pct-' + s.key).value + '%' : '전체 실패'})로`
+    : '같은 장애로';
+  const ok = await confirmPopup(`연속 장애 실행 — ${s.no}. ${s.short}`, `<div class="pop-lead">${esc(s.title)}</div>
+    <div class="d-flex align-items-center gap-2 my-2">
+      <label for="scen-repeat-n" class="fw-semibold">장애 횟수</label>
+      <input type="number" class="form-control form-control-sm" id="scen-repeat-n" value="${SCEN_REPEAT_DEFAULT}"
+             min="1" max="${SCEN_REPEAT_MAX}" step="1" style="max-width:6rem">
+      <span class="hint">회 (1 ~ ${SCEN_REPEAT_MAX})</span>
+    </div>
+    <ul class="pop-list">
+      <li>${how} 배치를 횟수만큼 <b>연달아</b> 돌립니다 — 실패 배치가 횟수만큼 쌓입니다</li>
+      <li>장애는 끝나도 <b>걸린 채</b>로 둡니다 — 어드민에서 볼 때는 [장애 해제] 후 맨 위 배치의 [긴급 재처리] (오래된 순으로 다시 돕니다)</li>
+    </ul>`, '실행', '취소');
+  const input = $('scen-repeat-n');
+  const n = Math.floor(Number(input ? input.value : 0));
+  if (!ok) return 0;
+  if (!(n >= 1 && n <= SCEN_REPEAT_MAX)) {
+    showPopup('장애 횟수를 확인하십시오', `<div class="pop-lead">1 ~ ${SCEN_REPEAT_MAX} 사이의 정수를 넣으십시오 (넣은 값: ${esc(input ? input.value : '')}).</div>`);
+    return 0;
+  }
+  return n;
+}
+
 async function scenRun(key, act) {
   const s = SCEN.find(x => x.key === key);
   if (!s) return;
   // [단독 실행]은 스스로 데이터를 다시 만든다. [장애 실행]만 있는 데이터로 돌기 때문에 먼저 확인한다
-  if (act === 'fail' && !SCEN_AUTO && !(await ensureData('daily', s.kinds || null, `[${s.no}] 장애 실행`))) return;
+  let repeat = 1;
+  if (act === 'fail-n') {
+    repeat = await askScenRepeat(s);
+    if (!repeat) return;
+  }
+  if ((act === 'fail' || act === 'fail-n') && !SCEN_AUTO
+      && !(await ensureData('daily', s.kinds || null, `[${s.no}] ${act === 'fail' ? '장애 실행' : '연속 장애 실행'}`))) return;
   scenLock(true);
   healthPause();
   try {
@@ -2929,6 +2965,23 @@ async function scenRun(key, act) {
     if (act === 'clear') {
       await scenClear(s);
       log(`  └ [${s.no}] 장애를 걷었습니다 — 어드민 배치 수행 이력에서 실패 배치의 [긴급 재처리]를 누르면 오래된 순으로 다시 돕니다`, 'ok');
+    }
+    if (act === 'fail-n') {
+      log(`▶ 시나리오 ${s.no} 연속 장애 실행 — ${repeat}회`, 'hd');
+      scenMark(key, { running:true, html:'' });
+      let last = null, failed = 0;
+      for (let i = 1; i <= repeat; i++) {
+        const r = await scenFail(s, `[${s.no}] 연속 장애 ${i}/${repeat}`);
+        last = r;
+        if (r && r.failCnt > 0) failed++;
+        html += `<div>${i}/${repeat}${r?.execId ? ' <code>' + esc(r.execId) + '</code>' : ''}: ${scenSummary(r)}</div>`;
+        scenMark(key, { running: i < repeat, html });
+      }
+      scenMark(key, { running:false, html, result: failed > 0 ? 'ng' : 'ok' });
+      log(`  └ 연속 장애 ${repeat}회 끝 — 실패 배치 ${failed}건. 어드민에서 볼 때: [장애 해제] → 맨 위 배치 [긴급 재처리]`, failed === repeat ? 'ok' : 'wr');
+      $('sc-vf-' + key).innerHTML = '';
+      await scenVerify(key, 'fail', last);
+      await scenPreserved();
     }
     if (act === 'fail' || act === 'both') {
       scenMark(key, { running:true, html:'' });

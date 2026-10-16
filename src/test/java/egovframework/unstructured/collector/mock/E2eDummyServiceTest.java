@@ -151,7 +151,8 @@ class E2eDummyServiceTest {
     void cleanupTargets() throws Exception {
         Files.createDirectories(root.resolve("mock"));
         Files.writeString(root.resolve(E2eDummyService.FILE), "{\"execIds\":[\"P1\",\"P2\"]}");
-        String oldImg = "DMYIMG" + LocalDate.now().minusDays(9).format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd")) + "0001SF";
+        // 이미지 T4 키는 공통파일 ID 형식(DMYIMGF<yyMMdd>…) — 개발계 E2E 에서 교정번호 형식만 보다가 정리가 빠졌다
+        String oldImg = "DMYIMGF" + LocalDate.now().minusDays(9).format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd")) + "00012";
         String newImg = "DMYIMG" + LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd")) + "0001SF";
         when(logc.listBatches("UNSTRUCTURED", "FAIL,PARTIAL,CANCELED", 200)).thenReturn(OM.readTree("""
                 [{"execId":"V1","jobId":"VOICE_ANALYSIS","targetFromDtm":"2026-10-02T00:00:00","targetToDtm":"2026-10-03T00:00:00"},
@@ -180,6 +181,15 @@ class E2eDummyServiceTest {
         verify(logc).deleteDummyBatches(ids.capture());
         assertThat(ids.getValue()).containsExactly("P1", "V1", "I1", "X9");   // P2 는 장부를 못 비워 남긴다
         assertThat(out.get("previousE2e")).asString().contains("P1").contains("P2");
+    }
+
+    @Test
+    @DisplayName("이미지 키 대상일 — 교정번호(DMYIMG2610030001SF) · 공통파일 ID(DMYIMGF26100200012) 둘 다 · 아니면 없음")
+    void imageKeyDate() {
+        assertThat(E2eDummyService.imageDateOf("DMYIMG2610030001SF")).contains(LocalDate.of(2026, 10, 3));
+        assertThat(E2eDummyService.imageDateOf("DMYIMGF26100200012")).contains(LocalDate.of(2026, 10, 2));
+        assertThat(E2eDummyService.imageDateOf("TF000123")).isEmpty();
+        assertThat(E2eDummyService.imageDateOf(null)).isEmpty();
     }
 
     private static JsonNode t4(String... keyStatus) throws Exception {

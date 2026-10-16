@@ -232,12 +232,26 @@ public class E2eDummyService {
                         && voice.noReopenTargets(BatchWindow.manual(from, to), failed, false)) {
                     out.put(id, "음성 실패 " + failed.size() + "건의 원본이 수집 구간에 없음");
                 }
-            } else if (failed.stream().allMatch(k -> k.startsWith("DMYIMG")
-                    && DummyKeys.dashboardDateOf(k).map(d -> d.isBefore(cut)).orElse(false))) {
+            } else if (failed.stream().allMatch(k -> imageDateOf(k).map(d -> d.isBefore(cut)).orElse(false))) {
                 out.put(id, "이미지 실패 " + failed.size() + "건이 더미 보존 기간(" + keep + "일) 이전");
             }
         }
         return out;
+    }
+
+    /** 이미지 T4 키의 대상일 — 교정번호({@code DMYIMG<yyMMdd>…}) · 공통파일 ID({@code DMYIMGF<yyMMdd>…}) 둘 다. */
+    private static final java.util.regex.Pattern DMY_IMAGE_KEY = java.util.regex.Pattern.compile("^DMYIMG[A-Z]?([0-9]{6})");
+
+    static java.util.Optional<LocalDate> imageDateOf(String key) {
+        java.util.regex.Matcher m = DMY_IMAGE_KEY.matcher(key == null ? "" : key);
+        if (!m.find()) {
+            return java.util.Optional.empty();
+        }
+        try {
+            return java.util.Optional.of(LocalDate.parse(m.group(1), java.time.format.DateTimeFormatter.ofPattern("yyMMdd")));
+        } catch (DateTimeParseException e) {
+            return java.util.Optional.empty();
+        }
     }
 
     static boolean isDummyKey(String key) {

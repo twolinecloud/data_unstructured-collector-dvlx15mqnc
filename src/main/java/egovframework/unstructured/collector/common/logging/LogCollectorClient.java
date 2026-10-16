@@ -171,7 +171,7 @@ public class LogCollectorClient {
     /**
      * 재처리 체인의 배치 한 건 — 실패/부분성공/취소 · 훑은 구간.
      *
-     * @param sendStsCd 전송(SEND) 단계 상태 — 전송 체인({@link #sendChain})만 채운다. 배치 체인({@link #failedChain})은 null
+     * @param sendStsCd 전송(SEND) 단계 상태 — 전송 · 미완료 체인({@link #sendChain} · {@link #pendingChain})만 채운다. 배치 체인({@link #failedChain})은 null
      */
     public record ChainBatch(String execId, String execStsCd, String jobId, String jobNm, LocalDateTime startDtm,
                              LocalDateTime targetFrom, LocalDateTime targetTo, String sendStsCd) {
@@ -197,10 +197,9 @@ public class LogCollectorClient {
     }
 
     /**
-     * 전송 체인(클라우드 전송) — 지정 배치와 같은 작업에서 <b>전송(SEND) 단계</b>가 실패/부분성공/취소인 배치, 지정 배치 이전(포함) · 오래된 순
-     * ({@code GET …/failed-chain?basis=SEND} · 로그 컬렉터 2026-10-16). 배치(T1) 상태는 묻지 않는다 — 전송만 실패하고 배치는 성공한 건도 잡는다.
-     * 전송 대기(WAIT · 수동 확인)와 실행 중인 배치는 로그 컬렉터가 넣지 않는다. 그래도 호출 측은 보내기 직전에 상태를 다시 본다
-     * ({@code basis} 를 모르는 옛 컬렉터는 배치 체인을 돌려주기 때문이다).
+     * 전송 체인(클라우드 전송) — 지정 배치와 같은 작업에서 <b>전송(SEND) 단계</b>가 실패/부분성공/취소/<b>대기(WAIT)</b>인 배치,
+     * 지정 배치 이전(포함) · 오래된 순({@code GET …/failed-chain?basis=SEND}). 배치(T1) 상태는 묻지 않는다 — 전송만 실패하고 배치는 성공한
+     * 건(커넥터 쪽 실패)도 잡는다. 실행 중(T1 RUNNING/WAIT)인 배치는 넣지 않는다. 호출 측은 보내기 직전에 상태를 다시 본다.
      *
      * @return 목록(행마다 {@link ChainBatch#sendStsCd}). 미연동 · 실패면 null
      */
@@ -209,6 +208,19 @@ public class LogCollectorClient {
             return null;
         }
         return chain(url("/api/v1/logs/batches/" + execId.trim() + "/failed-chain?all=false&basis=SEND"));
+    }
+
+    /**
+     * 미완료 체인(긴급 재처리 · 음성) — 지정 배치와 같은 작업에서 <b>배치가 실패/부분성공/취소이거나 전송이 실패/부분성공/취소/대기</b>인 배치,
+     * 지정 배치 이전(포함) · 오래된 순({@code GET …/failed-chain?basis=PENDING} · 로그 컬렉터 2026-10-16). 실행 중인 배치는 넣지 않는다.
+     *
+     * @return 목록(행마다 {@link ChainBatch#sendStsCd}). 미연동 · 실패(이 basis 를 모르는 옛 컬렉터는 400)면 null
+     */
+    public List<ChainBatch> pendingChain(String execId) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return null;
+        }
+        return chain(url("/api/v1/logs/batches/" + execId.trim() + "/failed-chain?all=false&basis=PENDING"));
     }
 
     private List<ChainBatch> chain(String url) {

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.batch.schedule.BatchSchedule;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
+import egovframework.unstructured.collector.common.transfer.TransmitHoldClient;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import egovframework.unstructured.collector.voice.batch.VoiceBatchResult;
@@ -43,6 +44,7 @@ class UnstructuredBatchServiceTest {
     private VoiceCollectService voice;
     private ImageCollectService image;
     private LogCollectorClient logc;
+    private TransmitHoldClient holds;
     private VoiceProperties.Batch batch;
 
     @BeforeEach
@@ -50,6 +52,7 @@ class UnstructuredBatchServiceTest {
         voice = mock(VoiceCollectService.class);
         image = mock(ImageCollectService.class);
         logc = mock(LogCollectorClient.class);
+        holds = mock(TransmitHoldClient.class);
         batch = mock(VoiceProperties.Batch.class);
         when(batch.periodicLagMin()).thenReturn(20);
         when(batch.jobId()).thenReturn("VOICE_ANALYSIS");
@@ -64,7 +67,7 @@ class UnstructuredBatchServiceTest {
                 new UnstructuredBatchProperties.Admin("", Duration.ofSeconds(2), Duration.ofSeconds(3)),
                 new UnstructuredBatchProperties.Schedule(300000, "Asia/Seoul"),
                 new UnstructuredBatchProperties.Batch(includeImage, 1500));
-        UnstructuredBatchService s = new UnstructuredBatchService(voice, image, vp, logc, props);
+        UnstructuredBatchService s = new UnstructuredBatchService(voice, image, vp, logc, props, holds);
         ReflectionTestUtils.setField(s, "catchupLookbackDays", 30);
         return s;
     }
@@ -146,7 +149,7 @@ class UnstructuredBatchServiceTest {
     @DisplayName("재처리 — 원배치(T1)의 수집 구간 그대로 · 원 execId 의 보존물 · 시험 배치면 시험으로")
     void reprocessUsesOriginWindow() throws Exception {
         UnstructuredBatchService s = service(true);
-        when(logc.failedChain(anyString(), anyBoolean())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
+        when(logc.pendingChain(anyString())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
         when(logc.batchDetail("20260915UNS003")).thenReturn(detail("20260915UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
                 "2026-09-14T00:00:00", "2026-09-15T00:00:00"));
         var p = s.planReprocess("20260915UNS003", "UNSTRUCTURED", "SEND");
@@ -192,48 +195,50 @@ class UnstructuredBatchServiceTest {
                  "target_from_dtm":"2026-10-15T00:00:00","target_to_dtm":"2026-10-16T00:00:00"},"steps":[]}"""));
         assertRejected(() -> s.planReprocess("20261016UNS001", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ALREADY_DONE,
                 "exec_sts_cd=SUCCESS");
-        verify(logc, never()).failedChain(anyString(), anyBoolean());
+        verify(logc, never()).pendingChain(anyString());
 
         when(logc.batchDetail("20261016UNS003")).thenReturn(detail("20261016UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
                 "2026-10-15T00:00:00", "2026-10-16T00:00:00"));
-        when(logc.failedChain("20261016UNS003", false)).thenReturn(null);
+        when(logc.pendingChain("20261016UNS003")).thenReturn(null);
         assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE,
                 "failed-chain)을 읽지 못했다");
-        when(logc.failedChain("20261016UNS003", false)).thenReturn(List.of());
+        when(logc.pendingChain("20261016UNS003")).thenReturn(List.of());
         assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ALREADY_DONE,
                 "재처리 체인이 비었다");
-        when(logc.failedChain("20261016UNS003", false)).thenReturn(List.of(chainBatch("20261016UNS003")));
+        when(logc.pendingChain("20261016UNS003")).thenReturn(List.of(chainBatch("20261016UNS003")));
         assertThat(s.planReprocess("20261016UNS003", "UNSTRUCTURED", null).originExecId()).isEqualTo("20261016UNS003");
     }
 
     @Test
-    @DisplayName("재처리 — 전송 대기(WAIT · 수동 확인) 배치는 400(클라우드 전송으로 먼저) · 실행 중 · 전송 중 배치는 409")
-    void reprocessRejectsHeldOrBusy() throws Exception {
+    @DisplayName("재처리 — 전송 대기(WAIT) 배치도 받는다(PL 협의 · 화면 팝업 승인) · 실행 중 · 전송 중 배치는 409")
+    void reprocessAcceptsWaitRejectsBusy() throws Exception {
         UnstructuredBatchService s = service(false);
-        when(logc.failedChain(anyString(), anyBoolean())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
+        when(logc.pendingChain(anyString())).thenAnswer(inv -> List.of(chainBatch(inv.getArgument(0))));
         when(logc.batchDetail("H")).thenReturn(detailWithSend("H", "PARTIAL", "WAIT"));
-        assertRejected(() -> s.planReprocess("H", "UNSTRUCTURED", "COLLECT"), UnstructuredBatchService.MSG_ON_HOLD,
-                "전송 대기(수동 확인) 중인 배치: execId=H");
+        assertThat(s.planReprocess("H", "UNSTRUCTURED", "COLLECT").originExecId()).isEqualTo("H");
         when(logc.batchDetail("R")).thenReturn(detailWithSend("R", "RUNNING", null));
         assertThatThrownBy(() -> s.planReprocess("R", "UNSTRUCTURED", null))
                 .isInstanceOf(UnstructuredJobRunner.AlreadyRunningException.class).hasMessage(UnstructuredBatchService.MSG_BUSY);
         when(logc.batchDetail("S")).thenReturn(detailWithSend("S", "FAIL", "RUNNING"));
         assertThatThrownBy(() -> s.planReprocess("S", "UNSTRUCTURED", "SEND"))
                 .isInstanceOf(UnstructuredJobRunner.AlreadyRunningException.class);
-        when(logc.batchDetail("F")).thenReturn(detailWithSend("F", "FAIL", "FAIL"));
-        assertThat(s.planReprocess("F", "UNSTRUCTURED", "SEND").originExecId()).isEqualTo("F");
-        verify(logc, never()).failedChain(eq("H"), anyBoolean());
     }
 
     @Test
-    @DisplayName("재처리 체인 — 이전 배치 중 전송 대기(WAIT · 법적 수동 검수) · 실행 중 · 상태를 못 읽는 배치는 다시 열지 않고 건너뛴다")
-    void chainSkipsWaitAndBusy() throws Exception {
+    @DisplayName("재처리 체인 — 하위 대기(WAIT) 포함 오래된 순: 커넥터 보류분 먼저 보내고 → 실패 배치면 다시 돌기 · 실행 중 · 상태 못 읽음 · 장부에 없는 대기는 건너뜀")
+    void chainIncludesWaitReleaseFirst() throws Exception {
         UnstructuredBatchService s = service(false);
-        when(logc.failedChain("T", false)).thenReturn(List.of(chainBatch("P1"), chainBatch("P2"), chainBatch("P3"), chainBatch("T")));
-        when(logc.batchDetail("P1")).thenReturn(detailWithSend("P1", "PARTIAL", "WAIT"));
-        when(logc.batchDetail("P2")).thenReturn(detailWithSend("P2", "RUNNING", "FAIL"));
-        // P3 — 상세를 못 읽음(null) → 보내지 않는다
+        when(logc.pendingChain("T")).thenReturn(List.of(chainBatch("P1"), chainBatch("P2"), chainBatch("P3"), chainBatch("P4"),
+                chainBatch("P5"), chainBatch("T")));
+        when(logc.batchDetail("P1")).thenReturn(detailWithSend("P1", "PARTIAL", "WAIT"));   // 보류분 전송 → 실패 건 다시 돌기
+        when(logc.batchDetail("P2")).thenReturn(detailWithSend("P2", "SUCCESS", "WAIT"));   // 보류분 전송만
+        when(logc.batchDetail("P3")).thenReturn(detailWithSend("P3", "RUNNING", "FAIL"));   // 실행 중 — 건너뜀
+        // P4 — 상세를 못 읽음(null) → 손대지 않는다
+        when(logc.batchDetail("P5")).thenReturn(detailWithSend("P5", "PARTIAL", "WAIT"));   // 장부에 없는 대기 — 보내지 않는다
         when(logc.batchDetail("T")).thenReturn(detailWithSend("T", "FAIL", null));
+        when(holds.isEnabled()).thenReturn(true);
+        when(holds.holds()).thenReturn(java.util.Set.of("P1", "P2"));
+        when(holds.release(anyString(), anyString())).thenReturn(new TransmitHoldClient.Release(200, true, "SUCCESS", "학습셋 drop 마감", null));
         when(logc.reopenBatch(anyString(), anyString(), any(), any())).thenReturn(true);
         when(voice.defaultWorkers()).thenReturn(Workers.sequential());
         VoiceBatchResult vr = new VoiceBatchResult("T", true, "MANUAL", 2, 2, 0, 0, 10L, Map.of(), List.of(), List.of(), false);
@@ -241,16 +246,69 @@ class UnstructuredBatchServiceTest {
                 .thenReturn(vr);
         var plan = new UnstructuredBatchService.Plan(
                 egovframework.unstructured.collector.common.model.BatchWindow.manual(LocalDateTime.of(2026, 10, 15, 0, 0),
-                        LocalDateTime.of(2026, 10, 16, 0, 0)), ResumeMode.FULL, "T", false, "ADMIN/reprocess:T", false);
+                        LocalDateTime.of(2026, 10, 16, 0, 0)), ResumeMode.FULL, "T", false, "admin01/reprocess:T", false);
 
         String sum = s.execute(plan, (id, c) -> { });
 
-        assertThat(sum).contains("P1 건너뜀(전송 대기(수동 확인))").contains("P2 건너뜀(실행 중(RUNNING))")
-                .contains("P3 건너뜀(상태 확인 실패)").contains("T 음성 FULL");
-        verify(logc, never()).reopenBatch(eq("P1"), anyString(), any(), any());
-        verify(logc, never()).reopenBatch(eq("P2"), anyString(), any(), any());
+        assertThat(sum).contains("P1 커넥터 전송 성공(HTTP 200 · SUCCESS · 학습셋 drop 마감) → 음성 FROM_SEND")
+                .contains("P2 커넥터 전송 성공").contains("P3 건너뜀(실행 · 전송 중)").contains("P4 건너뜀(상태 확인 실패)")
+                .contains("P5 건너뜀(전송 대기인데 커넥터 보류 장부에 없음").contains("T 음성 FULL");
+        InOrder o = inOrder(holds, logc);
+        o.verify(holds).release("P1", "admin01");                                   // 보류분 먼저
+        o.verify(logc).reopenBatch(eq("P1"), eq("admin01/reprocess:T"), any(), any());   // 그다음 다시 돌기
+        o.verify(holds).release("P2", "admin01");
+        o.verify(logc).reopenBatch(eq("T"), eq("admin01/reprocess:T"), any(), any());
+        verify(logc, never()).reopenBatch(eq("P2"), anyString(), any(), any());       // 성공 배치는 다시 열지 않는다
         verify(logc, never()).reopenBatch(eq("P3"), anyString(), any(), any());
-        verify(logc).reopenBatch(eq("T"), eq("ADMIN/reprocess:T"), any(), any());
+        verify(logc, never()).reopenBatch(eq("P5"), anyString(), any(), any());       // 보류분 행방을 모르면 T2 를 지우지 않는다
+        verify(holds, never()).release(eq("P5"), anyString());
+    }
+
+    @Test
+    @DisplayName("보류분 전송이 실패하면 그 배치는 다시 돌지 않는다(다시 열면 T2 가 지워져 보류 흔적이 사라진다)")
+    void releaseFailureStopsThatBatch() throws Exception {
+        UnstructuredBatchService s = service(false);
+        when(logc.batchDetail("P1")).thenReturn(detailWithSend("P1", "PARTIAL", "WAIT"));
+        when(holds.isEnabled()).thenReturn(true);
+        when(holds.release("P1", "admin01")).thenReturn(new TransmitHoldClient.Release(409, false, null, "지금 전송 중", null));
+
+        String line = s.processPending("P1", UnstructuredBatchService.PendingMode.REPROCESS, ResumeMode.FROM_SEND, null, null,
+                java.util.Set.of("P1"), "admin01/reprocess:T", "admin01");
+
+        assertThat(line).startsWith("P1 커넥터 전송 실패(HTTP 409").endsWith("다시 돌지 않음");
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("클라우드 전송 모드 — 장부에 없는 전송 실패만 같은 EXEC_ID 로 전송부터 · 장부를 모르면 · 다시 열 수 없으면 · 보낼 것 없으면 건너뜀 · 시험 배치는 시험으로")
+    void cloudSendModeResendsOnlyMissedSends() throws Exception {
+        UnstructuredBatchService s = service(false);
+        when(holds.isEnabled()).thenReturn(true);
+        when(logc.reopenBatch(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(voice.defaultWorkers()).thenReturn(Workers.sequential());
+        VoiceBatchResult vr = new VoiceBatchResult("X", true, "MANUAL", 1, 1, 0, 0, 10L, Map.of(), List.of(), List.of(), false);
+        when(voice.run(any(), isNull(), anyString(), anyBoolean(), any(), anyString(), any(Workers.class), isNull(), any()))
+                .thenReturn(vr);
+        var mode = UnstructuredBatchService.PendingMode.CLOUD_SEND;
+        java.util.Set<String> empty = java.util.Set.of();
+
+        when(logc.batchDetail("A")).thenReturn(detailWithSend("A", "TEST_BATCH", "PARTIAL", "FAIL"));
+        assertThat(s.processPending("A", mode, ResumeMode.FROM_SEND, null, null, empty, "u/cloud-send:A", "u"))
+                .isEqualTo("A 음성 FROM_SEND 대상1 성공1 실패0 건너뜀0 · 원래 실패 0");
+        verify(voice).run(any(), isNull(), eq("u/cloud-send:A"), eq(true), eq(ResumeMode.FROM_SEND), eq("A"), any(Workers.class),
+                isNull(), any());
+        assertThat(s.processPending("A", mode, ResumeMode.FROM_SEND, null, null, null, "u/cloud-send:A", "u"))
+                .isEqualTo("A 커넥터 보류 장부 확인 실패 — 다시 보내지 않음");
+
+        when(logc.batchDetail("B")).thenReturn(detailWithSend("B", "SUCCESS", "FAIL"));
+        assertThat(s.processPending("B", mode, ResumeMode.FROM_SEND, null, null, empty, "t", "u"))
+                .isEqualTo("B 다시 보낼 경로 없음(배치 SUCCESS · 전송 FAIL)");
+        when(logc.batchDetail("C")).thenReturn(detailWithSend("C", "PARTIAL", "SUCCESS"));
+        assertThat(s.processPending("C", mode, ResumeMode.FROM_SEND, null, null, empty, "t", "u"))
+                .isEqualTo("C 건너뜀(처리할 것 없음 · 배치 PARTIAL · 전송 SUCCESS)");
+        assertThat(UnstructuredBatchService.requesterOf("admin01/reprocess:T")).isEqualTo("admin01");
+        assertThat(UnstructuredBatchService.requesterOf("ADMIN")).isEqualTo("ADMIN");
+        assertThat(UnstructuredBatchService.requesterOf(null)).isEqualTo("admin");
     }
 
     @Test
@@ -264,10 +322,14 @@ class UnstructuredBatchServiceTest {
     }
 
     private static JsonNode detailWithSend(String execId, String t1, String send) throws Exception {
+        return detailWithSend(execId, "VOICE_ANALYSIS", t1, send);
+    }
+
+    private static JsonNode detailWithSend(String execId, String job, String t1, String send) throws Exception {
         String steps = send == null ? "[]" : "[{\"step_type_cd\":\"SEND\",\"step_seq\":4,\"step_sts_cd\":\"" + send + "\"}]";
         return OM.readTree("""
-                {"batch":{"exec_id":"%s","job_id":"VOICE_ANALYSIS","data_type_cd":"UNSTRUCTURED","exec_sts_cd":"%s",
-                 "target_from_dtm":"2026-10-15T00:00:00","target_to_dtm":"2026-10-16T00:00:00"},"steps":%s}""".formatted(execId, t1, steps));
+                {"batch":{"exec_id":"%s","job_id":"%s","data_type_cd":"UNSTRUCTURED","exec_sts_cd":"%s",
+                 "target_from_dtm":"2026-10-15T00:00:00","target_to_dtm":"2026-10-16T00:00:00"},"steps":%s}""".formatted(execId, job, t1, steps));
     }
 
     private static LogCollectorClient.ChainBatch chainBatch(String execId) {

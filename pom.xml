@@ -41,7 +41,7 @@
          Java 품질분석 대상이 아니다. 이들을 제외하면 리포트가 작아져 Sonar 앞단 nginx 업로드 한도
          (client_max_body_size, 기본 1MB)를 넘지 않는다 → 413 Request Entity Too Large 방지.
          근본 해결은 Sonar nginx 의 client_max_body_size 상향(예: 50m)이며, 아래는 in-repo 완화책이다. -->
-    <sonar.exclusions>src/main/resources/static/**,src/main/resources/**/*.json,src/main/resources/**/*.csv,docs/**,scripts/**</sonar.exclusions>
+    <sonar.exclusions>src/main/resources/static/**,src/main/resources/**/*.json,src/main/resources/**/*.csv,docs/**,scripts/**,tools/**</sonar.exclusions>
     <sonar.cpd.exclusions>src/main/resources/static/**</sonar.cpd.exclusions>
   </properties>
 

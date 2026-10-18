@@ -1,0 +1,28 @@
+홍길동 generated using python-pptx Steve Canny
+Click to edit Master title style
+ Click to edit Master text styles
+ Second level
+ Third level
+ Fourth level
+ Fifth level
+ 1/27/13
+ ‹#›
+
+문서 비식별 시험 문서 (pptx)
+ 수용자 홍길동 (전화 010-1234-5678) 은 서울남부교정시설 에 수용 중이며 주소는 서울특별시 강남구 테헤란로 123 이다.
+ 보호자 김영희 의 연락처는 02-3456-7890 이고 주민등록번호는 900101-1234567 이다.
+ 환불 계좌는 110-234-567890 이며 담당자 이메일은 hong.gildong@example.com 이다.
+
+표 — 단순 / 값분할 / 이름만
+ 구분
+ 값
+ 비고
+ 성명
+ 홍길동
+ 연락처
+ 010-1234-5678
+ 면회
+ 김영희
+ 박철수
+
+도형 글상자 — 주소 서울특별시 강남구 테헤란로 123 / 계좌 110-234-567890

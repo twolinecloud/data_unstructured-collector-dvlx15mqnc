@@ -1793,6 +1793,1806 @@
           "count": 1
         }
       ]
+    },
+    {
+      "file": "case_단순2열_1p.hwpx",
+      "format": "hwpx",
+      "case": "단순2열",
+      "pages": 1,
+      "breaks": "없음(기준선) — 이건 돼야 한다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876-543210",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_단순2열_1p.pdf",
+      "format": "pdf",
+      "case": "단순2열",
+      "pages": 1,
+      "breaks": "없음(기준선) — 이건 돼야 한다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876-543210",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_단순2열_1p.hwp",
+      "format": "hwp",
+      "case": "단순2열",
+      "pages": 1,
+      "breaks": "없음(기준선) — 이건 돼야 한다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876-543210",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_값분할_1p.hwpx",
+      "format": "hwpx",
+      "case": "값분할",
+      "pages": 1,
+      "breaks": "한 값을 여러 칸에 쪼갰다 → 정규식이 안 맞는다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010 | 5555 | 6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315 | 2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 | 해운대구 | 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_값분할_1p.pdf",
+      "format": "pdf",
+      "case": "값분할",
+      "pages": 1,
+      "breaks": "한 값을 여러 칸에 쪼갰다 → 정규식이 안 맞는다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010 | 5555 | 6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315 | 2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 | 해운대구 | 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_값분할_1p.hwp",
+      "format": "hwp",
+      "case": "값분할",
+      "pages": 1,
+      "breaks": "한 값을 여러 칸에 쪼갰다 → 정규식이 안 맞는다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010 | 5555 | 6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315 | 2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 | 해운대구 | 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_셀내줄바꿈_1p.hwpx",
+      "format": "hwpx",
+      "case": "셀내줄바꿈",
+      "pages": 1,
+      "breaks": "한 값을 셀 안에서 두 줄로 끊었다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-⏎5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-⏎2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "시·구 ⏎ 상세",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876⏎-543210",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_셀내줄바꿈_1p.pdf",
+      "format": "pdf",
+      "case": "셀내줄바꿈",
+      "pages": 1,
+      "breaks": "한 값을 셀 안에서 두 줄로 끊었다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-⏎5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-⏎2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "시·구 ⏎ 상세",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876⏎-543210",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_셀내줄바꿈_1p.hwp",
+      "format": "hwp",
+      "case": "셀내줄바꿈",
+      "pages": 1,
+      "breaks": "한 값을 셀 안에서 두 줄로 끊었다",
+      "table": [
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-⏎5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-⏎2468024",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "시·구 ⏎ 상세",
+          "count": 1
+        },
+        {
+          "kind": "acct",
+          "expected": "302-9876-543210",
+          "as_placed": "302-9876⏎-543210",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_병합셀_1p.hwpx",
+      "format": "hwpx",
+      "case": "병합셀",
+      "pages": 1,
+      "breaks": "가로 병합이 섞여 셀 경계가 무너진다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_병합셀_1p.pdf",
+      "format": "pdf",
+      "case": "병합셀",
+      "pages": 1,
+      "breaks": "가로 병합이 섞여 셀 경계가 무너진다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_병합셀_1p.hwp",
+      "format": "hwp",
+      "case": "병합셀",
+      "pages": 1,
+      "breaks": "가로 병합이 섞여 셀 경계가 무너진다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_이름만_1p.hwpx",
+      "format": "hwpx",
+      "case": "이름만",
+      "pages": 1,
+      "breaks": "문장 없이 이름만 — 문맥이 없다",
+      "table": [
+        {
+          "kind": "name_only_0",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name_only_1",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "name_only_2",
+          "expected": "강현우",
+          "as_placed": "강현우",
+          "count": 1
+        },
+        {
+          "kind": "name_only_3",
+          "expected": "윤지호",
+          "as_placed": "윤지호",
+          "count": 1
+        },
+        {
+          "kind": "name_only_4",
+          "expected": "임세라",
+          "as_placed": "임세라",
+          "count": 1
+        },
+        {
+          "kind": "name_only_5",
+          "expected": "조한결",
+          "as_placed": "조한결",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_이름만_1p.pdf",
+      "format": "pdf",
+      "case": "이름만",
+      "pages": 1,
+      "breaks": "문장 없이 이름만 — 문맥이 없다",
+      "table": [
+        {
+          "kind": "name_only_0",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name_only_1",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "name_only_2",
+          "expected": "강현우",
+          "as_placed": "강현우",
+          "count": 1
+        },
+        {
+          "kind": "name_only_3",
+          "expected": "윤지호",
+          "as_placed": "윤지호",
+          "count": 1
+        },
+        {
+          "kind": "name_only_4",
+          "expected": "임세라",
+          "as_placed": "임세라",
+          "count": 1
+        },
+        {
+          "kind": "name_only_5",
+          "expected": "조한결",
+          "as_placed": "조한결",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_이름만_1p.hwp",
+      "format": "hwp",
+      "case": "이름만",
+      "pages": 1,
+      "breaks": "문장 없이 이름만 — 문맥이 없다",
+      "table": [
+        {
+          "kind": "name_only_0",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "name_only_1",
+          "expected": "정수진",
+          "as_placed": "정수진",
+          "count": 1
+        },
+        {
+          "kind": "name_only_2",
+          "expected": "강현우",
+          "as_placed": "강현우",
+          "count": 1
+        },
+        {
+          "kind": "name_only_3",
+          "expected": "윤지호",
+          "as_placed": "윤지호",
+          "count": 1
+        },
+        {
+          "kind": "name_only_4",
+          "expected": "임세라",
+          "as_placed": "임세라",
+          "count": 1
+        },
+        {
+          "kind": "name_only_5",
+          "expected": "조한결",
+          "as_placed": "조한결",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_중첩표_1p.hwpx",
+      "format": "hwpx",
+      "case": "중첩표",
+      "pages": 1,
+      "breaks": "한 칸에 여러 PII",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_중첩표_1p.pdf",
+      "format": "pdf",
+      "case": "중첩표",
+      "pages": 1,
+      "breaks": "한 칸에 여러 PII",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_중첩표_1p.hwp",
+      "format": "hwp",
+      "case": "중첩표",
+      "pages": 1,
+      "breaks": "한 칸에 여러 PII",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "org",
+          "expected": "부산교정시설",
+          "as_placed": "부산교정시설",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_빈셀섞임_1p.hwpx",
+      "format": "hwpx",
+      "case": "빈셀섞임",
+      "pages": 1,
+      "breaks": "빈 칸이 섞여 열이 밀린다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_빈셀섞임_1p.pdf",
+      "format": "pdf",
+      "case": "빈셀섞임",
+      "pages": 1,
+      "breaks": "빈 칸이 섞여 열이 밀린다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_빈셀섞임_1p.hwp",
+      "format": "hwp",
+      "case": "빈셀섞임",
+      "pages": 1,
+      "breaks": "빈 칸이 섞여 열이 밀린다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "최민수",
+          "count": 1
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "010-5555-6666",
+          "count": 1
+        },
+        {
+          "kind": "addr",
+          "expected": "부산광역시 해운대구 센텀중앙로 77",
+          "as_placed": "부산광역시 해운대구 센텀중앙로 77",
+          "count": 1
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "880315-2468024",
+          "count": 1
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_긴표_1p.hwpx",
+      "format": "hwpx",
+      "case": "긴표",
+      "pages": 1,
+      "breaks": "쪽을 넘기는 표 — 쪽 경계에서 행이 끊긴다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "짝수 행",
+          "count": 30
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "홀수 행",
+          "count": 30
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "모든 행",
+          "count": 60
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "모든 행",
+          "count": 60
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_긴표_1p.pdf",
+      "format": "pdf",
+      "case": "긴표",
+      "pages": 1,
+      "breaks": "쪽을 넘기는 표 — 쪽 경계에서 행이 끊긴다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "짝수 행",
+          "count": 30
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "홀수 행",
+          "count": 30
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "모든 행",
+          "count": 60
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "모든 행",
+          "count": 60
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
+    },
+    {
+      "file": "case_긴표_1p.hwp",
+      "format": "hwp",
+      "case": "긴표",
+      "pages": 1,
+      "breaks": "쪽을 넘기는 표 — 쪽 경계에서 행이 끊긴다",
+      "table": [
+        {
+          "kind": "name",
+          "expected": "최민수",
+          "as_placed": "짝수 행",
+          "count": 30
+        },
+        {
+          "kind": "name2",
+          "expected": "정수진",
+          "as_placed": "홀수 행",
+          "count": 30
+        },
+        {
+          "kind": "phone",
+          "expected": "010-5555-6666",
+          "as_placed": "모든 행",
+          "count": 60
+        },
+        {
+          "kind": "rrn",
+          "expected": "880315-2468024",
+          "as_placed": "모든 행",
+          "count": 60
+        }
+      ],
+      "body": [
+        {
+          "kind": "body_name",
+          "expected": "홍길동",
+          "as_placed": "홍길동",
+          "count": 1
+        },
+        {
+          "kind": "body_phone",
+          "expected": "010-1234-5678",
+          "as_placed": "010-1234-5678",
+          "count": 1
+        },
+        {
+          "kind": "body_rrn",
+          "expected": "900101-1234568",
+          "as_placed": "900101-1234568",
+          "count": 1
+        },
+        {
+          "kind": "body_acct",
+          "expected": "110-234-567890",
+          "as_placed": "110-234-567890",
+          "count": 1
+        },
+        {
+          "kind": "body_addr",
+          "expected": "서울특별시 강남구 테헤란로 123",
+          "as_placed": "서울특별시 강남구 테헤란로 123",
+          "count": 1
+        },
+        {
+          "kind": "body_org",
+          "expected": "서울남부교정시설",
+          "as_placed": "서울남부교정시설",
+          "count": 1
+        }
+      ],
+      "converted": true
     }
   ]
 }

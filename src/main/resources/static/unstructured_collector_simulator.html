@@ -6557,6 +6557,15 @@ function ddKb(n) { return (n / 1024).toFixed(1) + ' KB'; }
 async function ddLoadSamples() {
   try {
     const r = await fetch(ddApi('/samples'));
+    // 상태를 먼저 본다. 404 면 본문이 HTML 이고, 그대로 파싱하면
+    //   "Unexpected token '<'" 이 떠서 원인(배포 안 됨)을 가린다.
+    if (!r.ok) {
+      document.getElementById('dd-samples-sum').innerHTML =
+        '<span class="text-danger">시험 문서 목록 없음 (HTTP ' + r.status + ')</span>'
+        + ' — 수집기를 최신으로 배포했는지, 프로필이 dev·local 인지 확인하세요'
+        + ' <code>' + ddApi('/samples') + '</code>';
+      return;
+    }
     const m = await r.json();
     ddSamples = m.items || [];
     ddRenderSamples('');

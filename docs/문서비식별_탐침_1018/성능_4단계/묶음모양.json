@@ -1,0 +1,273 @@
+[
+  {
+    "shape": "1×100장",
+    "files": 1,
+    "per": 100,
+    "conc": 1,
+    "total_s": 38.4,
+    "throughput": 156.3,
+    "ok": 1,
+    "reject": 0,
+    "min_ms": 38445,
+    "med_ms": 38445,
+    "max_ms": 38445,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "1×100장",
+    "files": 1,
+    "per": 100,
+    "conc": 4,
+    "total_s": 38.8,
+    "throughput": 154.6,
+    "ok": 1,
+    "reject": 0,
+    "min_ms": 38842,
+    "med_ms": 38842,
+    "max_ms": 38842,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "1×100장",
+    "files": 1,
+    "per": 100,
+    "conc": 8,
+    "total_s": 39.3,
+    "throughput": 152.7,
+    "ok": 1,
+    "reject": 0,
+    "min_ms": 39272,
+    "med_ms": 39272,
+    "max_ms": 39272,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "2×50장",
+    "files": 2,
+    "per": 50,
+    "conc": 1,
+    "total_s": 40.1,
+    "throughput": 149.6,
+    "ok": 2,
+    "reject": 0,
+    "min_ms": 20002,
+    "med_ms": 20037,
+    "max_ms": 20072,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "2×50장",
+    "files": 2,
+    "per": 50,
+    "conc": 4,
+    "total_s": 39.9,
+    "throughput": 150.4,
+    "ok": 2,
+    "reject": 0,
+    "min_ms": 38867,
+    "med_ms": 39402,
+    "max_ms": 39938,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "2×50장",
+    "files": 2,
+    "per": 50,
+    "conc": 8,
+    "total_s": 39.3,
+    "throughput": 152.7,
+    "ok": 2,
+    "reject": 0,
+    "min_ms": 38727,
+    "med_ms": 39026,
+    "max_ms": 39325,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "4×25장",
+    "files": 4,
+    "per": 25,
+    "conc": 1,
+    "total_s": 46.5,
+    "throughput": 129.0,
+    "ok": 4,
+    "reject": 0,
+    "min_ms": 11448,
+    "med_ms": 11592,
+    "max_ms": 11841,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "4×25장",
+    "files": 4,
+    "per": 25,
+    "conc": 4,
+    "total_s": 43.9,
+    "throughput": 136.7,
+    "ok": 4,
+    "reject": 0,
+    "min_ms": 40580,
+    "med_ms": 42254,
+    "max_ms": 43894,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "4×25장",
+    "files": 4,
+    "per": 25,
+    "conc": 8,
+    "total_s": 43.7,
+    "throughput": 137.3,
+    "ok": 4,
+    "reject": 0,
+    "min_ms": 40463,
+    "med_ms": 42084,
+    "max_ms": 43663,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "10×10장",
+    "files": 10,
+    "per": 10,
+    "conc": 1,
+    "total_s": 58.3,
+    "throughput": 102.9,
+    "ok": 10,
+    "reject": 0,
+    "min_ms": 5604,
+    "med_ms": 5752,
+    "max_ms": 6189,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "10×10장",
+    "files": 10,
+    "per": 10,
+    "conc": 4,
+    "total_s": 54.5,
+    "throughput": 110.1,
+    "ok": 10,
+    "reject": 0,
+    "min_ms": 13193,
+    "med_ms": 21196,
+    "max_ms": 21864,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "10×10장",
+    "files": 10,
+    "per": 10,
+    "conc": 8,
+    "total_s": 27.6,
+    "throughput": 108.7,
+    "ok": 5,
+    "reject": 5,
+    "min_ms": 251,
+    "med_ms": 12088,
+    "max_ms": 27642,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 50
+  },
+  {
+    "shape": "20×5장",
+    "files": 20,
+    "per": 5,
+    "conc": 1,
+    "total_s": 72.0,
+    "throughput": 83.3,
+    "ok": 20,
+    "reject": 0,
+    "min_ms": 3459,
+    "med_ms": 3556,
+    "max_ms": 3963,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 100
+  },
+  {
+    "shape": "20×5장",
+    "files": 20,
+    "per": 5,
+    "conc": 4,
+    "total_s": 65.1,
+    "throughput": 87.6,
+    "ok": 19,
+    "reject": 1,
+    "min_ms": 6593,
+    "med_ms": 12870,
+    "max_ms": 13817,
+    "codes": [
+      "200",
+      "500"
+    ],
+    "sent_pages": 100,
+    "done_pages": 95
+  },
+  {
+    "shape": "20×5장",
+    "files": 20,
+    "per": 5,
+    "conc": 8,
+    "total_s": 17.4,
+    "throughput": 86.2,
+    "ok": 5,
+    "reject": 15,
+    "min_ms": 206,
+    "med_ms": 294,
+    "max_ms": 17418,
+    "codes": [
+      "200"
+    ],
+    "sent_pages": 100,
+    "done_pages": 25
+  }
+]

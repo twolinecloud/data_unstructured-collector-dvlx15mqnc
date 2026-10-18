@@ -1,0 +1,258 @@
+{
+  "generated": "2026-10-18",
+  "note": "hwp · hwpx 는 한글 COM 이 필요해 클러스터에서 만들 수 없다 — 고정 자산이다. pdf 는 한글 내보내기로 만들었다(이 PC 에 Word 는 없다). hwpx · pdf · hwp 는 docx 변환본이므로 포맷 간 PII 출현 횟수가 다를 수 있다.",
+  "items": [
+    {
+      "name": "probe_1p.docx",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "docx",
+      "bytes": 38661,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_1p.xlsx",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "xlsx",
+      "bytes": 6016,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_1p.pptx",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "pptx",
+      "bytes": 35547,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_1p.hwpx",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "hwpx",
+      "bytes": 40987,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_1p.pdf",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "pdf",
+      "bytes": 61571,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_1p.hwp",
+      "group": "포맷지원",
+      "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
+      "format": "hwp",
+      "bytes": 37888,
+      "answers": "probe_answers.json"
+    },
+    {
+      "name": "probe_answers.json",
+      "group": "정답표",
+      "desc": "탐침 세트 정답",
+      "format": "json",
+      "bytes": 3619
+    },
+    {
+      "name": "table_단순2열.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 단순2열",
+      "format": "docx",
+      "bytes": 38410,
+      "answers": "table_cases.json",
+      "case": "단순2열"
+    },
+    {
+      "name": "table_값분할.docx",
+      "group": "표구조",
+      "desc": "한 값을 여러 칸에 — 모든 포맷에서 깨진다",
+      "format": "docx",
+      "bytes": 38430,
+      "answers": "table_cases.json",
+      "case": "값분할"
+    },
+    {
+      "name": "table_셀내줄바꿈.docx",
+      "group": "표구조",
+      "desc": "셀 안에서 두 줄로 — docx 가 가장 심하다",
+      "format": "docx",
+      "bytes": 38402,
+      "answers": "table_cases.json",
+      "case": "셀내줄바꿈"
+    },
+    {
+      "name": "table_병합셀.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 병합셀",
+      "format": "docx",
+      "bytes": 38413,
+      "answers": "table_cases.json",
+      "case": "병합셀"
+    },
+    {
+      "name": "table_이름만.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 이름만",
+      "format": "docx",
+      "bytes": 38328,
+      "answers": "table_cases.json",
+      "case": "이름만"
+    },
+    {
+      "name": "table_중첩표.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 중첩표",
+      "format": "docx",
+      "bytes": 38397,
+      "answers": "table_cases.json",
+      "case": "중첩표"
+    },
+    {
+      "name": "table_빈셀섞임.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 빈셀섞임",
+      "format": "docx",
+      "bytes": 38383,
+      "answers": "table_cases.json",
+      "case": "빈셀섞임"
+    },
+    {
+      "name": "table_긴표.docx",
+      "group": "표구조",
+      "desc": "표 유형 — 긴표",
+      "format": "docx",
+      "bytes": 38688,
+      "answers": "table_cases.json",
+      "case": "긴표"
+    },
+    {
+      "name": "table_값분할.hwpx",
+      "group": "표구조",
+      "desc": "한 값을 여러 칸에 — 모든 포맷에서 깨진다 (포맷 비교)",
+      "format": "hwpx",
+      "bytes": 31777,
+      "answers": "table_cases.json",
+      "case": "값분할"
+    },
+    {
+      "name": "table_값분할.pdf",
+      "group": "표구조",
+      "desc": "한 값을 여러 칸에 — 모든 포맷에서 깨진다 (포맷 비교)",
+      "format": "pdf",
+      "bytes": 54152,
+      "answers": "table_cases.json",
+      "case": "값분할"
+    },
+    {
+      "name": "table_값분할.hwp",
+      "group": "표구조",
+      "desc": "한 값을 여러 칸에 — 모든 포맷에서 깨진다 (포맷 비교)",
+      "format": "hwp",
+      "bytes": 28672,
+      "answers": "table_cases.json",
+      "case": "값분할"
+    },
+    {
+      "name": "table_셀내줄바꿈.hwpx",
+      "group": "표구조",
+      "desc": "셀 안에서 두 줄로 — docx 가 가장 심하다 (포맷 비교)",
+      "format": "hwpx",
+      "bytes": 31881,
+      "answers": "table_cases.json",
+      "case": "셀내줄바꿈"
+    },
+    {
+      "name": "table_셀내줄바꿈.pdf",
+      "group": "표구조",
+      "desc": "셀 안에서 두 줄로 — docx 가 가장 심하다 (포맷 비교)",
+      "format": "pdf",
+      "bytes": 52128,
+      "answers": "table_cases.json",
+      "case": "셀내줄바꿈"
+    },
+    {
+      "name": "table_셀내줄바꿈.hwp",
+      "group": "표구조",
+      "desc": "셀 안에서 두 줄로 — docx 가 가장 심하다 (포맷 비교)",
+      "format": "hwp",
+      "bytes": 29184,
+      "answers": "table_cases.json",
+      "case": "셀내줄바꿈"
+    },
+    {
+      "name": "table_cases.json",
+      "group": "정답표",
+      "desc": "표 구조 케이스 정답",
+      "format": "json",
+      "bytes": 97675
+    },
+    {
+      "name": "pages_1p.docx",
+      "group": "장수",
+      "desc": "1장 · 장당 PII 고정",
+      "format": "docx",
+      "bytes": 38410,
+      "pages": 1
+    },
+    {
+      "name": "pages_1p.pptx",
+      "group": "장수",
+      "desc": "1장 · pptx 는 슬라이드 수에 비례해 느리다",
+      "format": "pptx",
+      "bytes": 29937,
+      "pages": 1
+    },
+    {
+      "name": "pages_10p.docx",
+      "group": "장수",
+      "desc": "10장 · 장당 PII 고정",
+      "format": "docx",
+      "bytes": 38594,
+      "pages": 10
+    },
+    {
+      "name": "pages_10p.pptx",
+      "group": "장수",
+      "desc": "10장 · pptx 는 슬라이드 수에 비례해 느리다",
+      "format": "pptx",
+      "bytes": 52524,
+      "pages": 10
+    },
+    {
+      "name": "pages_50p.docx",
+      "group": "장수",
+      "desc": "50장 · 장당 PII 고정",
+      "format": "docx",
+      "bytes": 39165,
+      "pages": 50
+    },
+    {
+      "name": "pages_50p.pptx",
+      "group": "장수",
+      "desc": "50장 · pptx 는 슬라이드 수에 비례해 느리다",
+      "format": "pptx",
+      "bytes": 152894,
+      "pages": 50
+    },
+    {
+      "name": "pages_100p.docx",
+      "group": "장수",
+      "desc": "100장 · 장당 PII 고정",
+      "format": "docx",
+      "bytes": 39817,
+      "pages": 100
+    },
+    {
+      "name": "pages_100p.pptx",
+      "group": "장수",
+      "desc": "100장 · pptx 는 슬라이드 수에 비례해 느리다",
+      "format": "pptx",
+      "bytes": 278799,
+      "pages": 100
+    }
+  ]
+}

@@ -6712,7 +6712,11 @@ function ddSummarize(res) {
     err = j.extract && j.extract.error;
   }
   const texts = ddGather(j, path);
-  const score = ddScore(res.label, texts);
+  // 실패한 경로는 채점하지 않는다. AI-R 이 500 이면 아무것도 안 한 것인데,
+  //   그걸 채점하면 '도달 0/12 · 잔존 0회' 가 되어 **실패가 성공보다 깨끗해 보인다.**
+  //   4단계에서 거절을 처리한 것처럼 세어 처리율이 거꾸로 나온 것과 같은 함정이다.
+  const ok = (res.http === 200 && air === 200);
+  const score = ok ? ddScore(res.label, texts) : null;
   return { file: res.label, path, http: res.http, air, server_ms: server, wall_ms: res.wall,
            chars, format: fmt, pages: (pages && pages > 0 ? pages : null), error: err,
            score, raw: res.raw && res.raw.length > 400 ? null : res.raw };
@@ -6781,8 +6785,11 @@ function ddReport() {
   const leaky = ddRows.filter(r => r.score && r.score.left > 0);
   let h = '';
 
+  const unscored = ddRows.filter(r => !r.score).length;
   h += '<div class="zt-note mb-2"><b>한 줄 결론</b> — 시험 ' + ddRows.length + '회 · '
-    + '지원 안 됨 <b>' + bad.length + '건</b> · 평문 잔존이 있는 문서 <b>' + leaky.length + '건</b></div>';
+    + '지원 안 됨 <b>' + bad.length + '건</b> · 평문 잔존이 있는 문서 <b>' + leaky.length + '건</b>'
+    + (unscored ? ' · 채점 못 한 건 <b>' + unscored + '건</b>(실패했거나 정답표가 없는 묶음)' : '')
+    + '</div>';
 
   if (bad.length) {
     h += '<div class="alert alert-warning py-2 small mb-2"><b>위험 · 지원 안 됨</b><br>'
@@ -6800,8 +6807,9 @@ function ddReport() {
       + '<td>' + (r.air === 200 ? '200' : '<b class="text-danger">' + r.air + '</b>') + '</td>'
       + '<td>' + (r.format || '-') + (r.pages ? ' ' + r.pages + '쪽' : '') + '</td>'
       + '<td>' + (r.chars != null ? r.chars : '-') + '</td>'
-      + '<td>' + (s ? s.whole + '/' + s.want : '-') + '</td>'
-      + '<td>' + (s ? (s.left ? '<b class="text-danger">' + s.left + '회</b>' : '0') : '-') + '</td>'
+      + '<td>' + (s ? s.whole + '/' + s.want : '<span class="hint">측정 못 함</span>') + '</td>'
+      + '<td>' + (s ? (s.left ? '<b class="text-danger">' + s.left + '회</b>' : '0')
+                    : '<span class="hint">측정 못 함</span>') + '</td>'
       + '<td>' + (r.server_ms || '-') + 'ms</td><td>' + (r.wall_ms || '-') + 'ms</td></tr>';
   });
   h += '</tbody></table></div>';
@@ -6852,7 +6860,8 @@ function ddReportMd() {
     L.push('| ' + r.file + ' | ' + r.path + ' | ' + r.air + ' | '
       + (r.format || '-') + (r.pages ? ' ' + r.pages + '쪽' : '') + ' | '
       + (r.chars != null ? r.chars : '-') + ' | '
-      + (s ? s.whole + '/' + s.want : '-') + ' | ' + (s ? s.left + '회' : '-') + ' | '
+      + (s ? s.whole + '/' + s.want : '측정 못 함') + ' | '
+      + (s ? s.left + '회' : '측정 못 함') + ' | '
       + (r.server_ms || '-') + 'ms | ' + (r.wall_ms || '-') + 'ms |');
   });
   L.push('');

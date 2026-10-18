@@ -585,6 +585,7 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-image">6. 수용자 이미지 수집 검증</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-transfer">7. 에이전트 커넥터 전송 시뮬레이션</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-cloud">8. 클라우드 전송 시뮬레이션</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-docdeid">9. 문서 비식별 시뮬레이션</button></li>
   </ul>
   <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
   <div class="rm-bar" id="rm-bar">
@@ -1325,6 +1326,95 @@
       <div class="zt-note mt-2">관리 화면 [클라우드 전송]은 admin-api 반영 전까지 <b>그 배치 하나만</b> 커넥터로 보냅니다. 이 버튼은 반영 후의 동작(수집기 체인)을 지금 개발계에서 봅니다.
         보류분은 커넥터가 보내 <b>성공(목록에서 빠짐)</b>, 장부가 없는 전송 실패는 같은 실행 ID 로 전송부터 다시 돌아 — 전송 방식이 수동이라 — 다시 <b>대기</b>가 됩니다(새 전사는 다시 승인).</div>
       <div id="cs-chain-res" class="mt-2"></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="tabp" id="tab-docdeid">
+  <!-- 9번 탭 — 문서 비식별 시뮬레이션(2026-10-18). 채팅 창에 문서를 첨부했을 때 AI-R 이 그 문서를
+       비식별할 수 있는지, 어디까지 되고 어디서 깨지는지를 미리 잰다. 대시보드 레포를 받기 전에
+       첨부 파일만 떼어 본다. 측정 근거는 docs/문서비식별_{1,2,3,4}단계_*.md -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>① 시험 문서 <span class="hint fw-normal">— 정답을 아는 문서로만 채점합니다. <b>정답표가 늘 같이 내려갑니다</b> — 채팅 실화면에서 같은 파일·같은 정답으로 재시험하려면 필요합니다</span></strong>
+      <span class="hint" id="dd-samples-sum">목록 확인 중…</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <span class="small">묶음</span>
+        <div class="btn-group btn-group-sm" role="group" id="dd-group-filter">
+          <button type="button" class="btn btn-outline-secondary active" data-g="">전부</button>
+          <button type="button" class="btn btn-outline-secondary" data-g="포맷지원">포맷 지원</button>
+          <button type="button" class="btn btn-outline-secondary" data-g="표구조">표 구조</button>
+          <button type="button" class="btn btn-outline-secondary" data-g="장수">장수</button>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" id="dd-pick-all">전체 선택</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" id="dd-pick-none">선택 해제</button>
+        <button class="btn btn-sm btn-primary ms-auto" type="button" id="dd-zip">선택 내려받기 (zip)</button>
+        <button class="btn btn-sm btn-outline-primary" type="button" id="dd-zip-all">전부 내려받기 (zip)</button>
+      </div>
+      <div style="max-height:19rem;overflow:auto">
+        <table class="table table-sm mb-0 cs-table">
+          <thead class="table-light"><tr>
+            <th style="width:2rem"></th><th style="width:13rem">파일</th><th style="width:5rem">포맷</th>
+            <th style="width:5.5rem">묶음</th><th>설명</th><th style="width:5rem">크기</th>
+          </tr></thead>
+          <tbody id="dd-samples"></tbody>
+        </table>
+      </div>
+      <div class="zt-note mt-2">💡 <b>hwp · hwpx 는 클러스터에서 만들 수 없습니다</b>(한글 COM 필요) — 미리 만들어 담아 둔 고정 자산입니다.
+        pdf 도 한글 내보내기로 만들었습니다. 이 셋은 docx 변환본이라 <b>포맷 간 PII 출현 횟수가 다를 수 있습니다</b> — 포맷을 정면 비교할 때는 이 점을 감안하세요.</div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>② 시험 <span class="hint fw-normal">— 위에서 고른 문서를 그대로 돌립니다. 파일을 직접 올려도 됩니다</span></strong>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+        <span class="small">경로</span>
+        <label class="small"><input type="radio" name="dd-path" class="form-check-input me-1" value="B" checked>B — 커넥터가 추출 → 텍스트 API</label>
+        <label class="small"><input type="radio" name="dd-path" class="form-check-input me-1" value="A">A — AI-R 파일 API</label>
+        <label class="small"><input type="radio" name="dd-path" class="form-check-input me-1" value="AB">둘 다 (A·B 비교)</label>
+        <span class="ms-3 small">동시</span>
+        <select class="form-select form-select-sm" id="dd-conc" style="width:5rem">
+          <option value="1">1</option><option value="2">2</option>
+          <option value="4" selected>4</option><option value="8">8</option>
+        </select>
+        <label class="small ms-2"><input type="file" id="dd-upload" multiple class="form-control form-control-sm d-inline-block" style="width:16rem"></label>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button class="btn btn-sm btn-primary" type="button" id="dd-run">시험 실행</button>
+        <button class="btn btn-sm btn-outline-danger" type="button" id="dd-stop" disabled>중단</button>
+        <span class="hint" id="dd-run-hint">선택한 문서 0건</span>
+      </div>
+      <div class="zt-note mt-2">💡 <b>동시 5건이 한계</b>입니다(4단계 실측) — 넘으면 게이트웨이가 250ms 만에 503 으로 거절합니다.
+        동시도를 올려도 처리율은 거의 안 오릅니다(AI-R 이 병렬 처리하지 않음). 100장 한 건은 38.5초 걸립니다.</div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>③ 진행</strong>
+      <span class="hint" id="dd-progress">대기</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="progress mb-2" style="height:.5rem"><div class="progress-bar" id="dd-bar" style="width:0%"></div></div>
+      <pre id="dd-log" class="mb-0" style="max-height:14rem;overflow:auto;font-size:.78rem;background:#f8f9fa;padding:.5rem;border-radius:.25rem">—</pre>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>④ 리포트</strong>
+      <span class="ms-auto d-flex gap-2">
+        <button class="btn btn-sm btn-outline-primary" type="button" id="dd-save-md" disabled>저장 (Markdown)</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" id="dd-save-json" disabled>저장 (JSON)</button>
+      </span>
+    </div>
+    <div class="card-body py-2">
+      <div id="dd-report"><span class="hint">시험을 실행하면 여기에 결과가 나옵니다.</span></div>
     </div>
   </div>
   </div>
@@ -6427,6 +6517,374 @@ log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 X
   await checkHealth(true);
   healthStart();
 })();
+
+/* ── 9번 탭 — 문서 비식별 시뮬레이션 (2026-10-18) ─────────────────────────────
+   채점은 화면에서 한다. 정답표(answers)와 마스킹 결과만 있으면 되고, 서버에 상태를
+   남기지 않는다(리포트 보관 없음 — 사용자가 저장할 때만 파일로 내려간다).
+
+   측정 규율은 1~4단계에서 데여서 생긴 것들이다. 코드에서 지키는 것:
+     · 자리별 O/X 를 전체 텍스트 검색으로 만들지 않는다 — **값별 출현 횟수**로 센다.
+       (1단계에서 한 군데만 남아도 그 값의 모든 자리가 X 로 찍혔다)
+     · 쪼개진 값은 '기대값'으로 채점한다 — 문서에 완성된 값이 없어도 정답은 있다.
+     · 실패를 성공처럼 세지 않는다 — 거절도 결과로 표에 남긴다.
+──────────────────────────────────────────────────────────────────────────── */
+const DD_API = '/api/v1/voice/simulator/doc-deid';
+let ddSamples = [];           // 매니페스트 items
+let ddAnswers = {};           // 정답표 파일명 → 내용
+let ddRows = [];              // 측정 결과
+let ddAbort = false;
+
+function ddLog(s) {
+  const el = document.getElementById('dd-log');
+  if (!el) return;
+  if (el.textContent === '—') el.textContent = '';
+  el.textContent += s + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function ddKb(n) { return (n / 1024).toFixed(1) + ' KB'; }
+
+async function ddLoadSamples() {
+  try {
+    const r = await fetch(DD_API + '/samples');
+    const m = await r.json();
+    ddSamples = m.items || [];
+    ddRenderSamples('');
+    const total = ddSamples.reduce((a, b) => a + (b.bytes || 0), 0);
+    document.getElementById('dd-samples-sum').textContent =
+      ddSamples.length + '개 · ' + ddKb(total);
+    // 정답표를 미리 받아 둔다 — 채점에 필요하다
+    for (const n of ['probe_answers.json', 'table_cases.json']) {
+      try {
+        const a = await fetch(DD_API + '/samples/' + encodeURIComponent(n));
+        if (a.ok) ddAnswers[n] = await a.json();
+      } catch (e) { /* 없으면 그 묶음은 채점 없이 상태만 본다 */ }
+    }
+  } catch (e) {
+    document.getElementById('dd-samples-sum').textContent = '목록을 받지 못했습니다 — ' + e;
+  }
+}
+
+function ddRenderSamples(group) {
+  const tb = document.getElementById('dd-samples');
+  if (!tb) return;
+  tb.innerHTML = '';
+  ddSamples.filter(i => i.group !== '정답표' && (!group || i.group === group)).forEach(i => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td><input type="checkbox" class="form-check-input dd-pick" value="' + i.name + '"></td>'
+      + '<td><code>' + i.name + '</code></td><td>' + i.format + '</td>'
+      + '<td>' + (i.group || '') + '</td><td class="small">' + (i.desc || '') + '</td>'
+      + '<td class="small">' + ddKb(i.bytes || 0) + '</td>';
+    tb.appendChild(tr);
+  });
+  ddUpdateHint();
+}
+
+function ddPicked() {
+  return Array.from(document.querySelectorAll('.dd-pick:checked')).map(c => c.value);
+}
+
+function ddUpdateHint() {
+  const up = document.getElementById('dd-upload');
+  const n = ddPicked().length + (up && up.files ? up.files.length : 0);
+  const h = document.getElementById('dd-run-hint');
+  if (h) h.textContent = '선택한 문서 ' + n + '건';
+}
+
+/* ── 채점 ─────────────────────────────────────────────────────────────────── */
+
+function ddTexts(node, key) {
+  const out = [];
+  (node && node[key] || []).forEach(e => out.push(typeof e === 'object' && e ? (e.txt || '') : String(e)));
+  return out;
+}
+
+/** 경로별로 추출·마스킹 텍스트를 꺼낸다. 두 경로의 응답 모양이 다르다. */
+function ddGather(j, path) {
+  if (path === 'A') {
+    const b = j.body || {};
+    return { ex: ddTexts(b, 'detectedData').join('\n'), mk: ddTexts(b, 'maskedData').join('\n') };
+  }
+  let ex = [], mk = [];
+  (j.air || []).forEach(p => {
+    const b = p.body || {};
+    ex = ex.concat(ddTexts(b, 'detectedData'));
+    mk = mk.concat(ddTexts(b, 'maskedData'));
+  });
+  return { ex: ex.join('\n'), mk: mk.join('\n') };
+}
+
+function ddCount(hay, needle) {
+  if (!needle) return 0;
+  let n = 0, i = 0;
+  while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; }
+  return n;
+}
+
+/** 파일 이름으로 정답 목록을 고른다. 없으면 null(상태만 본다). */
+function ddAnswersFor(name) {
+  if (name.startsWith('probe_')) {
+    const a = ddAnswers['probe_answers.json'];
+    if (!a) return null;
+    return Object.entries(a.pii || {}).map(([k, v]) => ({ kind: k, expected: v, count: null }));
+  }
+  if (name.startsWith('table_')) {
+    const a = ddAnswers['table_cases.json'];
+    if (!a) return null;
+    const doc = (a.docs || []).find(d => name.indexOf(d.case) >= 0 && name.endsWith('.' + d.format));
+    if (!doc) return null;
+    return (doc.table || []).concat(doc.body || []);
+  }
+  return null;   // 장수 묶음은 성능용 — 채점 대상이 아니다
+}
+
+function ddScore(name, texts) {
+  const ans = ddAnswersFor(name);
+  if (!ans) return null;
+  let want = 0, whole = 0, left = 0;
+  const detail = [];
+  ans.forEach(a => {
+    const n = a.count || 1;
+    const w = Math.min(ddCount(texts.ex, a.expected), n);
+    const l = ddCount(texts.mk, a.expected);
+    want += n; whole += w; left += l;
+    detail.push({ kind: a.kind, expected: a.expected, as_placed: a.as_placed || null,
+                  want: n, whole: w, left: l });
+  });
+  return { want, whole, left, detail };
+}
+
+/* ── 실행 ─────────────────────────────────────────────────────────────────── */
+
+async function ddCallOne(fileOrName, path) {
+  const fd = new FormData();
+  let label;
+  if (typeof fileOrName === 'string') {
+    const r = await fetch(DD_API + '/samples/' + encodeURIComponent(fileOrName));
+    if (!r.ok) throw new Error('샘플을 받지 못했습니다 — ' + fileOrName);
+    fd.append('file', new Blob([await r.arrayBuffer()]), fileOrName);
+    label = fileOrName;
+  } else {
+    fd.append('file', fileOrName, fileOrName.name);
+    label = fileOrName.name;
+  }
+  const t0 = performance.now();
+  const r = await fetch(DD_API + '/detect?path=' + path, { method: 'POST', body: fd });
+  const wall = Math.round(performance.now() - t0);
+  let j = null, raw = '';
+  try { raw = await r.text(); j = JSON.parse(raw); } catch (e) { /* 게이트웨이가 비JSON을 줄 수 있다 */ }
+  return { label, path, http: r.status, wall, body: j, raw };
+}
+
+function ddSummarize(res) {
+  const j = res.body || {};
+  const path = res.path;
+  let air = null, server = null, chars = null, fmt = null, pages = null, err = null;
+  if (path === 'A') {
+    air = j.airStatus; server = j.elapsedMs;
+    const b = j.body || {};
+    chars = ddTexts(b, 'detectedData').join('').length || null;
+  } else {
+    const st = (j.air || []).map(p => p.status);
+    air = st.length ? Math.max.apply(null, st) : (j.airCalled === false ? '추출실패' : null);
+    server = (j.extract && j.extract.elapsedMs || 0) + (j.airElapsedMs || 0);
+    chars = j.extract && j.extract.chars;
+    fmt = j.format; pages = j.pages;
+    err = j.extract && j.extract.error;
+  }
+  const texts = ddGather(j, path);
+  const score = ddScore(res.label, texts);
+  return { file: res.label, path, http: res.http, air, server_ms: server, wall_ms: res.wall,
+           chars, format: fmt, pages: (pages && pages > 0 ? pages : null), error: err,
+           score, raw: res.raw && res.raw.length > 400 ? null : res.raw };
+}
+
+async function ddRun() {
+  const paths = (document.querySelector('input[name="dd-path"]:checked') || {}).value || 'B';
+  const conc = parseInt(document.getElementById('dd-conc').value, 10) || 1;
+  const up = document.getElementById('dd-upload');
+  const jobs = [];
+  ddPicked().forEach(n => (paths === 'AB' ? ['A', 'B'] : [paths]).forEach(p => jobs.push([n, p])));
+  if (up && up.files) {
+    Array.from(up.files).forEach(f => (paths === 'AB' ? ['A', 'B'] : [paths]).forEach(p => jobs.push([f, p])));
+  }
+  if (!jobs.length) { ddLog('고른 문서가 없습니다.'); return; }
+
+  ddAbort = false; ddRows = [];
+  document.getElementById('dd-run').disabled = true;
+  document.getElementById('dd-stop').disabled = false;
+  document.getElementById('dd-log').textContent = '';
+  ddLog('시험 시작 — ' + jobs.length + '회 (동시 ' + conc + ')');
+
+  let done = 0;
+  const started = performance.now();
+  const next = async () => {
+    while (true) {
+      if (ddAbort) return;
+      const job = jobs.shift();
+      if (!job) return;
+      const [f, p] = job;
+      const label = typeof f === 'string' ? f : f.name;
+      try {
+        const res = await ddCallOne(f, p);
+        const row = ddSummarize(res);
+        ddRows.push(row);
+        ddLog(((row.air === 200 && row.http === 200) ? '  OK  ' : '  실패 ')
+          + label + ' [' + p + '] HTTP ' + row.http + ' · AI-R ' + row.air
+          + ' · ' + (row.server_ms || '?') + 'ms'
+          + (row.score ? ' · 잔존 ' + row.score.left + '회' : ''));
+      } catch (e) {
+        ddRows.push({ file: label, path: p, http: 0, air: null, error: String(e) });
+        ddLog('  오류 ' + label + ' [' + p + '] ' + e);
+      }
+      done++;
+      const pct = Math.round(done * 100 / (done + jobs.length));
+      document.getElementById('dd-bar').style.width = pct + '%';
+      document.getElementById('dd-progress').textContent =
+        done + '건 · ' + ((performance.now() - started) / 1000).toFixed(1) + 's';
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, conc) }, next));
+
+  document.getElementById('dd-run').disabled = false;
+  document.getElementById('dd-stop').disabled = true;
+  ddLog(ddAbort ? '중단했습니다 — 지금까지 결과는 남습니다.' : '끝.');
+  ddReport();
+}
+
+/* ── 리포트 ───────────────────────────────────────────────────────────────── */
+
+function ddReport() {
+  const box = document.getElementById('dd-report');
+  if (!ddRows.length) { box.innerHTML = '<span class="hint">결과가 없습니다.</span>'; return; }
+
+  const bad = ddRows.filter(r => r.http !== 200 || r.air !== 200);
+  const leaky = ddRows.filter(r => r.score && r.score.left > 0);
+  let h = '';
+
+  h += '<div class="zt-note mb-2"><b>한 줄 결론</b> — 시험 ' + ddRows.length + '회 · '
+    + '지원 안 됨 <b>' + bad.length + '건</b> · 평문 잔존이 있는 문서 <b>' + leaky.length + '건</b></div>';
+
+  if (bad.length) {
+    h += '<div class="alert alert-warning py-2 small mb-2"><b>위험 · 지원 안 됨</b><br>'
+      + bad.map(r => r.file + ' [' + r.path + '] → HTTP ' + r.http + ' / AI-R ' + r.air
+        + (r.error ? ' · ' + r.error : '')).join('<br>') + '</div>';
+  }
+
+  h += '<div style="overflow:auto"><table class="table table-sm cs-table"><thead class="table-light"><tr>'
+    + '<th>파일</th><th>경로</th><th>AI-R</th><th>포맷</th><th>글자</th>'
+    + '<th>도달</th><th>잔존</th><th>서버</th><th>벽시계</th></tr></thead><tbody>';
+  ddRows.forEach(r => {
+    const s = r.score;
+    h += '<tr>'
+      + '<td><code>' + r.file + '</code></td><td>' + r.path + '</td>'
+      + '<td>' + (r.air === 200 ? '200' : '<b class="text-danger">' + r.air + '</b>') + '</td>'
+      + '<td>' + (r.format || '-') + (r.pages ? ' ' + r.pages + '쪽' : '') + '</td>'
+      + '<td>' + (r.chars != null ? r.chars : '-') + '</td>'
+      + '<td>' + (s ? s.whole + '/' + s.want : '-') + '</td>'
+      + '<td>' + (s ? (s.left ? '<b class="text-danger">' + s.left + '회</b>' : '0') : '-') + '</td>'
+      + '<td>' + (r.server_ms || '-') + 'ms</td><td>' + (r.wall_ms || '-') + 'ms</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  // 값별 상세 — 무엇이 남았는지
+  const det = ddRows.filter(r => r.score && r.score.detail.some(d => d.left || d.whole < d.want));
+  if (det.length) {
+    h += '<div class="mt-2"><b class="small">값별 상세 — 안 왔거나 남은 것</b>';
+    det.forEach(r => {
+      h += '<div class="small mt-1"><code>' + r.file + '</code> [' + r.path + ']<ul class="mb-1">';
+      r.score.detail.filter(d => d.left || d.whole < d.want).forEach(d => {
+        h += '<li>' + d.kind + ' <code>' + d.expected + '</code>'
+          + (d.as_placed ? ' <span class="hint">(넣은 꼴 ' + d.as_placed + ')</span>' : '')
+          + ' — 도달 ' + d.whole + '/' + d.want + (d.left ? ' · <b>잔존 ' + d.left + '회</b>' : '') + '</li>';
+      });
+      h += '</ul></div>';
+    });
+    h += '</div>';
+  }
+
+  h += '<div class="zt-note mt-2">측정 조건 — 커넥터 중계 · AI-R 개발계 · '
+    + new Date().toLocaleString('ko-KR') + '. 잔존은 <b>값별 출현 횟수</b>로 셉니다'
+    + '(전체 텍스트에서 한 번 찾는 방식은 한 군데만 남아도 모든 자리를 실패로 찍습니다).</div>';
+
+  box.innerHTML = h;
+  document.getElementById('dd-save-md').disabled = false;
+  document.getElementById('dd-save-json').disabled = false;
+}
+
+function ddDownload(name, text, mime) {
+  const b = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+
+function ddReportMd() {
+  const L = ['# 문서 비식별 시험 결과', '',
+    '- 측정 ' + new Date().toLocaleString('ko-KR') + ' · 커넥터 중계 · AI-R 개발계',
+    '- 시험 ' + ddRows.length + '회', '',
+    '| 파일 | 경로 | AI-R | 포맷 | 글자 | 도달 | 잔존 | 서버 | 벽시계 |',
+    '|---|---|---|---|---|---|---|---|---|'];
+  ddRows.forEach(r => {
+    const s = r.score;
+    L.push('| ' + r.file + ' | ' + r.path + ' | ' + r.air + ' | '
+      + (r.format || '-') + (r.pages ? ' ' + r.pages + '쪽' : '') + ' | '
+      + (r.chars != null ? r.chars : '-') + ' | '
+      + (s ? s.whole + '/' + s.want : '-') + ' | ' + (s ? s.left + '회' : '-') + ' | '
+      + (r.server_ms || '-') + 'ms | ' + (r.wall_ms || '-') + 'ms |');
+  });
+  L.push('');
+  L.push('> 잔존은 값별 출현 횟수로 센다. 전체 텍스트에서 한 번 찾는 방식은 한 군데만 남아도');
+  L.push('> 그 값의 모든 자리를 실패로 찍는다(1단계에서 그렇게 틀렸다).');
+  return L.join('\n');
+}
+
+/* ── 배선 ─────────────────────────────────────────────────────────────────── */
+
+document.addEventListener('DOMContentLoaded', () => {
+  const tb = document.getElementById('dd-samples');
+  if (!tb) return;     // 9번 탭이 없는 사본에서는 아무것도 하지 않는다
+
+  ddLoadSamples();
+
+  document.getElementById('dd-group-filter').addEventListener('click', e => {
+    const b = e.target.closest('[data-g]');
+    if (!b) return;
+    document.querySelectorAll('#dd-group-filter [data-g]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    ddRenderSamples(b.dataset.g);
+  });
+  document.getElementById('dd-pick-all').addEventListener('click',
+    () => { document.querySelectorAll('.dd-pick').forEach(c => c.checked = true); ddUpdateHint(); });
+  document.getElementById('dd-pick-none').addEventListener('click',
+    () => { document.querySelectorAll('.dd-pick').forEach(c => c.checked = false); ddUpdateHint(); });
+  tb.addEventListener('change', ddUpdateHint);
+  document.getElementById('dd-upload').addEventListener('change', ddUpdateHint);
+
+  document.getElementById('dd-zip').addEventListener('click', () => {
+    const n = ddPicked();
+    if (!n.length) { ddLog('고른 문서가 없습니다.'); return; }
+    window.location = DD_API + '/samples.zip?names=' + encodeURIComponent(n.join(','));
+  });
+  document.getElementById('dd-zip-all').addEventListener('click',
+    () => { window.location = DD_API + '/samples.zip'; });
+
+  document.getElementById('dd-run').addEventListener('click', ddRun);
+  document.getElementById('dd-stop').addEventListener('click', () => {
+    ddAbort = true;
+    ddLog('중단 요청 — 진행 중인 건이 끝나면 멈춥니다.');
+  });
+  document.getElementById('dd-save-md').addEventListener('click',
+    () => ddDownload('문서비식별_시험결과.md', ddReportMd(), 'text/markdown;charset=utf-8'));
+  document.getElementById('dd-save-json').addEventListener('click',
+    () => ddDownload('문서비식별_시험결과.json',
+      JSON.stringify({ measured: new Date().toISOString(), rows: ddRows }, null, 2),
+      'application/json;charset=utf-8'));
+});
+
 </script>
 </body>
 </html>

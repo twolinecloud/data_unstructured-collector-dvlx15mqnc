@@ -1841,6 +1841,7 @@ function showTab(id) {
   if (id === 'tab-image') imOnShow();
   if (id === 'tab-transfer') ztOnShow();
   if (id === 'tab-cloud') csOnShow();
+  if (id === 'tab-docdeid') ddOnShow();
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('#sim-tabs [data-tab]');
@@ -6528,7 +6529,16 @@ log('접견과 전화는 연동 경로가 완전히 다릅니다 — 전화는 X
      · 쪼개진 값은 '기대값'으로 채점한다 — 문서에 완성된 값이 없어도 정답은 있다.
      · 실패를 성공처럼 세지 않는다 — 거절도 결과로 표에 남긴다.
 ──────────────────────────────────────────────────────────────────────────── */
-const DD_API = '/api/v1/voice/simulator/doc-deid';
+// 경로를 하드코딩하면 안 된다. 이 화면은 두 곳에서 열린다 — 수집기가 직접 서빙하면
+//   API base 가 '' 이고, admin-fe 사본이면 '/voice' 다(nginx 가 /voice/ 를 떼서 수집기로 넘긴다).
+//   admin-fe 에서 '/api/v1/...' 을 그냥 부르면 그건 **커넥터로** 가서 404 가 된다.
+//   그래서 기존 자동 감지값(API_BASE)을 호출 때마다 읽는다 — 감지가 끝난 뒤에 값이 채워지므로
+//   상수로 미리 만들어 두면 빈 값이 박힌다.
+const DD_PATH = '/api/v1/voice/simulator/doc-deid';
+function ddApi(suffix) {
+  const base = (typeof API_BASE === 'string') ? API_BASE : '';
+  return base + DD_PATH + (suffix || '');
+}
 let ddSamples = [];           // 매니페스트 items
 let ddAnswers = {};           // 정답표 파일명 → 내용
 let ddRows = [];              // 측정 결과
@@ -6546,7 +6556,7 @@ function ddKb(n) { return (n / 1024).toFixed(1) + ' KB'; }
 
 async function ddLoadSamples() {
   try {
-    const r = await fetch(DD_API + '/samples');
+    const r = await fetch(ddApi('/samples'));
     const m = await r.json();
     ddSamples = m.items || [];
     ddRenderSamples('');
@@ -6556,7 +6566,7 @@ async function ddLoadSamples() {
     // 정답표를 미리 받아 둔다 — 채점에 필요하다
     for (const n of ['probe_answers.json', 'table_cases.json']) {
       try {
-        const a = await fetch(DD_API + '/samples/' + encodeURIComponent(n));
+        const a = await fetch(ddApi('/samples/' + encodeURIComponent(n)));
         if (a.ok) ddAnswers[n] = await a.json();
       } catch (e) { /* 없으면 그 묶음은 채점 없이 상태만 본다 */ }
     }
@@ -6660,7 +6670,7 @@ async function ddCallOne(fileOrName, path) {
   const fd = new FormData();
   let label;
   if (typeof fileOrName === 'string') {
-    const r = await fetch(DD_API + '/samples/' + encodeURIComponent(fileOrName));
+    const r = await fetch(ddApi('/samples/' + encodeURIComponent(fileOrName)));
     if (!r.ok) throw new Error('샘플을 받지 못했습니다 — ' + fileOrName);
     fd.append('file', new Blob([await r.arrayBuffer()]), fileOrName);
     label = fileOrName;
@@ -6669,7 +6679,7 @@ async function ddCallOne(fileOrName, path) {
     label = fileOrName.name;
   }
   const t0 = performance.now();
-  const r = await fetch(DD_API + '/detect?path=' + path, { method: 'POST', body: fd });
+  const r = await fetch(ddApi('/detect?path=' + path), { method: 'POST', body: fd });
   const wall = Math.round(performance.now() - t0);
   let j = null, raw = '';
   try { raw = await r.text(); j = JSON.parse(raw); } catch (e) { /* 게이트웨이가 비JSON을 줄 수 있다 */ }
@@ -6842,13 +6852,23 @@ function ddReportMd() {
   return L.join('\n');
 }
 
+
+/** 탭을 처음 열 때 한 번만 목록을 받는다. API_BASE 가 채워진 뒤여야 한다. */
+let ddLoaded = false;
+function ddOnShow() {
+  if (ddLoaded) return;
+  ddLoaded = true;
+  ddLoadSamples();
+}
+
 /* ── 배선 ─────────────────────────────────────────────────────────────────── */
 
 document.addEventListener('DOMContentLoaded', () => {
   const tb = document.getElementById('dd-samples');
   if (!tb) return;     // 9번 탭이 없는 사본에서는 아무것도 하지 않는다
 
-  ddLoadSamples();
+  // 목록은 여기서 받지 않는다 — API_BASE 자동 감지가 아직 안 끝났다.
+  //   탭을 처음 열 때(ddOnShow) 받는다. 다른 탭들과 같은 방식이다.
 
   document.getElementById('dd-group-filter').addEventListener('click', e => {
     const b = e.target.closest('[data-g]');
@@ -6867,10 +6887,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dd-zip').addEventListener('click', () => {
     const n = ddPicked();
     if (!n.length) { ddLog('고른 문서가 없습니다.'); return; }
-    window.location = DD_API + '/samples.zip?names=' + encodeURIComponent(n.join(','));
+    window.location = ddApi('/samples.zip?names=' + encodeURIComponent(n.join(',')));
   });
   document.getElementById('dd-zip-all').addEventListener('click',
-    () => { window.location = DD_API + '/samples.zip'; });
+    () => { window.location = ddApi('/samples.zip'); });
 
   document.getElementById('dd-run').addEventListener('click', ddRun);
   document.getElementById('dd-stop').addEventListener('click', () => {

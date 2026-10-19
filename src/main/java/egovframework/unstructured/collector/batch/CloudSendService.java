@@ -1,16 +1,14 @@
 package egovframework.unstructured.collector.batch;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.transfer.TransmitHoldClient;
+import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -18,8 +16,7 @@ import java.util.function.BiConsumer;
 /**
  * 클라우드 전송 — 관리자 화면 [클라우드 전송](파이프라인 운영 &gt; 클라우드 전송 제어)이 비정형 음성 배치를 보낸다.
  *
- * <p><b>누른 배치와 그 이전의 전송 미완료 배치</b>(같은 작업 · 전송 실패/부분성공/취소/<b>대기</b>)를 오래된 순으로 보내고 누른 배치를
- * 마지막에 보낸다(긴급 재처리 체인과 같은 방식 · 2026-10-16). 배치마다 데이터를 가진 쪽이 보낸다
+ * <p><b>누른 배치 한 건만 보낸다(단건 독립 전송 · PL 최종 협의 2026-10-19).</b> 배치마다 데이터를 가진 쪽이 보낸다
  * ({@link UnstructuredBatchService#processPending}).</p>
  * <ul>
  *   <li><b>커넥터 보류 장부에 있으면</b> — 커넥터 전송 트리거({@code /api/v1/transmit/holds/{execId}/release}). 전송 가드가 보류한 건
@@ -28,11 +25,19 @@ import java.util.function.BiConsumer;
  *       멱등 표식이 건너뜀). 커넥터에 닿기 전에 실패한 건(커넥터 5xx · 연결 실패)이다</li>
  * </ul>
  *
- * <p><b>전송 대기(WAIT)도 함께 보낸다(PL 협의 2026-10-16)</b> — 화면이 "하위 대기 건을 모두 확인했습니까?" 경고 팝업으로 관리자 승인을 받은 뒤
- * 부른다. 같은 날 오전엔 이전 배치의 WAIT 를 빼는 쪽으로 구현했다가 이 협의로 되돌렸다. 실행 중 · 전송 중인 배치는 건너뛴다(중복 방지).</p>
+ * <p><b>왜 체인을 버렸나</b> — 2026-10-16 부터 누른 배치 <i>이전</i>의 전송 미완료 배치(실패 · 부분성공 · 취소 · 대기)를 오래된 순으로
+ * 함께 보냈다. 그중 <b>대기(WAIT)</b> 는 비식별 결과를 사람이 검수하라고 전송 가드가 멈춰 둔 건인데, 체인이 그것까지 끌어다 보내면
+ * <b>미검수 유출</b>이 된다. 화면 팝업으로 승인을 받는 방식이었지만 "하위 몇 건이 무엇인지" 를 누르는 사람이 알 수 없어
+ * 승인이 형식에 그친다. 그래서 체인을 완전히 폐기하고 <b>고른 한 건만</b> 보내는 쪽으로 되돌렸다.</p>
+ *
+ * <p>순서가 섞여도 된다 — 비정형(음성)은 파일 단위로 독립해 쌓이는 append-only 구조라 배치 간 선후가 데이터 정합성을 만들지 않는다.
+ * 이전 미완료 건은 각자 목록에서 눌러 보내면 된다.</p>
  *
  * <p>접수는 바로 돌려주고(202) 백그라운드에서 보낸다 — 스케줄 · 바로 실행 · 재처리와 같은 실행기 · 같은 잠금이라 동시에 한 건만 돈다.
  * 수용자 이미지는 클라우드로 보내지 않는다(마지막 단계 STORE · 내부 저장만).</p>
+ *
+ * <p>※ 긴급 재처리의 체인({@code failed-chain?basis=PENDING})은 <b>그대로 둔다</b> — 그쪽은 같은 배치를 처음 단계부터 다시 돌리는
+ * 것이고 전송 가드가 여전히 대기를 막아 주므로 이 문제가 없다.</p>
  */
 @Log4j2
 @Service
@@ -56,13 +61,12 @@ public class CloudSendService {
     /**
      * 실행 계획 — 접수 <b>전에</b> 만들고 검증한다. 잘못된 요청은 실행기에 넣지 않고 400 · 409 로 돌려보낸다.
      *
-     * @param execId       누른 배치
-     * @param sendStsCd    누른 배치의 전송 단계 상태(계획 시점)
-     * @param predecessors 함께 보낼 이전 전송 미완료 배치(오래된 순 · 누른 배치 제외 · 대기 WAIT 포함 · 전송 중 RUNNING 제외)
-     * @param requestedBy  관리자 ID — 커넥터 감사 로그
-     * @param triggerBy    다시 여는 배치의 T1 TRIGGER_BY — {@code <관리자>/cloud-send:<누른 배치>}
+     * @param execId      보낼 배치(한 건)
+     * @param sendStsCd   그 배치의 전송 단계 상태(계획 시점)
+     * @param requestedBy 관리자 ID — 커넥터 감사 로그
+     * @param triggerBy   다시 여는 배치의 T1 TRIGGER_BY — {@code <관리자>/cloud-send:<배치>}
      */
-    public record Plan(String execId, String sendStsCd, List<String> predecessors, String requestedBy, String triggerBy) {
+    public record Plan(String execId, String sendStsCd, String requestedBy, String triggerBy) {
 
         /** 상태 · 응답에 보일 요약. */
         public Map<String, Object> detail() {
@@ -70,20 +74,12 @@ public class CloudSendService {
             m.put("dataTypeCd", UnstructuredBatchService.DATA_TYPE);
             m.put("originExecId", execId);
             m.put("sendStsCd", sendStsCd);
-            m.put("chain", chain());
             return m;
-        }
-
-        /** 보낼 순서 — 이전 배치(오래된 순) 다음 누른 배치. */
-        public List<String> chain() {
-            List<String> all = new ArrayList<>(predecessors);
-            all.add(execId);
-            return all;
         }
     }
 
     /**
-     * @throws UserFacingRejection 유형 · execId 오류, 배치 없음 · 이미지 · 보낼 것 없음 · 이미 보냄 · 장부/체인을 읽지 못함
+     * @throws UserFacingRejection 유형 · execId 오류, 배치 없음 · 이미지 · 보낼 것 없음 · 이미 보냄 · 장부를 읽지 못함
      * @throws UnstructuredJobRunner.AlreadyRunningException 그 배치가 지금 실행 · 전송 중(409)
      */
     public Plan plan(String execId, String dataTypeCd, String requestedBy) {
@@ -133,22 +129,13 @@ public class CloudSendService {
             throw new UserFacingRejection(MSG_CANNOT_RESEND, "클라우드 전송 거절 — 장부에 없고 다시 열 수도 없다: execId=" + id
                     + " exec_sts_cd=" + t1 + " send=" + send);
         }
-        List<LogCollectorClient.ChainBatch> chain = logCollector.sendChain(id);
-        if (chain == null) {
-            throw new UserFacingRejection(MSG_SEND_UNAVAILABLE, "클라우드 전송 거절 — 전송 체인(failed-chain?basis=SEND)을 읽지 못했다: execId=" + id);
-        }
-        List<String> before = new ArrayList<>();
-        for (LogCollectorClient.ChainBatch c : chain) {
-            // 전송 대기(WAIT)도 넣는다(PL 협의 — 화면 팝업 승인). 지금 전송 중인 건만 뺀다(보내기 직전에 다시 본다)
-            if (c.execId() == null || c.execId().equals(id) || "RUNNING".equals(c.sendStsCd())) {
-                continue;
-            }
-            before.add(c.execId());
-        }
-        return new Plan(id, send, List.copyOf(before), who, who + "/cloud-send:" + id);
+        // 이전 배치를 끌어모으지 않는다 — 고른 한 건만 보낸다(단건 독립 전송 · PL 최종 협의 2026-10-19).
+        //   전송 체인(failed-chain?basis=SEND) 조회도 하지 않는다. 그 조회가 대기(WAIT) 건까지 끌어와
+        //   미검수 유출을 만들던 자리다.
+        return new Plan(id, send, who, who + "/cloud-send:" + id);
     }
 
-    /** 계획대로 보낸다(실행기 스레드) — 이전 배치부터 오래된 순, 마지막에 누른 배치. 결과 요약을 돌려준다. */
+    /** 계획대로 보낸다(실행기 스레드) — 고른 한 건만. 결과 요약을 돌려준다. */
     public String execute(Plan p, BiConsumer<String, Boolean> onExecId) {
         if (onExecId != null) {
             try {
@@ -158,15 +145,11 @@ public class CloudSendService {
             }
         }
         Set<String> held = holds.holds();
-        log.info("[CloudSend] 클라우드 전송 — 누른 배치 {} · 함께 보낼 이전 배치 {} · 커넥터 장부 {}", p.execId(), p.predecessors(),
+        log.info("[CloudSend] 클라우드 전송(단건) — 배치 {} · 커넥터 장부 {}", p.execId(),
                 held == null ? (holds.isEnabled() ? "읽지 못함" : "없음(MOCK)") : held.size() + "건");
-        List<String> lines = new ArrayList<>();
-        for (String id : p.chain()) {
-            String line = batch.processPending(id, UnstructuredBatchService.PendingMode.CLOUD_SEND, ResumeMode.FROM_SEND, null, null,
-                    held, p.triggerBy(), p.requestedBy());
-            lines.add(line);
-            log.info("[CloudSend] {}", line);
-        }
-        return "클라우드 전송 %d건 — %s".formatted(lines.size(), String.join(" / ", lines));
+        String line = batch.processPending(p.execId(), UnstructuredBatchService.PendingMode.CLOUD_SEND, ResumeMode.FROM_SEND, null, null,
+                held, p.triggerBy(), p.requestedBy());
+        log.info("[CloudSend] {}", line);
+        return "클라우드 전송 1건 — " + line;
     }
 }

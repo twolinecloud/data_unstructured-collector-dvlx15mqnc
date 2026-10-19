@@ -256,9 +256,9 @@ class AdminLinkControllerTest {
     // ── cloud-send ──
 
     @Test
-    @DisplayName("클라우드 전송 — 본문 {execId, dataTypeCd, triggerBy} · 202 + 누른 배치 · 보낼 순서(chain) · 실행 중이면 409")
+    @DisplayName("클라우드 전송 — 본문 {execId, dataTypeCd, triggerBy} · 202 + 고른 배치 한 건(chain 없음) · 실행 중이면 409")
     void cloudSendAcceptedThenConflict() throws Exception {
-        CloudSendService.Plan plan = new CloudSendService.Plan("20261016UNS003", "WAIT", java.util.List.of("20261015UNS001"),
+        CloudSendService.Plan plan = new CloudSendService.Plan("20261016UNS003", "WAIT",
                 "admin01", "admin01/cloud-send:20261016UNS003");
         when(cloudSend.plan("20261016UNS003", "UNSTRUCTURED", "admin01")).thenReturn(plan);
         CountDownLatch hold = new CountDownLatch(1);
@@ -275,8 +275,8 @@ class AdminLinkControllerTest {
                 .andExpect(jsonPath("$.status").value("RUNNING"))
                 .andExpect(jsonPath("$.originExecId").value("20261016UNS003"))
                 .andExpect(jsonPath("$.sendStsCd").value("WAIT"))
-                .andExpect(jsonPath("$.chain[0]").value("20261015UNS001"))
-                .andExpect(jsonPath("$.chain[1]").value("20261016UNS003"));
+                // 단건 독립 전송(2026-10-19) — 보낼 목록이 없으므로 chain 을 내리지 않는다
+                .andExpect(jsonPath("$.chain").doesNotExist());
 
         mvc.perform(post("/internal/batch/cloud-send").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict())

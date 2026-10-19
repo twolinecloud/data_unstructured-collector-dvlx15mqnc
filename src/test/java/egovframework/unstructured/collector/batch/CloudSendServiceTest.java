@@ -8,9 +8,7 @@ import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -20,13 +18,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 클라우드 전송 — 누른 배치 + 이전 전송 미완료 배치(대기 WAIT 포함 · PL 협의 2026-10-16) 오래된 순 · 누른 배치는 마지막.
+ * 클라우드 전송 — <b>누른 배치 한 건만</b> 보낸다(단건 독립 전송 · PL 최종 협의 2026-10-19).
  * 배치 한 건 처리(장부 → 커넥터 / 아니면 수집기 재전송)는 {@code UnstructuredBatchService.processPending} 이 하고, 그 검증은
  * {@code UnstructuredBatchServiceTest} 에 있다.
  */
@@ -60,32 +61,32 @@ class CloudSendServiceTest {
                 .formatted(execId, job, t1, steps));
     }
 
-    private static LogCollectorClient.ChainBatch chain(String execId, String t1, String send) {
-        return new LogCollectorClient.ChainBatch(execId, t1, "VOICE_ANALYSIS", "음성", null,
-                LocalDateTime.of(2026, 10, 15, 0, 0), LocalDateTime.of(2026, 10, 16, 0, 0), send);
-    }
-
     @Test
-    @DisplayName("계획 — 이전 전송 미완료 배치를 오래된 순으로(대기 WAIT 포함) · 지금 전송 중(RUNNING)만 빼고 · 누른 배치는 마지막")
-    void planChainIncludesWait() throws Exception {
+    @DisplayName("계획 — 고른 배치 한 건만. 이전 미완료 배치를 끌어오지 않고 전송 체인도 조회하지 않는다")
+    void planIsSingleBatchOnly() throws Exception {
         when(logc.batchDetail("20261016UNS003")).thenReturn(detail("20261016UNS003", "VOICE_ANALYSIS", "SUCCESS", "WAIT"));
         when(holds.holds()).thenReturn(Set.of("20261016UNS003"));
-        when(logc.sendChain("20261016UNS003")).thenReturn(List.of(
-                chain("20261014UNS001", "PARTIAL", "FAIL"),
-                chain("20261015UNS001", "SUCCESS", "WAIT"),        // 하위 대기 건 — 화면 팝업 승인을 받고 함께 보낸다
-                chain("20261015UNS002", "SUCCESS", "RUNNING"),     // 지금 전송 중 — 중복 방지로 뺀다
-                chain("20261015UNS003", "SUCCESS", "CANCELED"),
-                chain("20261016UNS003", "SUCCESS", "WAIT")));      // 누른 배치 — 마지막에 따로
+
         CloudSendService.Plan p = service.plan(" 20261016UNS003 ", "UNSTRUCTURED", "admin01");
-        assertThat(p.chain()).containsExactly("20261014UNS001", "20261015UNS001", "20261015UNS003", "20261016UNS003");
+
+        assertThat(p.execId()).isEqualTo("20261016UNS003");
         assertThat(p.sendStsCd()).isEqualTo("WAIT");
         assertThat(p.triggerBy()).isEqualTo("admin01/cloud-send:20261016UNS003");
-        assertThat(p.detail()).containsEntry("originExecId", "20261016UNS003").containsKey("chain");
+        // 응답에서 chain 을 뺀다 — 단건이라 보낼 목록이 없다
+        assertThat(p.detail()).containsEntry("originExecId", "20261016UNS003")
+                .containsEntry("sendStsCd", "WAIT")
+                .doesNotContainKey("chain");
         assertThat(service.plan("20261016UNS003", "UNSTRUCTURED", " ").requestedBy()).isEqualTo("admin");
+
+        // 체인 조회 자체를 하지 않는다 — 그 조회가 대기(WAIT) 건을 끌어와 미검수 유출을 만들던 자리다.
+        //   LogCollectorClient 에 sendChain 메서드가 없으므로 컴파일로도 막히지만, 다른 체인 조회로
+        //   되살아나지 않게 여기서 못 박는다.
+        verify(logc, never()).pendingChain(anyString());
+        verify(logc, never()).failedChain(anyString(), anyBoolean());
     }
 
     @Test
-    @DisplayName("계획 400 · 409 — 비정형 아님 · execId 없음 · 없음 · 이미지 · 전송 단계 없음 · 이미 보냄 · 실행/전송 중 · 장부 없음 · 체인 못 읽음")
+    @DisplayName("계획 400 · 409 — 비정형 아님 · execId 없음 · 없음 · 이미지 · 전송 단계 없음 · 이미 보냄 · 실행/전송 중 · 장부 없음")
     void planRejects() throws Exception {
         assertRejected(() -> service.plan("X", "STRUCTURED", null), UnstructuredBatchService.MSG_NOT_UNSTRUCTURED);
         assertRejected(() -> service.plan(" ", "UNSTRUCTURED", null), CloudSendService.MSG_NO_TARGET);
@@ -118,16 +119,15 @@ class CloudSendServiceTest {
         when(logc.batchDetail("F")).thenReturn(detail("F", "VOICE_ANALYSIS", "SUCCESS", "FAIL"));
         assertRejected(() -> service.plan("F", "UNSTRUCTURED", null), CloudSendService.MSG_CANNOT_RESEND);
 
-        // 전송 체인을 못 읽는다
+        // 장부에 없어도 배치가 실패/부분성공/취소면 다시 열어 보낸다 — 체인을 못 읽어서 거절하던 길은 없어졌다
         when(logc.batchDetail("G")).thenReturn(detail("G", "VOICE_ANALYSIS", "PARTIAL", "FAIL"));
-        when(logc.sendChain("G")).thenReturn(null);
-        assertRejected(() -> service.plan("G", "UNSTRUCTURED", null), CloudSendService.MSG_SEND_UNAVAILABLE);
+        assertThat(service.plan("G", "UNSTRUCTURED", null).execId()).isEqualTo("G");
     }
 
     @Test
-    @DisplayName("실행 — 체인 순서대로 배치마다 processPending(보내기만 · 전송부터) · 장부는 한 번 읽어 같이 쓴다 · 응답 execId 는 누른 배치")
-    void executeProcessesChainInOrder() {
-        CloudSendService.Plan p = new CloudSendService.Plan("T", "WAIT", List.of("P1", "P2"), "admin01", "admin01/cloud-send:T");
+    @DisplayName("실행 — 고른 배치에만 processPending(보내기만 · 전송부터). 다른 배치는 건드리지 않는다")
+    void executeSendsOnlyTheChosenBatch() {
+        CloudSendService.Plan p = new CloudSendService.Plan("T", "WAIT", "admin01", "admin01/cloud-send:T");
         Set<String> held = Set.of("P2", "T");
         when(holds.holds()).thenReturn(held);
         when(batch.processPending(anyString(), any(), any(), isNull(), isNull(), any(), anyString(), anyString()))
@@ -137,12 +137,12 @@ class CloudSendServiceTest {
         String sum = service.execute(p, (id, c) -> published.add(id));
 
         assertThat(published).containsExactly("T");
-        assertThat(sum).isEqualTo("클라우드 전송 3건 — P1 처리 / P2 처리 / T 처리");
-        InOrder o = inOrder(batch);
-        for (String id : List.of("P1", "P2", "T")) {
-            o.verify(batch).processPending(eq(id), eq(UnstructuredBatchService.PendingMode.CLOUD_SEND), eq(ResumeMode.FROM_SEND),
-                    isNull(), isNull(), eq(held), eq("admin01/cloud-send:T"), eq("admin01"));
-        }
+        assertThat(sum).isEqualTo("클라우드 전송 1건 — T 처리");
+        verify(batch).processPending(eq("T"), eq(UnstructuredBatchService.PendingMode.CLOUD_SEND), eq(ResumeMode.FROM_SEND),
+                isNull(), isNull(), eq(held), eq("admin01/cloud-send:T"), eq("admin01"));
+        // 장부에 다른 건(P2)이 있어도 보내지 않는다
+        verify(batch, never()).processPending(eq("P2"), any(), any(), any(), any(), any(), anyString(), anyString());
+        verifyNoMoreInteractions(batch);
     }
 
     @Test

@@ -1,8 +1,8 @@
 package egovframework.unstructured.collector.batch;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import egovframework.unstructured.collector.common.transfer.TransmitHoldClient;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
+import egovframework.unstructured.collector.common.transfer.TransmitHoldClient;
 import egovframework.unstructured.collector.voice.batch.ResumeMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;

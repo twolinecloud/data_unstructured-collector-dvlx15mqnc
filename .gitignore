@@ -39,3 +39,7 @@ __pycache__/
 # 제논 Mock 서버 — 받은 파일 · 가상환경
 tools/zenon-mock/mock_received_files/
 tools/zenon-mock/.venv/
+
+# NER 벤치마크 — 가상환경 · 학습 모델 · 결과(실행마다 다시 만든다)
+tools/ner-benchmark/.venv/
+tools/ner-benchmark/out/

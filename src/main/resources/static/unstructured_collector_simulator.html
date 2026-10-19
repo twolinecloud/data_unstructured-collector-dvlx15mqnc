@@ -1280,7 +1280,8 @@
 
   <div class="tabp" id="tab-cloud">
   <!-- 8번 탭 — 클라우드 전송 시뮬레이션(2026-10-17). 7번이 수집기 → 에이전트 커넥터 구간(수신 양식 · 용량 · 헤더 · 전송 재처리)이라면
-       여기는 커넥터 → 클라우드 구간 — 관리 화면 '파이프라인 운영 > 클라우드 전송 제어' 와 1:1 이다. 상태별 배치를 만들고, 연속 전송(체인)을 돌린다. -->
+       여기는 커넥터 → 클라우드 구간 — 관리 화면 '파이프라인 운영 > 클라우드 전송 제어' 와 1:1 이다. 상태별 배치를 만들고, 클라우드 전송(단건)을 돌린다.
+       2026-10-19: 체인(이전 미완료 배치를 함께 보내기)을 폐기하고 단건 독립 전송으로 되돌렸다 — 대기(WAIT) 건이 미검수로 나가는 길을 막기 위해서다. -->
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
       <strong>① 상태별 배치 만들기 <span class="hint fw-normal">— 관리 화면 '클라우드 전송 제어' 대기 목록의 다섯 상태 · 대시보드용(DMY 더미 · 실제 배치 · EXEC_ID UNS)</span></strong>
@@ -1315,15 +1316,17 @@
 
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white py-2">
-      <strong>③ 연속 전송 — 클라우드 전송 체인 <span class="hint fw-normal">— 누른 배치와 그 이전의 미완료 배치(대기 포함 · 전송중 제외)를 오래된 순으로 · admin-api 시험 브랜치가 부르는 수집기 API 와 같은 경로</span></strong>
+      <strong>③ 클라우드 전송 <span class="hint fw-normal">— 고른 배치 <b>한 건만</b> 보냅니다(단건 독립 전송 · PL 최종 협의 2026-10-19) · 어드민 화면 [클라우드 전송]과 같은 단위</span></strong>
     </div>
     <div class="card-body py-2">
       <div class="d-flex flex-wrap gap-2 align-items-end">
         <div><label class="hint d-block" for="cs-target">누를 배치 <span class="hint">(관리 화면에서 [클라우드 전송]을 누르는 행)</span></label>
           <select class="form-select form-select-sm font-monospace" id="cs-target" style="min-width:20rem"><option value="">— 묶음을 먼저 만드십시오 —</option></select></div>
-        <button class="btn btn-sm btn-success" type="button" id="cs-chain">연속 전송 실행</button>
+        <button class="btn btn-sm btn-success" type="button" id="cs-chain">클라우드 전송 실행 (단건)</button>
       </div>
-      <div class="zt-note mt-2">관리 화면 [클라우드 전송]은 admin-api 반영 전까지 <b>그 배치 하나만</b> 커넥터로 보냅니다. 이 버튼은 반영 후의 동작(수집기 체인)을 지금 개발계에서 봅니다.
+      <div class="zt-note mt-2"><b>이전 미완료 배치를 함께 보내지 않습니다.</b> 2026-10-16 ~ 10-18 에는 이전 건(실패 · 부분 성공 · 취소 · <b>대기</b>)을
+        오래된 순으로 함께 보냈습니다(체인). 그중 <b>대기</b>는 비식별 결과를 사람이 검수하라고 전송 가드가 멈춰 둔 건이라, 체인이 그것까지 보내면
+        <b>미검수 유출</b>이 됩니다. 그래서 폐기하고 단건으로 되돌렸습니다 — 이전 건은 목록에서 각각 눌러 보냅니다.<br>
         보류분은 커넥터가 보내 <b>성공(목록에서 빠짐)</b>, 장부가 없는 전송 실패는 같은 실행 ID 로 전송부터 다시 돌아 — 전송 방식이 수동이라 — 다시 <b>대기</b>가 됩니다(새 전사는 다시 승인).</div>
       <div id="cs-chain-res" class="mt-2"></div>
     </div>
@@ -3792,7 +3795,7 @@ $('btn-e2e').onclick = async () => {
 // ═══════════════════════════════════════════════════════════════════════
 //  8번 탭 — 클라우드 전송 시뮬레이션(2026-10-17)
 //  관리 화면 '클라우드 전송 제어' 대기 목록의 다섯 상태를 상태별 개수만큼 만들고(① · 수집기 POST /api/v1/voice/simulator/cloud-send-states),
-//  지금 상태를 보고(②), 연속 전송(③ · 클라우드 전송 체인 — /api/v1/mock/admin/batch/cloud-send = /internal/batch/cloud-send)을 돌린다.
+//  지금 상태를 보고(②), 클라우드 전송(③ · 단건 — /api/v1/mock/admin/batch/cloud-send = /internal/batch/cloud-send)을 돌린다.
 // ═══════════════════════════════════════════════════════════════════════
 const CS_KINDS = [
   { key:'WAIT',     label:'대기',      reason:'수동 확인',      how:'실제 흐름', note:'정상 2건 → 커넥터가 수동 확인으로 보류' },
@@ -3849,7 +3852,7 @@ function csRender(rows) {
     return;
   }
   const body = rows.map((r, i) => {
-    // 만든 직후(asRequested 가 있음)에 다르면 '요청과 다름', 그 뒤(연속 전송 · 전송중 풀기)에 바뀐 건 어떻게 바뀌었는지
+    // 만든 직후(asRequested 가 있음)에 다르면 '요청과 다름', 그 뒤(클라우드 전송 · 전송중 풀기)에 바뀐 건 어떻게 바뀌었는지
     const after = r.send === 'SUCCESS' || r.purged ? '전송 끝(목록에서 빠짐)'
         : r.exists === false ? '이력 없음(지워짐)'
         : r.send === r.state ? ''
@@ -3936,7 +3939,7 @@ $('cs-make').onclick = async () => {
       <ul class="pop-list">${byState}
         ${cleanup ? `<li>정리: 지운 이전 묶음 <span class="n">${del.length}</span>건</li>` : ''}</ul>
       ${d.warning ? `<div class="pop-note" style="border-color:#f1aeb5;background:#fff5f5">${esc(d.warning)}</div>` : ''}
-      <div class="pop-note">관리 화면 <b>클라우드 전송 제어</b>(기간 오늘 · 상태 전체) 에서 확인 → 아래 ③ [연속 전송 실행] 으로 체인을 봅니다.</div>`);
+      <div class="pop-note">관리 화면 <b>클라우드 전송 제어</b>(기간 오늘 · 상태 전체) 에서 확인 → 아래 ③ [클라우드 전송 실행] 으로 한 건을 보냅니다.</div>`);
   } finally {
     b.innerHTML = '상태별 배치 만들기';
     csTotal();
@@ -3971,27 +3974,28 @@ $('cs-clean').onclick = async () => {
 $('cs-chain').onclick = async () => {
   const id = $('cs-target').value;
   if (!id) return;
-  // PL 협의(10-16) — 하위 대기 건까지 보내므로 먼저 확인받는다(관리 화면 팝업과 같은 문구)
-  const ok = await confirmPopup('연속 전송 — 클라우드 전송', `<div class="pop-lead"><code>${esc(id)}</code> 를 클라우드로 전송합니다.</div>
-    <ul class="pop-list"><li>이 배치 <b>이전</b>의 전송 미완료 배치(대기 · 실패 · 부분 성공 · 취소)를 <b>오래된 순</b>으로 먼저 보내고 이 배치를 마지막에 보냅니다</li>
-      <li>전송중인 배치는 건너뜁니다</li></ul>
-    <div class="pop-note"><b>하위 대기 건을 모두 확인했습니까?</b></div>`, '클라우드 전송', '취소');
+  // 단건 독립 전송(PL 최종 협의 10-19) — 하위 대기 건을 끌어오지 않으므로 "모두 확인했습니까?" 를 묻지 않는다.
+  //   그 질문은 누르는 사람이 하위 몇 건이 무엇인지 알 수 없어 승인이 형식에 그쳤다. 이제 보낼 것은 이 한 건뿐이다.
+  const ok = await confirmPopup('클라우드 전송', `<div class="pop-lead"><code>${esc(id)}</code> <b>한 건만</b> 클라우드로 전송합니다.</div>
+    <ul class="pop-list"><li>이전 미완료 배치는 <b>함께 보내지 않습니다</b> — 필요하면 목록에서 각각 누르십시오</li>
+      <li>이 배치가 전송 대기면 비식별 결과를 검수한 뒤 보내십시오</li></ul>`, '클라우드 전송', '취소');
   if (!ok) return;
   const b = $('cs-chain');
   b.disabled = true;
   b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>보내는 중…';
   try {
-    const info = await callFull('POST', '/api/v1/mock/admin/batch/cloud-send', `연속 전송 — ${id} (클라우드 전송 체인)`,
+    const info = await callFull('POST', '/api/v1/mock/admin/batch/cloud-send', `클라우드 전송(단건) — ${id}`,
       { json: { execId: id, dataTypeCd: 'UNSTRUCTURED', triggerBy: 'simulator' } });
     if (!info.ok) {
       showPopup('전송을 시작하지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
       return;
     }
     const acc = info.body || {};
-    const chain = acc.chain || [id];
-    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>체인 ${chain.length}건(오래된 순)</b> ${chain.map(x => `<code>${esc(x)}</code>`).join('<span class="arrow">→</span>')}</div>
+    const sent = acc.originExecId || id;
+    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>단건</b> <code>${esc(sent)}</code>
+        <span class="hint">전송 단계 ${esc(acc.sendStsCd || '?')}</span></div>
       <div class="hint mt-1">접수(202) · handle ${esc(acc.handle || '')} — 진행 중…</div>`;
-    log(`  └ 접수 — 체인 ${chain.length}건: ${chain.join(' → ')}`, 'ok');
+    log(`  └ 접수 — 단건 ${sent} (전송 단계 ${acc.sendStsCd || '?'})`, 'ok');
     let job = null;
     for (let i = 0; i < 180; i++) {
       await sleep(1000);
@@ -4000,13 +4004,13 @@ $('cs-chain').onclick = async () => {
       if (job && job.status && job.status !== 'RUNNING') break;
     }
     const lines = String(job?.result || '').replace(/^[^—]*—\s*/, '').split(' / ').filter(Boolean);
-    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>체인 ${chain.length}건(오래된 순)</b> ${chain.map(x => `<code>${esc(x)}</code>`).join('<span class="arrow">→</span>')}</div>
+    $('cs-chain-res').innerHTML = `<div class="cs-chain"><b>단건</b> <code>${esc(sent)}</code></div>
       <div class="mt-1 small"><b>${esc(job?.status || '?')}</b> · ${job?.elapsedMs ?? '?'}ms</div>
       <ol class="small mb-0 mt-1">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ol>`;
     lines.forEach(l => log(`  └ ${l}`, /실패|못/.test(l) ? 'wr' : 'ok'));
     await csRefresh(true);
   } finally {
-    b.innerHTML = '연속 전송 실행';
+    b.innerHTML = '클라우드 전송 실행 (단건)';
     b.disabled = !$('cs-target').value;
   }
 };

@@ -1,0 +1,8 @@
+NORMAL          {"error_message": "Not Found", "http_status_code": 404, "error_code": 4000, "error": true, "message": "보류 중인 전송이 없습니다 — MOCKPROBE0000"}
+BAD_REQUEST     {"error_message": "Invalid Parameter", "http_status_code": 400, "error_code": 1000, "error": true, "message": "클라우드 전송은 정형 · 비정형 배치만 가능합니다."}
+NOT_FOUND       {"error_message": "Not Found", "http_status_code": 404, "error_code": 4000, "error": true, "message": "보류 중인 전송이 없습니다 — MOCKPROBE0000"}
+CONFLICT        {"error_message": "Conflict", "http_status_code": 409, "error_code": 8000, "error": true, "message": "지금 전송 중입니다 — MOCKPROBE0000"}
+BIZ_FAIL        {"execId": "MOCKPROBE0000", "route": "PPP", "success": false, "stepStsCd": "FAIL", "stepLogId": null, "inCnt": 0, "outCnt": 0, "message": "[PPP] 클라우드 스토리지 인증 실패 (E_AUTH_401)", "purged": 0}
+UNAVAILABLE     {"error_message": "Temporary Service Unavailable", "http_status_code": 503, "error_code": 6000, "error": true, "message": "에이전트 커넥터를 호출하지 못했습니다. 잠시 후 다시 시도해 주세요."}
+INTERNAL_ERROR  {"error_message": "Unknown Error", "http_status_code": 500, "error_code": -1, "error": true}
+TIMEOUT         {"execId": "MOCKPROBE0000", "route": "PPP", "success": true, "stepStsCd": "RUNNING", "stepLogId": null, "inCnt": 0, "outCnt": 0, "message": "전송 시작(접수) — 지연 응답(Mock)", "purged": 0}

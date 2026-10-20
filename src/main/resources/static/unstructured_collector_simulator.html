@@ -774,6 +774,28 @@
   </div>
 
   <div class="tabp" id="tab-fault">
+  <!-- 장시간 배치 점유 — 실행 잠금을 정해진 시간 동안 잡아 어드민 [바로 실행] · [긴급 재처리]의 '이미 실행 중' 거절을 재현 -->
+  <div class="card shadow-sm mb-3 border-warning-subtle" id="hr-card">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>⏳ 장시간 배치 점유 시뮬레이션</strong>
+      <span class="badge text-bg-light text-secondary" id="hr-badge">점유 없음</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <label class="hint" for="hr-sec">점유 시간(초)</label>
+        <input type="number" class="form-control form-control-sm" id="hr-sec" value="30" min="1" max="600" style="width:6rem">
+        <button class="btn btn-warning btn-sm" id="hr-start">30초 가상 배치 점유 실행</button>
+        <button class="btn btn-outline-danger btn-sm" id="hr-release" disabled>점유 강제 해제</button>
+      </div>
+      <div class="progress mb-2 d-none" id="hr-prog-wrap" style="height:.6rem">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="hr-prog" style="width:100%"></div>
+      </div>
+      <div class="hint">진짜 배치와 <b>같은 실행 잠금</b>(파드 간 DB 잠금 포함)을 잡고 기다리기만 합니다. 점유 중에
+        어드민 <b>배치 스케줄 설정 [바로 실행]</b>은 수집기가 <code>200 {accepted:false, reason:"이미 실행 중"}</code>,
+        <b>배치 수행 이력 [긴급 재처리]</b>는 <code>409</code> 로 거절합니다. 시간이 지나거나 [점유 강제 해제]를 누르면 풀립니다.
+        이 화면의 수동 배치(2번 탭)는 원래 실행 잠금을 거치지 않아 막히지 않습니다.</div>
+    </div>
+  </div>
   <!-- 단계별 장애 & 이어서 하기(Resume) — T4 STEP_TYPE_CD(C05) 단위 -->
   <div class="card shadow-sm mb-3">
     <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
@@ -1845,6 +1867,7 @@ function showTab(id) {
   if (id === 'tab-transfer') ztOnShow();
   if (id === 'tab-cloud') csOnShow();
   if (id === 'tab-docdeid') ddOnShow();
+  if (id === 'tab-fault') hrOnShow();
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest('#sim-tabs [data-tab]');
@@ -6927,6 +6950,49 @@ document.addEventListener('DOMContentLoaded', () => {
       'application/json;charset=utf-8'));
 });
 
+
+// ── 장시간 배치 점유 시뮬레이션 ─────────────────────────────────────────
+//  점유 · 해제는 callFull(로그에 남김), 남은 초는 1초마다 조용히 읽는다(탭을 잠그지 않게 fetch 직접).
+let hrTimer = null, hrTotal = 0;
+const HR_API = '/api/v1/mock/sim/hold-running';
+function hrRender(st) {
+  const on = !!(st && st.holding);
+  const left = on ? Number(st.remainingSec || 0) : 0;
+  if (on) hrTotal = Number(st.durationSec || hrTotal || 1);
+  $('hr-badge').className = 'badge ' + (on ? 'text-bg-warning' : 'text-bg-light text-secondary');
+  $('hr-badge').textContent = on ? `배치 점유 중 (${left}s)` : '점유 없음';
+  $('hr-prog-wrap').classList.toggle('d-none', !on);
+  $('hr-prog').style.width = on ? Math.max(0, Math.min(100, left / hrTotal * 100)) + '%' : '0%';
+  $('hr-start').disabled = on;
+  $('hr-release').disabled = !on;
+  if (on && !hrTimer) hrTimer = setInterval(hrPoll, 1000);
+  if (!on && hrTimer) { clearInterval(hrTimer); hrTimer = null; }
+}
+async function hrPoll() {
+  try {
+    const res = await fetch(API_BASE + HR_API, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) { hrRender(null); return; }
+    const st = await res.json();
+    const was = !$('hr-release').disabled;
+    hrRender(st);
+    if (was && !st.holding) log('⏳ 가상 배치 점유가 끝났습니다 — 실행 잠금 해제', 'ok');
+  } catch (e) { /* 다음 회차에 다시 */ }
+}
+function hrOnShow() { hrPoll(); }
+$('hr-sec').addEventListener('input', () => {
+  const n = parseInt($('hr-sec').value, 10);
+  $('hr-start').textContent = (n > 0 ? n : 30) + '초 가상 배치 점유 실행';
+});
+$('hr-start').addEventListener('click', async () => {
+  const n = parseInt($('hr-sec').value, 10) || 30;
+  const info = await callFull('POST', `${HR_API}?duration=${n}&triggerBy=simulator`, `가상 배치 점유 ${n}초`);
+  if (info.ok) { hrRender(info.body); log(`⏳ 실행 잠금 점유 — ${n}초 동안 어드민 [바로 실행] · [긴급 재처리]가 거절됩니다`, 'ok'); }
+  else if (info.status === 409) log('이미 다른 작업이 실행 중이라 점유하지 못했습니다 — ' + (info.body?.message || ''), 'er');
+});
+$('hr-release').addEventListener('click', async () => {
+  const info = await callFull('POST', `${HR_API}/release`, '가상 배치 점유 강제 해제');
+  if (info.ok) hrRender(info.body);
+});
 </script>
 </body>
 </html>

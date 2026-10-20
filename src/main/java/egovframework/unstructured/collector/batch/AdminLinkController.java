@@ -156,7 +156,8 @@ public class AdminLinkController {
                       지금 실행 · 전송 중인 배치는 건너뛴다(누른 배치면 409)
                     - 시험 배치(TST)를 재처리하면 재처리도 시험 이력으로 남는다
                     - **202 / 409** 는 바로 실행과 같다. **400** — 유형 · 단계 오류, 원배치를 찾을 수 없음(로그 컬렉터 미연동 포함),
-                      이미 처리됨(실패/부분성공/취소 아님), 재처리 체인(로그 컬렉터 failed-chain)을 읽지 못함
+                      이미 처리됨(실패/부분성공/취소 아님)
+                    - **503** `{message}` — 로그 컬렉터를 읽지 못함(장애 · 타임아웃 — 배치 상세 · 재처리 체인 failed-chain). 처리하지 않았다 — 잠시 후 다시
                     """)
     @PostMapping("/batch/reprocess")
     public ResponseEntity<Map<String, Object>> reprocess(@RequestBody(required = false) ReprocessReq body) {
@@ -193,8 +194,9 @@ public class AdminLinkController {
                     - **202** `{execId, status:"RUNNING", originExecId, sendStsCd, …}` — 접수하고 곧바로 돌려준다.
                       결과는 전송 단계(T2)로 본다(목록 새로고침). `chain` 은 더 내려가지 않는다
                     - **409** — 수집기가 다른 작업을 돌리는 중이거나 그 배치가 지금 실행 · 전송 중
-                    - **400** — 유형 · execId 오류, 배치 없음, 수용자 이미지, 전송할 데이터 없음, 이미 전송됨, 커넥터 장부를 읽지 못함.
+                    - **400** — 유형 · execId 오류, 배치 없음, 수용자 이미지, 전송할 데이터 없음, 이미 전송됨.
                       `message` 는 화면용 짧은 안내(공백 포함 60자 이내)만 — 자세한 사유는 서버 로그(WARN `[Admin] 요청 거절(400)`)
+                    - **503** `{message}` — 로그 컬렉터 · 커넥터 보류 장부를 읽지 못함(장애 · 타임아웃). 보내지 않았다 — 잠시 후 다시
                     """)
     @PostMapping("/batch/cloud-send")
     public ResponseEntity<Map<String, Object>> cloudSend(@RequestBody(required = false) CloudSendReq body) {
@@ -284,9 +286,18 @@ public class AdminLinkController {
         return ResponseEntity.badRequest().body(m);
     }
 
+    /** 503 — 하위(로그 컬렉터 · 커넥터 장부)를 못 읽어 처리하지 않음. 화면용 짧은 안내만 본문에, 원인은 서버 로그에. */
+    @ExceptionHandler(DownstreamUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> unavailable(DownstreamUnavailableException e) {
+        log.warn("[Admin] 요청 거절(503) — {} · 화면 안내: {}", e.detail(), e.getMessage());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("message", e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(m);
+    }
+
     @ExceptionHandler(UnstructuredJobRunner.AlreadyRunningException.class)
     public ResponseEntity<Map<String, Object>> conflict(UnstructuredJobRunner.AlreadyRunningException e) {
-        log.warn("[Admin] 요청 거절(409) — {}", e.getMessage());
+        log.warn("[Admin] 요청 거절(409) — {} · 화면 안내: {}", e.detail(), e.getMessage());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("message", e.getMessage());
         m.put("kind", e.kind());

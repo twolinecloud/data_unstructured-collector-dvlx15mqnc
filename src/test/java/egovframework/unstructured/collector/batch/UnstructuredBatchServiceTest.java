@@ -58,6 +58,8 @@ class UnstructuredBatchServiceTest {
         when(batch.jobId()).thenReturn("VOICE_ANALYSIS");
         when(batch.testJobId()).thenReturn("TEST_BATCH");
         when(logc.isEnabled()).thenReturn(true);
+        // 계획 단계 조회(findBatchDetail)는 아래 batchDetail 목을 그대로 따른다 — 못 읽음은 그 테스트에서 따로 던진다
+        when(logc.findBatchDetail(anyString())).thenAnswer(inv -> logc.batchDetail(inv.getArgument(0)));
         // 다시 연 배치는 자기 T4 건만 처리한다 — 기본은 T4 비어 있음(구간 전체)
         try {
             when(logc.fileProcs(anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(OM.readTree("{\"rows\":[]}"));
@@ -206,13 +208,32 @@ class UnstructuredBatchServiceTest {
         when(logc.batchDetail("20261016UNS003")).thenReturn(detail("20261016UNS003", "VOICE_ANALYSIS", "UNSTRUCTURED",
                 "2026-10-15T00:00:00", "2026-10-16T00:00:00"));
         when(logc.pendingChain("20261016UNS003")).thenReturn(null);
-        assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE,
-                "failed-chain)을 읽지 못했다");
+        // 체인을 못 읽음은 요청 오류가 아니라 하위 장애 — 503
+        assertThatThrownBy(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null))
+                .isInstanceOf(DownstreamUnavailableException.class).hasMessage(UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE)
+                .satisfies(e -> assertThat(((DownstreamUnavailableException) e).detail()).contains("failed-chain)을 읽지 못했다"));
         when(logc.pendingChain("20261016UNS003")).thenReturn(List.of());
         assertRejected(() -> s.planReprocess("20261016UNS003", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ALREADY_DONE,
                 "재처리 체인이 비었다");
         when(logc.pendingChain("20261016UNS003")).thenReturn(List.of(chainBatch("20261016UNS003")));
         assertThat(s.planReprocess("20261016UNS003", "UNSTRUCTURED", null).originExecId()).isEqualTo("20261016UNS003");
+    }
+
+    @Test
+    @DisplayName("재처리 — 로그 컬렉터를 못 읽음(장애 · 타임아웃)은 '배치 없음'(400)이 아니라 503 · 정말 없으면(404) 예전처럼 400")
+    void reprocessLogCollectorUnavailableIs503() {
+        UnstructuredBatchService s = service(false);
+        when(logc.findBatchDetail("20261016UNS004"))
+                .thenThrow(new LogCollectorClient.UnavailableException("GET …/batches/20261016UNS004 — Connection refused", null));
+        assertThatThrownBy(() -> s.planReprocess("20261016UNS004", "UNSTRUCTURED", null))
+                .isInstanceOf(DownstreamUnavailableException.class).hasMessage(UnstructuredBatchService.MSG_LOG_UNAVAILABLE)
+                .satisfies(e -> assertThat(((DownstreamUnavailableException) e).detail())
+                        .contains("execId=20261016UNS004").contains("Connection refused"));
+        verify(logc, never()).pendingChain(anyString());
+
+        when(logc.findBatchDetail("20261016UNS005")).thenReturn(null);
+        assertRejected(() -> s.planReprocess("20261016UNS005", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND,
+                "원배치를 찾을 수 없다: execId=20261016UNS005");
     }
 
     @Test
@@ -351,7 +372,9 @@ class UnstructuredBatchServiceTest {
                 UnstructuredBatchService.MSG_NOT_UNSTRUCTURED_BATCH, UnstructuredBatchService.MSG_ORIGIN_NO_WINDOW,
                 UnstructuredBatchService.MSG_BAD_STEP, UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
                 UnstructuredBatchService.MSG_BAD_BODY, UnstructuredBatchService.MSG_ALREADY_DONE,
-                UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE, UserFacingRejection.GENERIC);
+                UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE, UnstructuredBatchService.MSG_LOG_UNAVAILABLE,
+                UnstructuredBatchService.MSG_BUSY, UnstructuredJobRunner.MSG_RUNNING, UnstructuredJobRunner.MSG_LOCK_UNKNOWN,
+                UserFacingRejection.GENERIC);
         for (String m : all) {
             assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);
             assertThat(m).as("내부 변수 · 실행 ID 가 섞이지 않는다").doesNotContainPattern("[A-Za-z]");

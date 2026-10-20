@@ -116,7 +116,8 @@ public class AdminCollectCompatController {
                     - `stepTypeCd`(선택) — 비정형 3단계 COLLECT · ANALYZE · SEND. **비우면 SEND**(자동 — 건마다 남은 보존물로 가장 늦은 단계부터:
                       전사가 있으면 전송만, 없고 복호화 오디오가 있으면 STT 부터, 둘 다 없으면 수집부터)
                     - 202 `{execId, status:"RUNNING", originExecId, until, resume, …}` · 400 `{message}`(originExecId 없음 · 원배치 없음 · 비정형 아님 ·
-                      이미 처리됨(실패/부분성공/취소 아님) · 재처리 체인을 읽지 못함 — 화면용 짧은 안내만, 자세한 사유는 서버 로그) · 409 `{message, execId}`
+                      이미 처리됨(실패/부분성공/취소 아님) — 화면용 짧은 안내만, 자세한 사유는 서버 로그) · 409 `{message, execId}` ·
+                      503 `{message}`(로그 컬렉터를 읽지 못함 — 배치 상세 · 재처리 체인. 처리하지 않았다)
                     - **원배치를 같은 EXEC_ID 로 다시 연다(reopen) — 새 실행 ID 를 만들지 않는다.** 누른 배치와 그 이전의 미완료 배치
                       (같은 작업 · 배치 실패/부분성공/취소 · 전송 실패/부분성공/취소/**대기 WAIT** — PL 협의 2026-10-16, 화면 팝업 승인)를
                       오래된 순으로 각자 ID 로 처리한다(커넥터 보류분 먼저 전송 → 실패 건 다시 돌기 · 이미지 배치는 지금까지의 실패 전부).
@@ -184,9 +185,18 @@ public class AdminCollectCompatController {
         return ResponseEntity.badRequest().body(m);
     }
 
+    /** 503 — 하위(로그 컬렉터)를 못 읽어 처리하지 않음. 화면용 짧은 안내만 본문에, 원인은 서버 로그에. */
+    @ExceptionHandler(DownstreamUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> unavailable(DownstreamUnavailableException e) {
+        log.warn("[Admin/PL] 요청 거절(503) — {} · 화면 안내: {}", e.detail(), e.getMessage());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("message", e.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(m);
+    }
+
     @ExceptionHandler(UnstructuredJobRunner.AlreadyRunningException.class)
     public ResponseEntity<Map<String, Object>> conflict(UnstructuredJobRunner.AlreadyRunningException e) {
-        log.warn("[Admin/PL] 요청 거절(409) — {}", e.getMessage());
+        log.warn("[Admin/PL] 요청 거절(409) — {} · 화면 안내: {}", e.detail(), e.getMessage());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("message", e.getMessage());
         m.put("execId", e.execId());

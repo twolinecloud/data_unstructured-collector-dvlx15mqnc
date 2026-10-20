@@ -122,22 +122,25 @@ public class UnstructuredJobRunner {
      * @param detail 상태에 함께 보일 값(창 · 원배치 · 재처리 단계 등)
      */
     public synchronized Job submit(Kind kind, String triggerBy, Map<String, Object> detail, Task task) {
+        // 409 본문 message 는 관리 화면 토스트에 그대로 뜬다(admin-api 가 중계) — 화면용 짧은 안내만, 실행 ID · 원인은 detail 로 로그에
         Job cur = current.get();
         if (cur != null && cur.status == Status.RUNNING) {
-            throw new AlreadyRunningException(cur.kind.name(), cur.currentExecId(), "이미 실행 중 — " + cur.kind + " " + cur.currentExecId());
+            throw new AlreadyRunningException(cur.kind.name(), cur.currentExecId(), MSG_RUNNING,
+                    "이미 실행 중 — " + cur.kind + " " + cur.currentExecId());
         }
         String other = others.running();
         if (other != null) {
-            throw new AlreadyRunningException("OTHER", null, "다른 배치가 실행 중 — " + other);
+            throw new AlreadyRunningException("OTHER", null, MSG_RUNNING, "다른 배치가 실행 중 — " + other);
         }
         BatchLock.Held held;
         try {
             held = lock.tryAcquire();
         } catch (IllegalStateException e) {
-            throw new AlreadyRunningException("LOCK", null, "실행 잠금을 확인하지 못해 돌리지 않는다 — " + e.getMessage());
+            // 뜻으로는 하위 장애(503)지만 스케줄러가 이 예외로 회차를 건너뛰므로 종류는 그대로 둔다 — 화면 문구만 '확인 못 함'
+            throw new AlreadyRunningException("LOCK", null, MSG_LOCK_UNKNOWN, "실행 잠금을 확인하지 못해 돌리지 않는다 — " + e.getMessage());
         }
         if (held == null) {
-            throw new AlreadyRunningException("OTHER_POD", null, "다른 파드에서 비정형 배치가 실행 중(DB 잠금)");
+            throw new AlreadyRunningException("OTHER_POD", null, MSG_RUNNING, "다른 파드에서 비정형 배치가 실행 중(DB 잠금)");
         }
         String handle = "UNS-" + kind.name() + "-" + LocalDateTime.now().format(HANDLE);
         Job job = new Job(handle, kind, triggerBy, detail);
@@ -326,15 +329,30 @@ public class UnstructuredJobRunner {
         }
     }
 
-    /** 실행 중 재요청 — 컨트롤러가 409 로 바꾼다. */
+    /** 409 화면 안내 — 공백 포함 60자 이내 · 내부 값 없이({@link UserFacingRejection} 과 같은 규칙). */
+    static final String MSG_RUNNING = "다른 작업이 실행 중입니다. 잠시 후 다시 시도해 주세요.";
+    static final String MSG_LOCK_UNKNOWN = "실행 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
+    /** 실행 중 재요청 — 컨트롤러가 409 로 바꾼다. {@link #getMessage()} 는 화면 안내, {@link #detail()} 은 서버 로그용. */
     public static class AlreadyRunningException extends RuntimeException {
         private final String kind;
         private final String execId;
+        private final String detail;
 
         AlreadyRunningException(String kind, String execId, String message) {
+            this(kind, execId, message, message);
+        }
+
+        AlreadyRunningException(String kind, String execId, String message, String detail) {
             super(message);
             this.kind = kind;
             this.execId = execId;
+            this.detail = detail;
+        }
+
+        /** 서버 로그용 자세한 사유(실행 중인 작업 · 실행 ID · 잠금 확인 실패 원인). 따로 주지 않았으면 화면 안내와 같다. */
+        public String detail() {
+            return detail;
         }
 
         /** 실행 중인 것 — {@code SCHEDULE/RUN/REPROCESS/CLOUD_SEND}, 실행기 밖이면 {@code OTHER} · 배치 자체가 실행 · 전송 중이면 {@code BATCH/SENDING}. */

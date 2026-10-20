@@ -46,6 +46,8 @@ class CloudSendServiceTest {
         holds = mock(TransmitHoldClient.class);
         batch = mock(UnstructuredBatchService.class);
         when(logc.isEnabled()).thenReturn(true);
+        // 계획 단계 조회(findBatchDetail)는 아래 batchDetail 목을 그대로 따른다 — 못 읽음은 그 테스트에서 따로 던진다
+        when(logc.findBatchDetail(anyString())).thenAnswer(inv -> logc.batchDetail(inv.getArgument(0)));
         when(holds.isEnabled()).thenReturn(true);
         service = new CloudSendService(logc, holds, batch);
     }
@@ -112,7 +114,10 @@ class CloudSendServiceTest {
         when(holds.holds()).thenReturn(Set.of());
         assertRejected(() -> service.plan("E", "UNSTRUCTURED", null), CloudSendService.MSG_HOLD_NOT_FOUND);
         when(holds.holds()).thenReturn(null);
-        assertRejected(() -> service.plan("E", "UNSTRUCTURED", null), CloudSendService.MSG_SEND_UNAVAILABLE);
+        // 장부를 못 읽음은 요청 오류가 아니라 하위 장애 — 503
+        assertThatThrownBy(() -> service.plan("E", "UNSTRUCTURED", null)).isInstanceOf(DownstreamUnavailableException.class)
+                .hasMessage(CloudSendService.MSG_SEND_UNAVAILABLE)
+                .satisfies(e -> assertThat(((DownstreamUnavailableException) e).detail()).contains("보류 장부를 읽지 못했다"));
 
         // 전송 실패인데 장부에도 없고 배치가 성공 — 다시 열 수 없다
         when(holds.holds()).thenReturn(Set.of());
@@ -146,12 +151,26 @@ class CloudSendServiceTest {
     }
 
     @Test
-    @DisplayName("화면 안내 — 400 문구는 공백 포함 60자 이내 · 영문 식별자 · 실행 ID 없음")
+    @DisplayName("로그 컬렉터를 못 읽음(장애 · 타임아웃) — '배치 없음'(400)이 아니라 503 · 장부는 묻지 않는다")
+    void logCollectorUnavailableIs503() {
+        when(logc.findBatchDetail("G")).thenThrow(new LogCollectorClient.UnavailableException("GET …/batches/G — timed out", null));
+        assertThatThrownBy(() -> service.plan("G", "UNSTRUCTURED", null)).isInstanceOf(DownstreamUnavailableException.class)
+                .hasMessage(UnstructuredBatchService.MSG_LOG_UNAVAILABLE)
+                .satisfies(e -> assertThat(((DownstreamUnavailableException) e).detail()).contains("execId=G").contains("timed out"));
+        verify(holds, never()).holds();
+
+        // 배치가 정말 없으면(404 → null) 예전처럼 400 "찾을 수 없습니다"
+        when(logc.findBatchDetail("H")).thenReturn(null);
+        assertRejected(() -> service.plan("H", "UNSTRUCTURED", null), UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("화면 안내 — 400 · 503 문구는 공백 포함 60자 이내 · 영문 식별자 · 실행 ID 없음")
     void messagesFitTwoLines() {
         for (String m : List.of(CloudSendService.MSG_NO_TARGET, CloudSendService.MSG_NOT_UNSTRUCTURED_BATCH,
                 CloudSendService.MSG_IMAGE_NOT_SENT, CloudSendService.MSG_NOTHING_TO_SEND, CloudSendService.MSG_SEND_DONE,
                 CloudSendService.MSG_HOLD_NOT_FOUND, CloudSendService.MSG_CANNOT_RESEND, CloudSendService.MSG_SEND_UNAVAILABLE,
-                UnstructuredBatchService.MSG_BUSY)) {
+                UnstructuredBatchService.MSG_BUSY, UnstructuredBatchService.MSG_LOG_UNAVAILABLE)) {
             assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);
             assertThat(m).as("내부 변수 · 실행 ID 가 섞이지 않는다").doesNotContainPattern("[A-Za-z]");
         }

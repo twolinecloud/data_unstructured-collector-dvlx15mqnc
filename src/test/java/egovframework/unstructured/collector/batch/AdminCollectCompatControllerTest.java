@@ -159,6 +159,17 @@ class AdminCollectCompatControllerTest {
     }
 
     @Test
+    @DisplayName("긴급 재처리 503 — 로그 컬렉터를 못 읽음 · 본문은 화면 안내 하나(원인 · 주소는 서버 로그에만)")
+    void reprocessDownstreamUnavailable() throws Exception {
+        when(service.planReprocess("Y", "UNSTRUCTURED", "SEND")).thenThrow(new DownstreamUnavailableException(
+                UnstructuredBatchService.MSG_LOG_UNAVAILABLE, "재처리 거절(503) — 로그 컬렉터에서 배치를 읽지 못했다: execId=Y · timed out"));
+        mvc.perform(post("/internal/collect/reprocess").param("originExecId", "Y"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").value(UnstructuredBatchService.MSG_LOG_UNAVAILABLE))
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
     @DisplayName("긴급 재처리 409 — 다른 실행이 돌고 있으면 {message, execId}")
     void reprocessConflict() throws Exception {
         when(service.planRun(any(), any())).thenReturn(plan(ResumeMode.FULL, null, "ADMIN"));

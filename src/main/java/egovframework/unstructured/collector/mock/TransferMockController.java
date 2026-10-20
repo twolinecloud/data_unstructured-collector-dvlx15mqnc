@@ -196,4 +196,11 @@ public class TransferMockController {
     public ResponseEntity<Map<String, Object>> conflict(RuntimeException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", String.valueOf(e.getMessage())));
     }
+
+    /** 재처리 계획이 로그 컬렉터를 못 읽음 — 503(관리 화면 경로와 같다). 시뮬레이터라 원인도 함께 보인다. */
+    @ExceptionHandler(egovframework.unstructured.collector.batch.DownstreamUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> unavailable(egovframework.unstructured.collector.batch.DownstreamUnavailableException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("message", String.valueOf(e.getMessage()), "detail", String.valueOf(e.detail())));
+    }
 }

@@ -389,6 +389,37 @@ public class LogCollectorClient {
     }
 
     /**
+     * 배치 상세 — 관리 화면 요청의 계획 단계(긴급 재처리 · 클라우드 전송)용. {@link #batchDetail} 과 달리 <b>'없음'과 '못 읽음'을 가른다</b>.
+     *
+     * <p>예전에는 계획 단계도 {@link #batchDetail} 을 써서 로그 컬렉터 장애 · 타임아웃이 "배치를 찾을 수 없습니다"(400)로 보였다.
+     * 사용자는 데이터 문제로 알고 목록만 새로 고친다.</p>
+     *
+     * @return 상세. 컬렉터가 꺼져 있거나(미연동) 배치가 없으면(404) null
+     * @throws UnavailableException 그 밖의 실패 — 통신 오류 · 타임아웃 · 5xx · 빈 응답(호출 측이 503 으로 낸다)
+     */
+    public JsonNode findBatchDetail(String execId) {
+        if (!isEnabled() || execId == null || execId.isBlank()) {
+            return null;
+        }
+        String u = url("/api/v1/logs/batches/" + execId.trim());
+        try {
+            return exchangeStrict(HttpMethod.GET, u, null);
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return null;
+        } catch (RuntimeException e) {
+            log.warn("[LogCollector] 배치 상세를 읽지 못함: GET {} — {}", u, e.getMessage());
+            throw new UnavailableException("GET " + u + " — " + e.getMessage(), e);
+        }
+    }
+
+    /** 로그 컬렉터를 읽지 못함 — '없음'(null)과 구분한다({@link #findBatchDetail}). */
+    public static class UnavailableException extends RuntimeException {
+        public UnavailableException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
      * [바로 실행] 워터마크 — 이 작업의 <b>SUCCESS 배치가 훑은 구간의 끝 중 가장 늦은 것</b>.
      *
      * <p>{@code GET /api/v1/logs/batches/watermark}. T1 이 원본이다. 컬렉터가 꺼져 있거나 호출이 실패하거나 아직 성공한
@@ -503,29 +534,34 @@ public class LogCollectorClient {
      */
     private JsonNode exchange(HttpMethod method, String url, Object body) {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-            if (StringUtils.hasText(authToken)) {
-                headers.setBearerAuth(authToken);
-            }
-            ResponseEntity<JsonNode> res = restTemplate.exchange(
-                    java.net.URI.create(url), method, new HttpEntity<>(body, headers), JsonNode.class);
-            JsonNode env = res.getBody();
-            if (env == null) {
-                log.warn("[LogCollector] 빈 응답: {} {}", method, url);
-                return null;
-            }
-            if (env.hasNonNull("success") && !env.path("success").asBoolean()) {
-                log.warn("[LogCollector] 실패 응답: {} {} — {}", method, url,
-                        env.path("error_message").asText(""));
-                return null;
-            }
-            return env.path("result");
+            return exchangeStrict(method, url, body);
         } catch (Exception e) {
             log.warn("[LogCollector] 호출 실패(수집은 계속 진행): {} {} — {}", method, url, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * {@link #exchange} 와 같되 실패를 예외로 돌려준다 — HTTP 오류 · 통신 실패는 RestClientException 그대로,
+     * 빈 응답 · {@code success:false} 는 {@link IllegalStateException}.
+     */
+    private JsonNode exchangeStrict(HttpMethod method, String url, Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        if (StringUtils.hasText(authToken)) {
+            headers.setBearerAuth(authToken);
+        }
+        ResponseEntity<JsonNode> res = restTemplate.exchange(
+                java.net.URI.create(url), method, new HttpEntity<>(body, headers), JsonNode.class);
+        JsonNode env = res.getBody();
+        if (env == null) {
+            throw new IllegalStateException("빈 응답");
+        }
+        if (env.hasNonNull("success") && !env.path("success").asBoolean()) {
+            throw new IllegalStateException("실패 응답 — " + env.path("message").asText(env.path("error_message").asText("")));
+        }
+        return env.path("result");
     }
 
     // ── 요청 DTO ───────────────────────────────────────────────────────────

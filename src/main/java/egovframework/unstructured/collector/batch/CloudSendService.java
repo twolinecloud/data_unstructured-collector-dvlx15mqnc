@@ -79,8 +79,9 @@ public class CloudSendService {
     }
 
     /**
-     * @throws UserFacingRejection 유형 · execId 오류, 배치 없음 · 이미지 · 보낼 것 없음 · 이미 보냄 · 장부를 읽지 못함
+     * @throws UserFacingRejection 유형 · execId 오류, 배치 없음 · 이미지 · 보낼 것 없음 · 이미 보냄(400)
      * @throws UnstructuredJobRunner.AlreadyRunningException 그 배치가 지금 실행 · 전송 중(409)
+     * @throws DownstreamUnavailableException 로그 컬렉터 · 커넥터 보류 장부를 읽지 못함(503)
      */
     public Plan plan(String execId, String dataTypeCd, String requestedBy) {
         UnstructuredBatchService.requireUnstructured(dataTypeCd);
@@ -89,7 +90,7 @@ public class CloudSendService {
         }
         String id = execId.trim();
         String who = requestedBy == null || requestedBy.isBlank() ? "admin" : requestedBy.trim();
-        JsonNode d = logCollector.batchDetail(id);
+        JsonNode d = UnstructuredBatchService.planDetail(logCollector, id, "클라우드 전송");
         JsonNode b = d == null ? null : d.path("batch");
         if (b == null || b.isMissingNode() || !b.hasNonNull("exec_id")) {
             throw new UserFacingRejection(UnstructuredBatchService.MSG_ORIGIN_NOT_FOUND, "클라우드 전송 거절 — 배치를 찾을 수 없다: execId=" + id
@@ -118,7 +119,7 @@ public class CloudSendService {
         }
         Set<String> held = holds.holds();
         if (holds.isEnabled() && held == null) {
-            throw new UserFacingRejection(MSG_SEND_UNAVAILABLE, "클라우드 전송 거절 — 커넥터 보류 장부를 읽지 못했다: execId=" + id);
+            throw new DownstreamUnavailableException(MSG_SEND_UNAVAILABLE, "클라우드 전송 거절(503) — 커넥터 보류 장부를 읽지 못했다: execId=" + id);
         }
         boolean inLedger = held != null && held.contains(id);
         if ("WAIT".equals(send) && !inLedger) {

@@ -57,8 +57,10 @@ public class UnstructuredBatchService {
     static final String MSG_NOT_UNSTRUCTURED = "비정형 데이터 요청만 처리할 수 있습니다.";
     static final String MSG_BAD_BODY = "요청 형식이 올바르지 않습니다. 다시 시도해 주세요.";
     static final String MSG_ALREADY_DONE = "이미 처리가 끝난 배치입니다. 목록을 새로고침해 주세요.";
-    static final String MSG_CHAIN_UNAVAILABLE = "재처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
     static final String MSG_BUSY = "지금 처리 중인 배치입니다. 잠시 후 다시 시도해 주세요.";
+    // ── 하위 장애(503 message) — 같은 규칙. 요청이 틀린 게 아니라 판단 근거를 못 읽었다(DownstreamUnavailableException) ──
+    static final String MSG_LOG_UNAVAILABLE = "배치 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    static final String MSG_CHAIN_UNAVAILABLE = "재처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.";
 
     /** 긴급 재처리로 다시 열 수 있는 원배치 상태 — 로그 컬렉터 reopen 이 받는 상태와 같다. */
     static final java.util.Set<String> REOPENABLE_STS = java.util.Set.of("FAIL", "PARTIAL", "CANCELED");
@@ -223,7 +225,7 @@ public class UnstructuredBatchService {
             throw new UserFacingRejection(MSG_NO_ORIGIN, "재처리 거절 — execId 필수(재처리할 원배치 실행 ID)");
         }
         ResumeMode resume = resumeOf(stepTypeCd);
-        JsonNode d = logCollector.batchDetail(execId.trim());
+        JsonNode d = planDetail(logCollector, execId.trim(), "재처리");
         JsonNode b = d == null ? null : d.path("batch");
         if (b == null || b.isMissingNode() || b.isNull() || !b.hasNonNull("exec_id")) {
             throw new UserFacingRejection(MSG_ORIGIN_NOT_FOUND, "재처리 거절 — 원배치를 찾을 수 없다: execId=" + execId
@@ -266,13 +268,26 @@ public class UnstructuredBatchService {
         }
         List<LogCollectorClient.ChainBatch> chain = chainOf(execId.trim(), image);
         if (chain == null) {
-            throw new UserFacingRejection(MSG_CHAIN_UNAVAILABLE, "재처리 거절 — 재처리 체인(failed-chain)을 읽지 못했다: execId=" + execId
+            throw new DownstreamUnavailableException(MSG_CHAIN_UNAVAILABLE, "재처리 거절(503) — 재처리 체인(failed-chain)을 읽지 못했다: execId=" + execId
                     + " · 새 실행 ID 로는 돌지 않는다(원배치 reopen 만)");
         }
         if (chain.isEmpty()) {
             throw new UserFacingRejection(MSG_ALREADY_DONE, "재처리 거절 — 재처리 체인이 비었다(그새 처리됨): execId=" + execId);
         }
         return plan;
+    }
+
+    /**
+     * 계획 단계(긴급 재처리 · 클라우드 전송)의 배치 상세 — 없으면 null(호출 측이 400 "찾을 수 없습니다"),
+     * 로그 컬렉터를 못 읽으면 503({@link DownstreamUnavailableException}). 예전에는 둘 다 null 이라 장애가 '없음'으로 보였다.
+     */
+    static JsonNode planDetail(LogCollectorClient logCollector, String execId, String what) {
+        try {
+            return logCollector.findBatchDetail(execId);
+        } catch (LogCollectorClient.UnavailableException e) {
+            throw new DownstreamUnavailableException(MSG_LOG_UNAVAILABLE,
+                    what + " 거절(503) — 로그 컬렉터에서 배치를 읽지 못했다: execId=" + execId + " · " + e.getMessage());
+        }
     }
 
     /**

@@ -47,6 +47,9 @@ class UnstructuredJobRunnerTest {
                 .isInstanceOfSatisfying(UnstructuredJobRunner.AlreadyRunningException.class, e -> {
                     assertThat(e.kind()).isEqualTo("SCHEDULE");
                     assertThat(e.execId()).isEqualTo("20261002UNS002");
+                    // 화면(409 message)에는 안내만, 실행 중인 작업 · ID 는 로그용 detail 에
+                    assertThat(e.getMessage()).isEqualTo(UnstructuredJobRunner.MSG_RUNNING);
+                    assertThat(e.detail()).contains("SCHEDULE").contains("20261002UNS002");
                 });
         hold.countDown();
         await().atMost(3, TimeUnit.SECONDS).until(() -> !r.isRunning());
@@ -61,7 +64,8 @@ class UnstructuredJobRunnerTest {
         assertThatThrownBy(() -> r.submit(UnstructuredJobRunner.Kind.RUN, "ADMIN", null, sink -> "x"))
                 .isInstanceOfSatisfying(UnstructuredJobRunner.AlreadyRunningException.class, e -> {
                     assertThat(e.kind()).isEqualTo("OTHER");
-                    assertThat(e.getMessage()).contains("20261002TST001");
+                    assertThat(e.getMessage()).isEqualTo(UnstructuredJobRunner.MSG_RUNNING);
+                    assertThat(e.detail()).contains("20261002TST001");
                 });
     }
 
@@ -128,7 +132,8 @@ class UnstructuredJobRunnerTest {
         assertThatThrownBy(() -> r.submit(UnstructuredJobRunner.Kind.RUN, "ADMIN", null, sink -> "x"))
                 .isInstanceOfSatisfying(UnstructuredJobRunner.AlreadyRunningException.class, e -> {
                     assertThat(e.kind()).isEqualTo("LOCK");
-                    assertThat(e.getMessage()).contains("Admin DB 연결 실패");
+                    assertThat(e.getMessage()).isEqualTo(UnstructuredJobRunner.MSG_LOCK_UNKNOWN);
+                    assertThat(e.detail()).contains("Admin DB 연결 실패");
                 });
         assertThat(r.status().get("status")).isEqualTo("NONE");
         assertThat(r.lockInfo()).containsEntry("key", 42120002L);

@@ -246,8 +246,8 @@ public class UnstructuredBatchScheduler {
             record("SUBMITTED — " + job.handle());
             return job;
         } catch (UnstructuredJobRunner.AlreadyRunningException e) {
-            log.warn("[Schedule] 이번 회차 건너뜀 — {}", e.getMessage());
-            record("SKIPPED — " + e.getMessage());
+            log.warn("[Schedule] 이번 회차 건너뜀 — {}", e.detail());
+            record("SKIPPED — " + e.detail());
         } catch (RuntimeException e) {
             // 스케줄러 스레드로 예외가 올라가면 이후 회차가 멈출 수 있다 — 여기서 막는다
             log.error("[Schedule] 발화 처리 실패 — {}", e.getMessage(), e);

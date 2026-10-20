@@ -373,6 +373,7 @@ class UnstructuredBatchServiceTest {
                 UnstructuredBatchService.MSG_BAD_STEP, UnstructuredBatchService.MSG_NOT_UNSTRUCTURED,
                 UnstructuredBatchService.MSG_BAD_BODY, UnstructuredBatchService.MSG_ALREADY_DONE,
                 UnstructuredBatchService.MSG_CHAIN_UNAVAILABLE, UnstructuredBatchService.MSG_LOG_UNAVAILABLE,
+                UnstructuredBatchService.MSG_BUSY, UnstructuredJobRunner.MSG_RUNNING, UnstructuredJobRunner.MSG_LOCK_UNKNOWN,
                 UserFacingRejection.GENERIC);
         for (String m : all) {
             assertThat(m.length()).as("%s", m).isLessThanOrEqualTo(UserFacingRejection.MAX_MESSAGE_LEN);

@@ -297,7 +297,7 @@ public class AdminLinkController {
 
     @ExceptionHandler(UnstructuredJobRunner.AlreadyRunningException.class)
     public ResponseEntity<Map<String, Object>> conflict(UnstructuredJobRunner.AlreadyRunningException e) {
-        log.warn("[Admin] 요청 거절(409) — {}", e.getMessage());
+        log.warn("[Admin] 요청 거절(409) — {} · 화면 안내: {}", e.detail(), e.getMessage());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("message", e.getMessage());
         m.put("kind", e.kind());

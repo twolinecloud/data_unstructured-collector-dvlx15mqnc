@@ -59,13 +59,19 @@ A-1. 지금 코드가 뒤바뀌어 나가는 API (고칠 대상)
             이유: 화면이 "잠시 뒤 다시"와 "입력을 고쳐 다시"를 못 가릅니다
             위치: BatchRunClient (하위 상태코드를 Result 에 담고 있지 않음)
             화면: [스케줄] [바로 실행]
-            재현: 지금 개발계 RUN_URL(/internal/collect/*)은 정형 · 비정형 모두
-                  실행 중일 때 409 가 아니라 200 accepted:false 를 줍니다
-                  → 이 증상 대신 A-1-2 로 나타납니다. RUN_URL 이 409 를 주는
-                  경로(예: 비정형 /api/v1/admin/batch/run)일 때만 보입니다
+            재현: [바쁘게] 로 수집기를 돌려 둔 채 비정형 행 [바로 실행]
+                  (2026-10-21 부터 비정형 RUN_URL 도 실행 중이면 409 를 줍니다 — A-1-2 참고.
+                  정형 data-collector 는 아직 200 accepted:false 라 정형 행은 A-1-2 증상)
             보이는 것: "바로 실행 실패 / 요청이 올바르지 않습니다." (Network 400)
 
- [ ] A-1-2  POST /api/batch-schedules/{dataTypeCd}/run
+ [~] A-1-2  POST /api/batch-schedules/{dataTypeCd}/run
+            ▶ 2026-10-21 비정형은 수집기에서 해결: 실행 중이면 200 accepted:false
+              대신 409 {message, execId} 를 줍니다(message = 화면 안내 한 줄).
+              admin-api 는 4xx 를 그대로 넘기기로 했으므로(A-1-1) 추가로
+              accepted 를 읽을 필요가 없습니다. admin-api A-1-1 반영 전까지는
+              화면에 "바로 실행 실패"(400)로 보입니다 — 거짓 성공은 사라집니다.
+              남은 것: 정형 data-collector 가 같은 409 로 바꾸는지(타파트 협의).
+              아래는 10-20 당시 기록입니다.
             지금: 수집기가 200 {result:{accepted:false, reason:"이미 실행 중"}}
                   로 거절했는데 성공(REQUESTED, execId=null)으로 처리
             필요: 409 + reason 을 message 로

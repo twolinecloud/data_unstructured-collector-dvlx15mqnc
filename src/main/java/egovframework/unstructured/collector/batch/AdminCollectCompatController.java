@@ -31,7 +31,7 @@ import java.util.Map;
  * <pre>
  * POST /internal/collect/unstructured-incremental?execType=MANUAL&triggerBy=admin01&to=2026-10-05T10:00:00
  *   → 200 {"success":true,"code":0,"http_status_code":200,"result":{"accepted":true,"kind":"UNSTRUCTURED_INCREMENTAL","execId":"20261005UNS001","status":"RUNNING","hint":"…"}}
- *     이미 실행 중이면 200 {"result":{"accepted":false,"reason":"이미 실행 중","running":{…}}}  ← data-collector 와 같다
+ *     이미 실행 중이면 409 {"message","execId"}  ← data-collector(200 accepted:false)와 다르다. 거짓 성공 방지(2026-10-21)
  * GET  /internal/collect/unstructured-incremental/status?execId=
  * POST /internal/collect/reprocess?triggerBy=admin&originExecId=20261005UNS001[&stepTypeCd=SEND]
  *   → 202 {"execId","status":"RUNNING","originExecId","until",…} · 400 {"message"} · 409 {"message","execId"}
@@ -61,7 +61,8 @@ public class AdminCollectCompatController {
                     음성 → (`include-image=true` 면) 이미지. 내부는 `/internal/batch/run` 과 같다.
 
                     - 200 `Response{result:{accepted:true, kind, execId, status:"RUNNING", hint}}` — execId 는 로그 컬렉터 채번 값(잠깐 안 오면 접수 handle)
-                    - 이미 실행 중 → 200 `Response{result:{accepted:false, reason:"이미 실행 중", running:{kind, execId}}}`(data-collector 와 같다)
+                    - **409** `{message, execId}` — 이미 실행 중(스케줄 · 재처리 · 시뮬레이터 점유 포함). `execId` 는 돌고 있는 배치.
+                      예전 200 `{accepted:false}`(data-collector 규약)는 admin-api 가 성공으로 받아 거짓 성공이 떠서 409 로 바꿨다(2026-10-21)
                     - 400 `{message}` — `to` 형식 오류 · 미래 · 이미 그 시각까지 수집함. `message` 는 **화면에 그대로 뜨는 짧은 안내**(공백 포함 60자 이내)만 —
                       targetToDtm · 실행 ID 같은 내부 값과 자세한 사유는 수집기 서버 로그(WARN `[Admin/PL] 요청 거절(400)`)에 남는다.
                       예: `최근 수집 시점(2026-10-15 11:00) 이후의 시간을 선택해 주세요. 과거 구간은 '긴급 재처리'를 이용 바랍니다.`
@@ -79,25 +80,22 @@ public class AdminCollectCompatController {
         UnstructuredBatchService.Plan p = service.planRun(toDtm, LocalDateTime.now());
         UnstructuredBatchService.Plan plan = new UnstructuredBatchService.Plan(p.window(), p.resume(), p.originExecId(),
                 p.testRun(), blankTo(triggerBy, "manual"), p.includeImage(), p.imageOnly());
+        Map<String, Object> detail = new LinkedHashMap<>(plan.detail());
+        detail.put("execType", execType);
+        // 이미 실행 중이면 AlreadyRunningException → conflict() 가 409 {message, execId}.
+        //   예전엔 data-collector 처럼 200 {accepted:false} 였는데, admin-api 가 2xx 를 성공으로 받아
+        //   화면에 "바로 실행 완료" 가 떴다(거짓 성공). admin-api 는 4xx 를 그대로 넘기므로 수집기가 409 로 준다(2026-10-21).
+        UnstructuredJobRunner.Job job = runner.submitAndAwaitExecId(UnstructuredJobRunner.Kind.RUN, plan.triggerBy(), detail,
+                sink -> service.execute(plan, sink::publish), props.batch().execIdWaitMs());
         Map<String, Object> body = new LinkedHashMap<>();
-        try {
-            Map<String, Object> detail = new LinkedHashMap<>(plan.detail());
-            detail.put("execType", execType);
-            UnstructuredJobRunner.Job job = runner.submitAndAwaitExecId(UnstructuredJobRunner.Kind.RUN, plan.triggerBy(), detail,
-                    sink -> service.execute(plan, sink::publish), props.batch().execIdWaitMs());
-            body.put("accepted", true);
-            body.put("kind", KIND_INCREMENTAL);
-            body.put("execId", job.currentExecId());
-            body.put("status", job.running() ? "RUNNING" : job.snapshot().get("status"));
-            body.put("execIdSource", job.execIdSource());
-            body.put("handle", job.handle());
-            body.putAll(detail);
-            body.put("hint", "진행상태: GET /internal/collect/unstructured-incremental/status?execId=" + job.currentExecId());
-        } catch (UnstructuredJobRunner.AlreadyRunningException e) {
-            body.put("accepted", false);
-            body.put("reason", "이미 실행 중");
-            body.put("running", Map.of("kind", String.valueOf(e.kind()), "execId", String.valueOf(e.execId())));
-        }
+        body.put("accepted", true);
+        body.put("kind", KIND_INCREMENTAL);
+        body.put("execId", job.currentExecId());
+        body.put("status", job.running() ? "RUNNING" : job.snapshot().get("status"));
+        body.put("execIdSource", job.execIdSource());
+        body.put("handle", job.handle());
+        body.putAll(detail);
+        body.put("hint", "진행상태: GET /internal/collect/unstructured-incremental/status?execId=" + job.currentExecId());
         return AdminLinkResponse.of(body);
     }
 

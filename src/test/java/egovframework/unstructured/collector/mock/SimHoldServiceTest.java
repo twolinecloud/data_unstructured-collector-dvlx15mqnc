@@ -20,7 +20,7 @@ class SimHoldServiceTest {
         assertThat((Long) st.get("remainingSec")).isBetween(28L, 30L);
         assertThat(runner.isRunning()).isTrue();
 
-        // 점유 중 진짜 배치 접수 — 실제로 돌 때와 같이 거절된다(호환 경로는 이걸 accepted:false 로, 나머지는 409 로 바꾼다)
+        // 점유 중 진짜 배치 접수 — 실제로 돌 때와 같이 거절된다(컨트롤러가 이걸 409 로 바꾼다)
         assertThatThrownBy(() -> runner.submit(UnstructuredJobRunner.Kind.RUN, "t", Map.of(), s -> "x"))
                 .isInstanceOf(UnstructuredJobRunner.AlreadyRunningException.class);
         // 가상 점유를 또 거는 것도 거절

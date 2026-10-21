@@ -30,6 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * PL 규약 호환 — data-collector {@code /internal/collect/structured-incremental} · {@code /internal/collect/reprocess} 와
  * 같은 경로 모양 · 쿼리 파라미터 · 응답 모양(200 Response{result.accepted} · 202 · 400 · 409).
+ * 단, 바로 실행이 이미 실행 중일 때는 data-collector(200 accepted:false)와 달리 409 다(2026-10-21).
  */
 class AdminCollectCompatControllerTest {
 
@@ -55,7 +56,7 @@ class AdminCollectCompatControllerTest {
 
     @Test
     @DisplayName("바로 실행 — 200 Response{result:{accepted:true, kind, execId, status:RUNNING, hint}} · TRIGGER_BY = triggerBy · "
-            + "실행 중 재요청은 200 accepted:false(data-collector 와 같다)")
+            + "실행 중 재요청은 409 {message, execId}(거짓 성공 방지 — data-collector 의 200 accepted:false 와 다르다)")
     void incrementalAcceptedThenBusy() throws Exception {
         when(service.planRun(eq(LocalDateTime.of(2026, 10, 5, 10, 0)), any())).thenReturn(plan(ResumeMode.FULL, null, "ADMIN"));
         CountDownLatch hold = new CountDownLatch(1);
@@ -80,11 +81,13 @@ class AdminCollectCompatControllerTest {
                 .andExpect(jsonPath("$.result.hint").value(org.hamcrest.Matchers.containsString("/internal/collect/unstructured-incremental/status")));
         assertThat(captor.getValue().triggerBy()).isEqualTo("admin01");
 
+        // 200 accepted:false 면 admin-api 가 성공으로 받아 "바로 실행 완료" 거짓 성공이 뜬다 — 409 로 거절한다
         mvc.perform(post("/internal/collect/unstructured-incremental").param("to", "2026-10-05T10:00:00"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.accepted").value(false))
-                .andExpect(jsonPath("$.result.reason").value("이미 실행 중"))
-                .andExpect(jsonPath("$.result.running.execId").value("20261005UNS001"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(UnstructuredJobRunner.MSG_RUNNING))
+                .andExpect(jsonPath("$.execId").value("20261005UNS001"))
+                .andExpect(jsonPath("$.accepted").doesNotExist())
+                .andExpect(jsonPath("$.result").doesNotExist());
 
         mvc.perform(get("/internal/collect/unstructured-incremental/status").param("execId", "20261005UNS001"))
                 .andExpect(status().isOk())

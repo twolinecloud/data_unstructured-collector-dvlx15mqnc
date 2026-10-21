@@ -791,8 +791,8 @@
         <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="hr-prog" style="width:100%"></div>
       </div>
       <div class="hint">진짜 배치와 <b>같은 실행 잠금</b>(파드 간 DB 잠금 포함)을 잡고 기다리기만 합니다. 점유 중에
-        어드민 <b>배치 스케줄 설정 [바로 실행]</b>은 수집기가 <code>200 {accepted:false, reason:"이미 실행 중"}</code>,
-        <b>배치 수행 이력 [긴급 재처리]</b>는 <code>409</code> 로 거절합니다. 시간이 지나거나 [점유 강제 해제]를 누르면 풀립니다.
+        어드민 <b>배치 스케줄 설정 [바로 실행]</b> · <b>배치 수행 이력 [긴급 재처리]</b>를 수집기가 모두
+        <code>409 {message, execId}</code> 로 거절합니다. 시간이 지나거나 [점유 강제 해제]를 누르면 풀립니다.
         이 화면의 수동 배치(2번 탭)는 원래 실행 잠금을 거치지 않아 막히지 않습니다.</div>
     </div>
   </div>

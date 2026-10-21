@@ -43,8 +43,7 @@ public class SimHoldController {
 
                     | 경로 | 응답 |
                     |---|---|
-                    | `POST /internal/collect/unstructured-incremental`(바로 실행 · PL 규약) | 200 `{accepted:false, reason:"이미 실행 중"}` |
-                    | `POST /internal/batch/run` · `/internal/batch/reprocess` · `/internal/collect/reprocess` · `/internal/batch/cloud-send` | 409 |
+                    | `POST /internal/collect/unstructured-incremental`(바로 실행 · PL 규약) · `/internal/batch/run` · `/internal/batch/reprocess` · `/internal/collect/reprocess` · `/internal/batch/cloud-send` | 409 `{message, execId}` |
                     | 정기 · 주기 스케줄 회차 | 건너뜀(다음 회차) |
 
                     시뮬레이터가 직접 부르는 수동 배치(`/api/v1/voice/batches/*`)는 원래 실행기를 거치지 않아 막히지 않는다.

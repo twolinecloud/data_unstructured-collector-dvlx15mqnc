@@ -260,7 +260,19 @@ public class VoiceCollectService {
         log.info("[Batch]   전송 — 에이전트 커넥터 {} · {} · 청크 {}건", connector.mode(), connector.endpoint(), connector.chunkRecords());
         ctx.collectStepId = logCollector.createStep(execId, StepType.COLLECT.seq(), StepType.COLLECT.name());
 
-        List<VoiceTarget> found = scopeForRun(findTargets(window, targets), testRun);
+        List<VoiceTarget> found;
+        try {
+            found = scopeForRun(findTargets(window, targets), testRun);
+        } catch (RuntimeException e) {
+            // 원천 조회가 깨졌다 — 건을 하나도 만들지 못했다. 열어 둔 COLLECT 와 T1 을 사유와 함께 실패로 닫고 올린다.
+            //   닫지 않으면 배치가 화면에서 영영 '실행 중' 으로 남고, 왜 전체가 실패했는지도 알 수 없다(이미지 쪽 failCollect 와 같은 처리).
+            String err = LogCollectorClient.FileProcReq.errStackOf(StepType.COLLECT,
+                    e.getClass().getSimpleName() + ": " + shorten(e.getMessage()));
+            log.error("[Batch] 대상 조회 실패 — execId={} · {}", execId, err, e);
+            finishStep(ctx.collectStepId, FileProcOutcome.STEP_COLLECT, "FAIL", 0L, 0L, 0L, 0L, err);
+            logCollector.finishBatch(execId, "FAIL", elapsedSec(startedAt), 0L, 0L, 0L, err);
+            throw e;
+        }
         if (reopened != null && reopened.ownKeys() != null && !reopened.ownKeys().isEmpty()) {
             // 다시 연 배치는 자기 건만 — 구간 안의 다른 배치 건(그 뒤에 생긴 것 포함)은 그 배치 몫이다
             int before = found.size();
@@ -327,21 +339,24 @@ public class VoiceCollectService {
         long collectErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_COLLECT)).count();
         long collectOut = collectIn - collectErr;
         steps.add(finishStep(ctx.collectStepId, FileProcOutcome.STEP_COLLECT,
-                collectIn, collectOut, collectErr, ctx.collectMs));
+                collectIn, collectOut, collectErr, ctx.collectMs,
+                stepErrStack(outcomes, FileProcOutcome.STEP_COLLECT)));
 
         // STT 가 한 건이라도 시작됐을 때만 ANALYZE 행이 있다 — 전건 확보 실패면 STT 단계는 돌지 않은 것이다.
         long analyzeErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_ANALYZE)).count();
         if (ctx.analyzeStarted) {
             // ANALYZE 는 STT 까지다 — 나간 건수는 STT 를 통과해 다음 단계(DEIDENT · 꺼져 있으면 SEND)로 넘어간 수.
             steps.add(finishStep(ctx.analyzeStepId, FileProcOutcome.STEP_ANALYZE,
-                    collectOut, collectOut - analyzeErr, analyzeErr, ctx.analyzeMs));
+                    collectOut, collectOut - analyzeErr, analyzeErr, ctx.analyzeMs,
+                    stepErrStack(outcomes, FileProcOutcome.STEP_ANALYZE)));
         }
         // DEIDENT — 전사 비식별을 한 건이라도 시도했을 때만 행이 있다. 실패한 건은 원문을 보내지 않았다.
         long deidentIn = collectOut - analyzeErr;
         long deidentErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_DEIDENT)).count();
         if (ctx.deidentStarted) {
             steps.add(finishStep(ctx.deidentStepId, FileProcOutcome.STEP_DEIDENT,
-                    deidentIn, deidentIn - deidentErr, deidentErr, ctx.deidentMs));
+                    deidentIn, deidentIn - deidentErr, deidentErr, ctx.deidentMs,
+                    stepErrStack(outcomes, FileProcOutcome.STEP_DEIDENT)));
         }
         // SEND — 비식별을 통과한 건이 한 번이라도 에이전트 커넥터 전송을 시도했을 때만 행이 있다.
         //   커넥터가 받고 내보내지 않았으면(전송 제어 T7 — 수동 확인 · 전송 중지) SUCCESS 가 아니라 전송 대기(WAIT)로 닫는다 —
@@ -349,12 +364,15 @@ public class VoiceCollectService {
         if (ctx.sendStarted) {
             long sendIn = deidentIn - deidentErr;
             long sendErr = outcomes.stream().filter(o -> o.failedAt(FileProcOutcome.STEP_SEND)).count();
+            String sendErrStack = stepErrStack(outcomes, FileProcOutcome.STEP_SEND);
             if (transfer.held()) {
                 log.info("[Batch] 에이전트 커넥터가 전송을 보류했다 — {} · SEND 를 전송 대기(WAIT)로 둔다(관리자 확인 후 전송)",
                         transfer.holdReason());
-                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, "WAIT", sendIn, success, sendErr, ctx.sendMs));
+                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, "WAIT", sendIn, success, sendErr, ctx.sendMs,
+                        sendErrStack));
             } else {
-                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, sendIn, success, sendErr, ctx.sendMs));
+                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, sendIn, success, sendErr, ctx.sendMs,
+                        sendErrStack));
             }
         }
 
@@ -778,22 +796,51 @@ public class VoiceCollectService {
 
     /** 단계를 마감하고 결과 요약을 돌려준다. 컬렉터 미연동이면 요약만 만든다. */
     private VoiceBatchResult.StepLog finishStep(String stepLogId, String stepTypeCd,
-                                                long in, long out, long err, long elapsedMs) {
-        return finishStep(stepLogId, stepTypeCd, null, in, out, err, elapsedMs);
+                                                long in, long out, long err, long elapsedMs, String errStack) {
+        return finishStep(stepLogId, stepTypeCd, null, in, out, err, elapsedMs, errStack);
     }
 
-    /** @param forcedSts 건수로 정하지 않고 이 상태로 닫는다(전송 대기 WAIT). null 이면 건수로 */
+    /**
+     * @param forcedSts 건수로 정하지 않고 이 상태로 닫는다(전송 대기 WAIT). null 이면 건수로
+     * @param errStack  이 단계의 대표 실패 사유({@link #stepErrStack}) — 화면의 '실패 로그' 가 이것을 읽는다. 실패가 없으면 null
+     */
     private VoiceBatchResult.StepLog finishStep(String stepLogId, String stepTypeCd, String forcedSts,
-                                                long in, long out, long err, long elapsedMs) {
+                                                long in, long out, long err, long elapsedMs, String errStack) {
         String sts = forcedSts != null ? forcedSts : err == 0 ? "SUCCESS" : (out == 0 ? "FAIL" : "PARTIAL");
         int sec = (int) (elapsedMs / 1000);
         boolean logged = stepLogId != null;
         if (logged) {
-            logCollector.finishStep(stepLogId, sts, sec, in, out, err, null);
+            logCollector.finishStep(stepLogId, sts, sec, in, out, err, errStack);
         }
-        log.info("[Batch] T2 {} 마감 — {} in={} out={} err={} ({}초){}", stepTypeCd, sts, in, out, err, sec,
+        log.info("[Batch] T2 {} 마감 — {} in={} out={} err={} ({}초){}{}", stepTypeCd, sts, in, out, err, sec,
+                errStack == null ? "" : "  사유=" + errStack,
                 logged ? "" : "  [컬렉터 미연동 — 적재 안 됨]");
-        return new VoiceBatchResult.StepLog(stepTypeCd, stepLogId, sts, in, out, err, sec, logged);
+        return new VoiceBatchResult.StepLog(stepTypeCd, stepLogId, sts, in, out, err, sec, logged, errStack);
+    }
+
+    /**
+     * 이 단계의 <b>대표 실패 사유</b> — 같은 사유가 가장 많은 것 하나를 컬렉터 표준 {@code [코드] [단계] 상세} 한 줄로 만든다.
+     *
+     * <p>왜 필요한가 — T2 단계 행에 사유를 안 실으면(2026-10-28 전까지 음성은 {@code null} 이었다) 화면의
+     * 단계 '실패 로그' 가 비어, 전건 실패한 배치도 왜 실패했는지 화면에서 알 수 없다. 이미지 쪽
+     * ({@code ImageCollectService#topErrStack})과 같은 방식이고, 사유가 여럿이면 몇 종이 더 있는지만 덧붙인다.</p>
+     *
+     * <p>PII 가 섞이지 않게 사유는 건별 처리에서 이미 요약된 문구({@link FileProcOutcome#errMsg})만 쓴다 — 원문·경로는 넣지 않는다.</p>
+     *
+     * @return 그 단계 실패가 없으면 null
+     */
+    private static String stepErrStack(List<FileProcOutcome> outcomes, String stepTypeCd) {
+        Map<String, Integer> freq = new LinkedHashMap<>();
+        for (FileProcOutcome o : outcomes) {
+            if (o.failedAt(stepTypeCd) && o.errMsg() != null) {
+                freq.merge(o.errMsg(), 1, Integer::sum);
+            }
+        }
+        StepType step = StepType.parse(stepTypeCd).orElse(null);
+        return freq.entrySet().stream().max(Map.Entry.comparingByValue())
+                .map(e -> LogCollectorClient.FileProcReq.errStackOf(step, e.getKey())
+                        + (freq.size() > 1 ? " (외 다른 사유 " + (freq.size() - 1) + "종)" : ""))
+                .orElse(null);
     }
 
     /**

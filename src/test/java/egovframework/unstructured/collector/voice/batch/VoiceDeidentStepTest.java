@@ -108,5 +108,11 @@ class VoiceDeidentStepTest {
         VoiceBatchResult.StepLog send = r.steps().get(3);
         assertThat(send.inCnt()).as("비식별을 통과한 건만 전송 구간으로").isEqualTo(5);
         assertThat(send.stepStsCd()).isEqualTo("SUCCESS");
+
+        // 단계에 대표 사유가 실려야 화면의 '실패 로그' 가 뜬다 — 2026-10-28 전까지 음성은 여기에 null 을 넣고 있었다.
+        assertThat(d.errStack()).as("실패한 단계는 [코드] [단계] 상세 한 줄을 남긴다")
+                .startsWith("[DATA] [DEIDENT] ").contains("HTTP 500");
+        assertThat(send.errStack()).as("실패가 없는 단계는 사유를 남기지 않는다").isNull();
+        assertThat(r.steps().get(0).errStack()).isNull();
     }
 }

@@ -58,9 +58,18 @@ public record VoiceBatchResult(
      * @param errCnt     이 단계에서 실패한 건수
      * @param elapsedSec 소요(초)
      * @param logged     컬렉터에 실제로 적재됐는가
+     * @param errStack   이 단계의 대표 실패 사유 {@code [코드] [단계] 상세}. 실패가 없으면 null
      */
     public record StepLog(String stepTypeCd, String stepLogId, String stepStsCd,
-                          long inCnt, long outCnt, long errCnt, int elapsedSec, boolean logged) {}
+                          long inCnt, long outCnt, long errCnt, int elapsedSec, boolean logged,
+                          String errStack) {
+
+        /** 사유 없이 — 기존 호출부를 그대로 둔다. */
+        public StepLog(String stepTypeCd, String stepLogId, String stepStsCd,
+                       long inCnt, long outCnt, long errCnt, int elapsedSec, boolean logged) {
+            this(stepTypeCd, stepLogId, stepStsCd, inCnt, outCnt, errCnt, elapsedSec, logged, null);
+        }
+    }
 
     /**
      * 배치 상태 코드(C04) — 하나도 실패하지 않았으면 SUCCESS, 일부만 성공이면 PARTIAL.

@@ -594,7 +594,9 @@ PL 요구사항(2026-09-29) — 단순 메타 조회가 아니라 **실제 파�
   `403` 매핑 경로가 저장소 · 그 수용자 폴더를 벗어남 · `404` 매핑 없음 · 파일 없음 · `500` PV I/O 오류 · `503` Admin DB 조회 실패.
   교정번호는 영숫자 1~20자만 받고(`..` · 슬래시 · `%` 등은 DB 조회 전에 거절), 매핑 경로는 `getCanonicalPath()` 로 풀어
   `{저장소}/{교정번호}/` 바로 아래인지 확인한다. `Cache-Control: private, max-age=3600` · `ETag` · `X-Content-Type-Options: nosniff`.
-  오류 본문은 `{"message"}` 하나 — 경로 같은 내부 값은 서버 로그(`[Image] 사진 파일 …`)에만 남긴다
+  오류 본문은 `{"message"}` 하나 — 경로 같은 내부 값은 서버 로그(`[Image] 사진 파일 …`)에만 남긴다.
+  챗봇 팀 연동 규격(프록시 · 대체 이미지 · 캐시 중계 · 렌더링 점검)은 `docs/챗봇연동_수용자사진API_가이드_1028.md`,
+  클라이언트별 계약 테스트는 `ChatbotPhotoClientContractTest`(실제 서버 · RestTemplate · RestClient · JDK HttpClient · 프록시 흉내)
 - **재실행해도 안전하다(멱등)** — 변경 없는 건은 다시 받지 않는다(매핑된 순번·FILEKEY 가 같고 파일이 있으면 건너뜀, `force` 로 다시).
   다시 받는 건은 저장 파일을 원자적으로 덮어쓰고 매핑을 **UPSERT** 한다 — 몇 번 돌려도 키 중복 오류 없이 있으면 갱신 · 없으면 넣기
 - **UPSERT** — PostgreSQL 은 `INSERT … ON CONFLICT (corr_no) DO UPDATE … WHERE 기존 순번 <= 새 순번 RETURNING (xmax = 0)` 한 문장

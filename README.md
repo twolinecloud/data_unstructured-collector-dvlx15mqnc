@@ -588,6 +588,13 @@ PL 요구사항(2026-09-29) — 단순 메타 조회가 아니라 **실제 파�
 
 - **API** — `POST /api/v1/image/batches`(동기 실행) · `GET /api/v1/image/status` · `GET /api/v1/image/photos/{corrNo}` ·
   `POST /api/v1/image/photo-ref/sync`(선택 — `TB_SRC_INMATE_BS.PHOTO_REF` 일괄 반영)
+- **사진 파일 제공(챗봇 연동)** — `GET /api/v1/image/photos/{corrNo}/file`. 챗봇 백엔드 파드는 이 PV 를 마운트하지 못해서
+  매핑의 저장 경로에서 사진을 파일 그대로 내준다(클러스터 안에서만 — 서비스는 ClusterIP).
+  `200` 사진(`image/jpeg` · `image/png` …, `FileSystemResource` 스트리밍) · `304`(ETag 일치) · `400` 교정번호 형식 오류 ·
+  `403` 매핑 경로가 저장소 · 그 수용자 폴더를 벗어남 · `404` 매핑 없음 · 파일 없음 · `500` PV I/O 오류 · `503` Admin DB 조회 실패.
+  교정번호는 영숫자 1~20자만 받고(`..` · 슬래시 · `%` 등은 DB 조회 전에 거절), 매핑 경로는 `getCanonicalPath()` 로 풀어
+  `{저장소}/{교정번호}/` 바로 아래인지 확인한다. `Cache-Control: private, max-age=3600` · `ETag` · `X-Content-Type-Options: nosniff`.
+  오류 본문은 `{"message"}` 하나 — 경로 같은 내부 값은 서버 로그(`[Image] 사진 파일 …`)에만 남긴다
 - **재실행해도 안전하다(멱등)** — 변경 없는 건은 다시 받지 않는다(매핑된 순번·FILEKEY 가 같고 파일이 있으면 건너뜀, `force` 로 다시).
   다시 받는 건은 저장 파일을 원자적으로 덮어쓰고 매핑을 **UPSERT** 한다 — 몇 번 돌려도 키 중복 오류 없이 있으면 갱신 · 없으면 넣기
 - **UPSERT** — PostgreSQL 은 `INSERT … ON CONFLICT (corr_no) DO UPDATE … WHERE 기존 순번 <= 새 순번 RETURNING (xmax = 0)` 한 문장

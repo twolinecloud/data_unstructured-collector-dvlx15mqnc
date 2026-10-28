@@ -4,18 +4,23 @@ import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.SourcePoolPeak;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
 import egovframework.unstructured.collector.image.config.AdminDb;
+import egovframework.unstructured.collector.image.controller.ImagePhotoFileController;
 import egovframework.unstructured.collector.image.model.ImageOutcome;
 import egovframework.unstructured.collector.image.model.ImageStage;
 import egovframework.unstructured.collector.image.perf.ImagePerfService;
 import egovframework.unstructured.collector.image.sim.ImageSimulationService;
 import egovframework.unstructured.collector.image.store.InmatePhotoRepository;
+import egovframework.unstructured.collector.image.store.PhotoFileLocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -27,6 +32,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 수용자 이미지 파이프라인 — 보라미 조회 3단계 → 브로커 수신 → 복호화(접견과 같은 RVS 키) → 저장 → Admin DB 매핑.
@@ -86,6 +94,8 @@ class ImagePipelineTest {
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     @Autowired
     private egovframework.unstructured.collector.voice.controller.VoiceMockController voiceMock;
+    @Autowired
+    private PhotoFileLocator photoFiles;
 
     @BeforeEach
     void clean() {
@@ -162,6 +172,23 @@ class ImagePipelineTest {
         assertThat(res).isEqualTo(InmatePhotoRepository.MapResult.STALE);
         assertThat(((Number) photos.find(corr).get("image_sn")).intValue()).isEqualTo(2);
         assertThat(photos.find(corr).get("photo_path")).isNotEqualTo("/old/path.jpg");
+    }
+
+    @Test
+    @DisplayName("수집한 사진을 파일 API(챗봇 연동)로 받으면 저장 파일과 같은 바이트 · image/jpeg — 실제 매핑 경로가 경로 검사를 통과한다")
+    void servesCollectedPhotoThroughFileApi() throws Exception {
+        sim.seed(1);
+        runSim(false);
+        String corr = ImageSimulationService.corrNo(1);
+        Path stored = Path.of((String) photos.find(corr).get("photo_path"));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new ImagePhotoFileController(photoFiles)).build();
+
+        mvc.perform(get("/api/v1/image/photos/{corrNo}/file", corr))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_JPEG))
+                .andExpect(content().bytes(Files.readAllBytes(stored)));
+        mvc.perform(get("/api/v1/image/photos/{corrNo}/file", ImageSimulationService.corrNo(9)))
+                .andExpect(status().isNotFound());
     }
 
     @Test

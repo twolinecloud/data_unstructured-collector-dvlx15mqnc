@@ -44,6 +44,10 @@ public class OpenApiConfig {
                         `GET /internal/batch/status`. 실행은 **비동기**(202 + execId, 실행 중이면 409)이고 스케줄·바로 실행·재처리·전송이 한 잠금을 씁니다.
                         클러스터 안(admin-api)에서만 부릅니다.
 
+                        ### 챗봇 연동 — `2-1. 수용자 사진 파일`
+                        챗봇 백엔드는 이 서비스의 PV 를 마운트하지 못하므로 `GET /api/v1/image/photos/{corrNo}/file` 로 수용자 사진을
+                        파일 그대로 받습니다(스트리밍 · `Cache-Control: private, max-age=3600` · ETag). 클러스터 안에서만 부릅니다.
+
                         ### 시연 순서
                         1. `GET /api/v1/voice/status` — 5개 스위치(source·broker·phone·decrypt·stt)가 어느 모드인지 확인
                         2. `GET /api/v1/mock/targets` — 이번에 처리될 대상 미리보기

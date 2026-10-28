@@ -17,6 +17,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -220,6 +221,14 @@ public class InmatePhotoRepository {
                     });
         }
         return out;
+    }
+
+    /** 한 수용자의 매핑 — 사진 파일 제공 API({@link PhotoFileLocator})가 저장 경로를 찾을 때. 없으면 빈 값. */
+    public Optional<Mapped> findMapped(String corrNo) {
+        return db.jdbc().query("SELECT corr_no, image_sn, filekey, photo_path FROM " + photo() + " WHERE corr_no = ?",
+                (rs, i) -> new Mapped(rs.getString("corr_no"), rs.getInt("image_sn"), rs.getString("filekey"),
+                        rs.getString("photo_path")),
+                corrNo).stream().findFirst();
     }
 
     /** 접두로 시작하는 매핑된 교정번호 — 재실행 전 스냅샷(무엇이 신규 · 무엇이 갱신이어야 하는지)의 근거. */

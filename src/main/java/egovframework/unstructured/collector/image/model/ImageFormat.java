@@ -7,16 +7,60 @@ package egovframework.unstructured.collector.image.model;
  * 그런 파일을 사진으로 저장·매핑하면 화면에 깨진 사진이 걸리므로 그 건은 실패로 남긴다.</p>
  */
 public enum ImageFormat {
-    JPG("jpg"), PNG("png"), GIF("gif"), BMP("bmp"), TIF("tif");
+    JPG("jpg", "image/jpeg"), PNG("png", "image/png"), GIF("gif", "image/gif"), BMP("bmp", "image/bmp"), TIF("tif", "image/tiff");
 
     private final String ext;
+    private final String mediaType;
 
-    ImageFormat(String ext) {
+    ImageFormat(String ext, String mediaType) {
         this.ext = ext;
+        this.mediaType = mediaType;
     }
 
     public String ext() {
         return ext;
+    }
+
+    /** 응답 {@code Content-Type} — 사진 파일 제공 API 가 쓴다. */
+    public String mediaType() {
+        return mediaType;
+    }
+
+    /**
+     * 저장 파일 확장자로 형식을 찾는다 — 저장소는 매직 넘버로 판별한 {@link #ext()} 를 확장자로 쓴다({@code ImageFileStore.save}).
+     * 대소문자는 가리지 않고 {@code jpeg} · {@code tiff} 표기도 받는다.
+     *
+     * @return 형식. 모르는 확장자면 null
+     */
+    public static ImageFormat fromExt(String ext) {
+        if (ext == null) {
+            return null;
+        }
+        String e = ext.trim().toLowerCase(java.util.Locale.ROOT);
+        for (ImageFormat f : values()) {
+            if (f.ext.equals(e)) {
+                return f;
+            }
+        }
+        return switch (e) {
+            case "jpeg" -> JPG;
+            case "tiff" -> TIF;
+            default -> null;
+        };
+    }
+
+    /** 이 형식들의 {@code Content-Type} 중 하나인가 — {@code Files.probeContentType} 결과를 거를 때. */
+    public static ImageFormat fromMediaType(String mediaType) {
+        if (mediaType == null) {
+            return null;
+        }
+        String m = mediaType.trim().toLowerCase(java.util.Locale.ROOT);
+        for (ImageFormat f : values()) {
+            if (f.mediaType.equals(m)) {
+                return f;
+            }
+        }
+        return null;
     }
 
     /** @return 판별된 형식. 이미지가 아니면 null */

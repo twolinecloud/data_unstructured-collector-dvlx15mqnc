@@ -9,12 +9,12 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 단계별 장애 주입 — <b>COLLECT · ANALYZE · SEND 를 따로 켜고 끈다.</b>
+ * 단계별 장애 주입 — <b>COLLECT · ANALYZE · DEIDENT · SEND 를 따로 켜고 끈다.</b>
  *
  * <p><b>왜 전역 Chaos 를 걷어냈나</b>: 예전에는 스위치 하나가 모든 구간에 걸렸다. 그래서
  * "STT 만 죽었을 때 복호화 파일로 이어서 처리되는가" 를 보려 해도 수집까지 같이 깨져,
  * 무엇 때문에 실패했는지 시나리오마다 헷갈렸다. T4 의 {@code STEP_TYPE_CD}(C05) 가 이미
- * 세 단계로 갈려 있으므로 스위치도 같은 단위로 나눈다.</p>
+ * 단계별로 갈려 있으므로 스위치도 같은 단위로 나눈다.</p>
  *
  * <p><b>부분 성공은 확률이 아니라 건수다.</b> "10건 중 1건" 이 기대 동작인데 주사위를 굴리면
  * 5건짜리 배치에서 0건이 나오기도 하고 3건이 나오기도 해서, 같은 버튼을 눌러도 화면이 매번 다르다.
@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class StageFaultState {
 
     /** T4 {@code STEP_TYPE_CD}(C05) 와 같은 단위. */
-    public enum Stage { COLLECT, ANALYZE, SEND }
+    public enum Stage { COLLECT, ANALYZE, DEIDENT, SEND }
 
     /** OFF = 정상 · ALL = 전건 실패 · PARTIAL = 정해진 건수만 실패(나머지 성공). */
     public enum Mode { OFF, ALL, PARTIAL }

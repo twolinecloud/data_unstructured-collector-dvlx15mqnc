@@ -50,6 +50,19 @@ class StageFaultStateTest {
     }
 
     @Test
+    @DisplayName("DEIDENT — 비식별 단계만 따로 켠다")
+    void deidentIsIndependent() {
+        fault.set(Stage.DEIDENT, Mode.ALL, null);
+        fault.beginBatch(3);
+
+        assertThat(fault.shouldFail(Stage.DEIDENT)).isTrue();
+        assertThat(fault.shouldFail(Stage.COLLECT)).isFalse();
+        assertThat(fault.shouldFail(Stage.ANALYZE)).isFalse();
+        assertThat(fault.shouldFail(Stage.SEND)).isFalse();
+        assertThat(fault.snapshot()).containsKey("DEIDENT");
+    }
+
+    @Test
     @DisplayName("PARTIAL 10% — 10건 중 정확히 1건만 실패한다")
     void partialFailsExactCount() {
         fault.set(Stage.SEND, Mode.PARTIAL, 10);

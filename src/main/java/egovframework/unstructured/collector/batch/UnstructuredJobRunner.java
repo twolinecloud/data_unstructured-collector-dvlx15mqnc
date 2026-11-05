@@ -187,8 +187,9 @@ public class UnstructuredJobRunner {
     private void execute(Job job, Task task) {
         try {
             String r = task.run((id, fromCollector) -> {
+                // 이력에 먼저 올린다 — publish 가 대기를 풀면 호출자가 곧바로 이 execId 로 상태를 조회한다
+                history.put(id, job);
                 job.publish(id, fromCollector);
-                history.put(id, job);   // 발행 execId 로도 상태를 찾을 수 있게
             });
             job.finish(r);
             log.info("[Unstructured] 완료 kind={} execId={} {}ms — {}", job.kind, job.currentExecId(), job.elapsedMs(), r);

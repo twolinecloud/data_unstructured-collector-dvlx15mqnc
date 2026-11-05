@@ -157,10 +157,25 @@ public class LogCollectorClient {
      * @return 다시 열었으면 true. 미연동 · 실패(없는 배치 404 · 실패 상태가 아님 409)면 false
      */
     public boolean reopenBatch(String execId, String triggerBy, LocalDateTime targetFrom, LocalDateTime targetTo) {
+        return reopenBatch(execId, triggerBy, targetFrom, targetTo, null);
+    }
+
+    /**
+     * 긴급 재처리 — {@code fromStep} 단계부터 다시 연다. <b>그 앞 단계 기록은 로그 컬렉터가 남겨 둔다.</b>
+     *
+     * <p>전부 지우면 다시 돌지 않는 앞 단계(예: 분석)가 영영 사라지고, 화면의 수집 건수도 이번 회차 값으로
+     * 줄어든다(수집 건수 = COLLECT 단계 OUT_CNT) — '대상 4 / 수집 2' 로 어긋나던 원인이다(D17 · 2026-11-05).</p>
+     *
+     * @param fromStep {@code COLLECT}·{@code ANALYZE}·{@code DEIDENT}·{@code SEND} 등. null 이면 종전대로 전부 초기화
+     */
+    public boolean reopenBatch(String execId, String triggerBy, LocalDateTime targetFrom, LocalDateTime targetTo,
+                               String fromStep) {
         if (!isEnabled() || !StringUtils.hasText(execId)) {
             return false;
         }
-        JsonNode r = exchange(HttpMethod.POST, url("/api/v1/logs/batches/" + execId.trim() + "/reopen"),
+        String path = "/api/v1/logs/batches/" + execId.trim() + "/reopen"
+                + (StringUtils.hasText(fromStep) ? "?fromStep=" + fromStep.trim() : "");
+        JsonNode r = exchange(HttpMethod.POST, url(path),
                 new BatchCreateReq(null, null, null,
                         targetFrom == null ? null : targetFrom.withNano(0),
                         targetTo == null ? null : targetTo.withNano(0),

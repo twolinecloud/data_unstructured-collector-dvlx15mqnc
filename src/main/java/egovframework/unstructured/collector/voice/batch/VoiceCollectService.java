@@ -1224,6 +1224,11 @@ public class VoiceCollectService {
                 if (stageFault.shouldFail(StageFaultState.Stage.DEIDENT)) {
                     throw StageFaultState.fault(StageFaultState.Stage.DEIDENT, "에이전트 커넥터 비식별 호출 실패(500/Timeout) 주입");
                 }
+                // 더미 시나리오 DEIDENT_FAIL — 표식 건만 · 한 번만 · 운영 제외. 커넥터에 닿기 전에 끊어 원문 전사를 보내지 않는다.
+                if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.DEIDENT_FAIL,
+                        target.idempotencyKey())) {
+                    throw new IllegalStateException("에이전트 커넥터 비식별 HTTP 500 (MOCK) [더미 시나리오 DEIDENT_FAIL · 1회]");
+                }
                 egovframework.unstructured.collector.voice.transfer.VoiceDeidentClient.Result d =
                         voiceDeident.deident(ctx.execId, target, pid, stt);
                 stt = stt.withDeidentified(d.text(), d.segments());

@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
  *   <tr><td>COLLECT_FAIL</td><td>{@code CF}</td><td>COLLECT</td><td>FULL</td><td>ACQUIRE(브로커 수신)</td></tr>
  *   <tr><td>ANALYZE_FAIL</td><td>{@code AF}</td><td>ANALYZE(STT)</td><td>FROM_ANALYZE</td><td>DECRYPT(복호화·이미지 확인)</td></tr>
  *   <tr><td>SEND_FAIL</td><td>{@code SF}</td><td>SEND(에이전트 커넥터)</td><td>FROM_SEND</td><td>MAP(Admin DB 매핑 — 롤백)</td></tr>
+ *   <tr><td>DEIDENT_FAIL</td><td>{@code DF}</td><td>DEIDENT(에이전트 커넥터 비식별)</td><td>FROM_SEND</td><td>— (음성 전용 · 이미지엔 비식별 단계가 없다)</td></tr>
  * </table>
  *
  * <p><b>키 형식</b> — 표식은 날짜와 순번 사이에 둔다(접견 키 컬럼 {@code TARE_FILE_NO} 가 26자라 짧은 두 글자).</p>
@@ -30,12 +31,14 @@ public enum FailureScenario {
 
     COLLECT_FAIL("CF", "COLLECT", ResumeMode.FULL, ImageStage.ACQUIRE, "수집"),
     ANALYZE_FAIL("AF", "ANALYZE", ResumeMode.FROM_ANALYZE, ImageStage.DECRYPT, "정제/분석"),
-    SEND_FAIL("SF", "SEND", ResumeMode.FROM_SEND, ImageStage.MAP, "적재/전송");
+    SEND_FAIL("SF", "SEND", ResumeMode.FROM_SEND, ImageStage.MAP, "적재/전송"),
+    /** 음성 전용 — 보존된 전사로 비식별부터 다시 간다(FROM_SEND). 어드민 배치 상세 '실패 상태만 보기' 확인용(2026-11-05). */
+    DEIDENT_FAIL("DF", "DEIDENT", ResumeMode.FROM_SEND, null, "비식별");
 
     /** 이미지 재처리 — 이미지에는 단계별 재처리가 없다. 다시 돌리면 실패했던 건만 다시 처리한다(성공 건은 '변경 없음'). */
     public static final String IMAGE_RERUN = "IMAGE_RERUN";
 
-    private static final Pattern VOICE_KEY = Pattern.compile("^(SIM|DMY)-(MEET|PHONE)-\\d{8}-(CF|AF|SF)-\\d{4}$");
+    private static final Pattern VOICE_KEY = Pattern.compile("^(SIM|DMY)-(MEET|PHONE)-\\d{8}-(CF|AF|SF|DF)-\\d{4}$");
     private static final Pattern IMAGE_CORR = Pattern.compile("^(SIM|DMY)IMG\\d{10}(CF|AF|SF)$");
 
     private final String marker;
@@ -67,7 +70,7 @@ public enum FailureScenario {
         return expectedResume;
     }
 
-    /** 이미지가 실패하는 단계. */
+    /** 이미지가 실패하는 단계 — 음성 전용 시나리오({@link #DEIDENT_FAIL})는 {@code null}. */
     public ImageStage imageStage() {
         return imageStage;
     }

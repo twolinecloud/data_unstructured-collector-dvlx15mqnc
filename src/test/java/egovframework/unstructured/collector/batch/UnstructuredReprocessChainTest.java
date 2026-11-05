@@ -65,6 +65,7 @@ class UnstructuredReprocessChainTest {
         when(vp.batch()).thenReturn(batch);
         when(logc.isEnabled()).thenReturn(true);
         when(logc.reopenBatch(anyString(), any(), any(), any())).thenReturn(true);
+        when(logc.reopenBatch(anyString(), any(), any(), any(), any())).thenReturn(true);
         // 다시 연 배치는 자기 T4 건만 처리한다 — 기본은 T4 비어 있음(구간 전체)
         try {
             when(logc.fileProcs(anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(OM.readTree("{\"rows\":[]}"));
@@ -121,7 +122,10 @@ class UnstructuredReprocessChainTest {
         verify(onExecId).accept("UNS17", true);
         InOrder o = inOrder(logc, voice);
         for (String id : List.of("UNS15", "UNS16", "UNS17")) {
-            o.verify(logc).reopenBatch(eq(id), eq("ADMIN/reprocess:UNS17"), any(), any());
+            // 앞 배치(UNS15·16)는 FROM_SEND → DEIDENT 부터, 원배치(UNS17)는 요청 단계 FROM_ANALYZE → ANALYZE 부터.
+            // 어느 쪽이든 수집(COLLECT)은 지우지 않는다 — 그게 D17 수정의 핵심이다.
+            o.verify(logc).reopenBatch(eq(id), eq("ADMIN/reprocess:UNS17"), any(), any(),
+                    eq(id.equals("UNS17") ? "ANALYZE" : "DEIDENT"));
             ArgumentCaptor<BatchWindow> w = ArgumentCaptor.forClass(BatchWindow.class);
             ArgumentCaptor<ResumeMode> mode = ArgumentCaptor.forClass(ResumeMode.class);
             ArgumentCaptor<VoiceCollectService.Reopened> re = ArgumentCaptor.forClass(VoiceCollectService.Reopened.class);
@@ -145,7 +149,7 @@ class UnstructuredReprocessChainTest {
         String sum = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
 
         assertThat(sum).contains("UNS17 T4 확인 실패 — 다시 돌지 않음");
-        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -162,14 +166,14 @@ class UnstructuredReprocessChainTest {
         String sum = service.execute(voicePlan("UNS17", ResumeMode.FROM_SEND), null);
 
         assertThat(sum).contains("건너뜀(원본 없음 — 재처리로 해소 불가");
-        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("중간 배치가 실패해도 다음 배치로 계속 — 실패한 배치만 FAIL 로 닫는다 · 다시 열기 실패는 건너뛴다")
     void continuesAfterFailure() {
         when(logc.pendingChain("UNS17")).thenReturn(List.of(voiceBatch("UNS15", 0), voiceBatch("UNS16", 1), voiceBatch("UNS17", 2)));
-        when(logc.reopenBatch(eq("UNS15"), any(), any(), any())).thenReturn(false);
+        when(logc.reopenBatch(eq("UNS15"), any(), any(), any(), any())).thenReturn(false);
         org.mockito.Mockito.doThrow(new IllegalStateException("broker down"))
                 .when(voice).run(any(), any(), any(), anyBoolean(), any(), eq("UNS16"), any(), any(), any());
 
@@ -218,6 +222,6 @@ class UnstructuredReprocessChainTest {
         verify(voice, never()).run(any(), any(), any(), anyBoolean(), any(), any(), any(), any());
         verify(voice, never()).run(any(), any(), any(), anyBoolean(), any(), any(), any(), any(), any());
         verify(image, never()).run(any(), any());
-        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any(), any());
     }
 }

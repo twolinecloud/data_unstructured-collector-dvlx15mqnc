@@ -589,7 +589,8 @@ public class UnstructuredBatchService {
                     id, rows.size());
             return "건너뜀(원본 없음 — 재처리로 해소 불가 · 실패 %d건)".formatted(rows.size());
         }
-        if (!logCollector.reopenBatch(id, triggerBy, from, to)) {
+        // 다시 도는 단계부터만 지운다 — 앞 단계(예: 분석)를 남겨야 타임라인이 비지 않고 수집 건수도 줄지 않는다(D17).
+        if (!logCollector.reopenBatch(id, triggerBy, from, to, mode.reopenFromStep())) {
             log.warn("[Unstructured] {} 를 다시 열지 못했다(이미 처리됐거나 로그 컬렉터 오류)", id);
             return "다시 열기 실패";
         }

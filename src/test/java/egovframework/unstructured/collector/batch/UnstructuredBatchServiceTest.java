@@ -267,6 +267,7 @@ class UnstructuredBatchServiceTest {
         when(holds.holds()).thenReturn(java.util.Set.of("P1", "P2"));
         when(holds.release(anyString(), anyString())).thenReturn(new TransmitHoldClient.Release(200, true, "SUCCESS", "학습셋 drop 마감", null));
         when(logc.reopenBatch(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(logc.reopenBatch(anyString(), anyString(), any(), any(), any())).thenReturn(true);
         when(voice.defaultWorkers()).thenReturn(Workers.sequential());
         VoiceBatchResult vr = new VoiceBatchResult("T", true, "MANUAL", 2, 2, 0, 0, 10L, Map.of(), List.of(), List.of(), false);
         when(voice.run(any(), isNull(), anyString(), anyBoolean(), any(), anyString(), any(Workers.class), isNull(), any()))
@@ -282,12 +283,12 @@ class UnstructuredBatchServiceTest {
                 .contains("P5 건너뜀(전송 대기인데 커넥터 보류 장부에 없음").contains("T 음성 FULL");
         InOrder o = inOrder(holds, logc);
         o.verify(holds).release("P1", "admin01");                                   // 보류분 먼저
-        o.verify(logc).reopenBatch(eq("P1"), eq("admin01/reprocess:T"), any(), any());   // 그다음 다시 돌기
+        o.verify(logc).reopenBatch(eq("P1"), eq("admin01/reprocess:T"), any(), any(), eq("DEIDENT"));   // 그다음 다시 돌기
         o.verify(holds).release("P2", "admin01");
-        o.verify(logc).reopenBatch(eq("T"), eq("admin01/reprocess:T"), any(), any());
-        verify(logc, never()).reopenBatch(eq("P2"), anyString(), any(), any());       // 성공 배치는 다시 열지 않는다
-        verify(logc, never()).reopenBatch(eq("P3"), anyString(), any(), any());
-        verify(logc, never()).reopenBatch(eq("P5"), anyString(), any(), any());       // 보류분 행방을 모르면 T2 를 지우지 않는다
+        o.verify(logc).reopenBatch(eq("T"), eq("admin01/reprocess:T"), any(), any(), isNull());
+        verify(logc, never()).reopenBatch(eq("P2"), anyString(), any(), any(), any());       // 성공 배치는 다시 열지 않는다
+        verify(logc, never()).reopenBatch(eq("P3"), anyString(), any(), any(), any());
+        verify(logc, never()).reopenBatch(eq("P5"), anyString(), any(), any(), any());       // 보류분 행방을 모르면 T2 를 지우지 않는다
         verify(holds, never()).release(eq("P5"), anyString());
     }
 
@@ -303,7 +304,7 @@ class UnstructuredBatchServiceTest {
                 java.util.Set.of("P1"), "admin01/reprocess:T", "admin01");
 
         assertThat(line).startsWith("P1 커넥터 전송 실패(HTTP 409").endsWith("다시 돌지 않음");
-        verify(logc, never()).reopenBatch(anyString(), any(), any(), any());
+        verify(logc, never()).reopenBatch(anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -312,6 +313,7 @@ class UnstructuredBatchServiceTest {
         UnstructuredBatchService s = service(false);
         when(holds.isEnabled()).thenReturn(true);
         when(logc.reopenBatch(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(logc.reopenBatch(anyString(), anyString(), any(), any(), any())).thenReturn(true);
         when(voice.defaultWorkers()).thenReturn(Workers.sequential());
         VoiceBatchResult vr = new VoiceBatchResult("X", true, "MANUAL", 1, 1, 0, 0, 10L, Map.of(), List.of(), List.of(), false);
         when(voice.run(any(), isNull(), anyString(), anyBoolean(), any(), anyString(), any(Workers.class), isNull(), any()))

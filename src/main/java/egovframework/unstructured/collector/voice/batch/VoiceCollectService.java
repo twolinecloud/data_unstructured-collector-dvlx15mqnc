@@ -289,7 +289,10 @@ public class VoiceCollectService {
         boolean pipelined = w.pipelined() && found.size() > 1;
         progress.begin(execId, window.toString(), found.size(), w, pipelined);
         // 부분 성공은 확률이 아니라 건수다 — 대상 수가 정해진 지금 몇 건을 떨어뜨릴지 확정한다.
-        stageFault.beginBatch(found.size());
+        //   이미 처리돼 건너뛸 건은 세지 않는다 — 세면 처리 이력이 쌓인 구간에서 새 건이 전부 떨어진다(36건 중 새 4건 · 50% → 4건 다 실패).
+        //   장애를 걸지 않은 평소 배치는 건수가 쓰이지 않으니 멱등 표식을 미리 읽지 않는다.
+        stageFault.beginBatch(!stageFault.anyOn() ? found.size()
+                : (int) found.stream().filter(t -> !idempotency.isProcessed(t)).count());
         boolean canceled = false;
         long loopStartedAt = System.currentTimeMillis();
         try {

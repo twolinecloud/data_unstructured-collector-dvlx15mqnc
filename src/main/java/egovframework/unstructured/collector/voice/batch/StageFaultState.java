@@ -86,7 +86,7 @@ public class StageFaultState {
     /**
      * 배치 시작 — 이번 회차에 단계별로 <b>몇 건을 실패시킬지</b> 정한다.
      *
-     * @param total 이번 배치의 대상 건수
+     * @param total 이번 배치에서 실제로 처리할 건수(이미 처리돼 건너뛸 건 제외)
      */
     public synchronized void beginBatch(int total) {
         for (Stage s : Stage.values()) {

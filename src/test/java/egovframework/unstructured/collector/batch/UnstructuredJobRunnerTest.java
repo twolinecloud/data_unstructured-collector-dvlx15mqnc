@@ -34,6 +34,27 @@ class UnstructuredJobRunnerTest {
     }
 
     @Test
+    @DisplayName("execId 를 받은 직후 조회해도 찾는다 — 대기가 풀리기 전에 이력에 올라가 있다")
+    void execIdIsFindableAsSoonAsAwaitReturns() throws InterruptedException {
+        for (int i = 0; i < 500; i++) {
+            UnstructuredJobRunner r = new UnstructuredJobRunner(() -> null);
+            CountDownLatch hold = new CountDownLatch(1);
+            try {
+                String id = "20261002UNS" + i;
+                r.submitAndAwaitExecId(UnstructuredJobRunner.Kind.RUN, "ADMIN", null, sink -> {
+                    sink.publish(id, true);
+                    block(hold);
+                    return "done";
+                }, 2000);
+                assertThat(r.status(id).get("status")).as("%d회째", i).isEqualTo("RUNNING");
+            } finally {
+                hold.countDown();
+                r.shutdown();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("실행 중 재요청 — AlreadyRunningException(→409) 에 실행 중 execId")
     void conflictWhileRunning() {
         UnstructuredJobRunner r = new UnstructuredJobRunner(() -> null);

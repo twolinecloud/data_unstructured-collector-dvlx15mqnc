@@ -1218,6 +1218,9 @@ public class VoiceCollectService {
             if (voiceDeident.enabled()) {
                 step = FileProcOutcome.STEP_DEIDENT;
                 beginDeident(ctx);
+                if (stageFault.shouldFail(StageFaultState.Stage.DEIDENT)) {
+                    throw StageFaultState.fault(StageFaultState.Stage.DEIDENT, "에이전트 커넥터 비식별 호출 실패(500/Timeout) 주입");
+                }
                 egovframework.unstructured.collector.voice.transfer.VoiceDeidentClient.Result d =
                         voiceDeident.deident(ctx.execId, target, pid, stt);
                 stt = stt.withDeidentified(d.text(), d.segments());

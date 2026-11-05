@@ -163,6 +163,64 @@ class SimulatorWorkflowTest {
         assertThat(r.execStsCd()).isEqualTo("FAIL");
     }
 
+    // ── 비식별 실패 → 재처리(FROM_SEND) ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("비식별 전체 실패 → 원문을 보내지 않고 전사 보존 → FROM_SEND 재처리가 비식별부터 다시 해서 보낸다")
+    void deidentFailureSendsNothingAndResumesFromTranscript() {
+        faults.set(StageFaultState.Stage.DEIDENT, StageFaultState.Mode.ALL, null);
+
+        VoiceBatchResult first = service.run(BatchWindow.daily(LocalDateTime.now()),
+                List.of(VoiceKind.MEET), "TEST", true);
+
+        assertThat(first.failCnt()).isEqualTo(5);
+        assertThat(first.execStsCd()).isEqualTo("FAIL");
+        assertThat(first.outcomes()).allSatisfy(o -> assertThat(o.failedStep())
+                .isEqualTo(egovframework.unstructured.collector.common.model.FileProcOutcome.STEP_DEIDENT));
+        assertThat(first.steps()).as("비식별을 통과한 건이 없으면 SEND 단계는 돌지 않는다")
+                .extracting(VoiceBatchResult.StepLog::stepTypeCd)
+                .containsExactly("COLLECT", "ANALYZE", "DEIDENT");
+        assertThat(first.steps().get(2).stepStsCd()).isEqualTo("FAIL");
+        assertThat(first.steps().get(2).errCnt()).isEqualTo(5);
+        assertThat(first.steps().get(2).errStack()).contains("[DEIDENT]");
+        assertThat(connector.receipts(first.execId())).as("원문을 보내지 않았다").isEmpty();
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("전사 보존물이 남는다").isEqualTo(5);
+
+        List<String> failedKeys = first.outcomes().stream().map(o -> o.target().idempotencyKey()).toList();
+        faults.clear();
+        // 재처리 창(이틀)에는 첫 실행이 다루지 않은 주기용 SIM 2건도 들어온다
+        VoiceBatchResult again = batches.resume(ResumeMode.FROM_SEND, first.execId(), List.of(VoiceKind.MEET), true, 2880);
+
+        assertThat(again.failCnt()).isZero();
+        assertThat(again.successCnt()).isEqualTo(7);
+        assertThat(connector.receipts(again.execId())).extracting(r -> String.valueOf(r.metadata().get("idempotency_key")))
+                .as("비식별에서 깨졌던 5건이 이번에 에이전트 커넥터로 갔다").containsAll(failedKeys);
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("보낸 뒤 보존물 정리(Purge)").isZero();
+    }
+
+    @Test
+    @DisplayName("비식별 부분 실패 → 실패 건만 빠지고 나머지는 전송되어 배치가 PARTIAL 로 끝난다")
+    void deidentPartialFailureSendsTheRest() {
+        faults.set(StageFaultState.Stage.DEIDENT, StageFaultState.Mode.PARTIAL, 20);
+
+        VoiceBatchResult r = service.run(BatchWindow.daily(LocalDateTime.now()),
+                List.of(VoiceKind.MEET), "TEST", true);
+
+        assertThat(r.failCnt()).isEqualTo(1);
+        assertThat(r.successCnt()).isEqualTo(4);
+        assertThat(r.execStsCd()).isEqualTo("PARTIAL");
+        assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
+                .containsExactly("COLLECT", "ANALYZE", "DEIDENT", "SEND");
+        assertThat(connector.receipts(r.execId())).as("통과한 4건은 보냈다").hasSize(4);
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("실패한 1건의 전사만 남는다").isEqualTo(1);
+
+        faults.clear();
+        VoiceBatchResult again = batches.resume(ResumeMode.FROM_SEND, r.execId(), List.of(VoiceKind.MEET), true, 2880);
+
+        assertThat(again.failCnt()).isZero();
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("재처리로 보낸 뒤 보존물 정리(Purge)").isZero();
+    }
+
     // ── 에이전트 커넥터 전송 실패 → 재처리(FROM_SEND) ─────────────────────────────────
 
     @Test

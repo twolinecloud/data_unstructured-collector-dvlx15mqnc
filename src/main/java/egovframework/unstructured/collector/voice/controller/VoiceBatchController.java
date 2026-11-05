@@ -116,6 +116,7 @@ public class VoiceBatchController {
                 kinds, "MANUAL", test, ResumeMode.FULL, null, batchConcurrency);
     }
 
+    // /faults 3종은 개발 · 로컬이 아닌 프로필에서 MockApiBlockFilter 가 404 로 막는다
     @Operation(summary = "단계별 장애 주입 설정",
             description = """
                     T4 `STEP_TYPE_CD`(C05)와 같은 단위로 **단계마다 따로** 장애를 켭니다.

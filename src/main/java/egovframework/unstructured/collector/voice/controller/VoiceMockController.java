@@ -42,8 +42,9 @@ import java.util.stream.Stream;
 /**
  * 시뮬레이터·시연 보조 API — <b>운영에서는 차단한다</b>.
  *
- * <p>커넥터도 같은 방식으로 시연용 API 를 한 애플리케이션에 담고 운영 배포 시 경로를 막는다.
- * 배포 시 {@code /api/v1/mock/**} 를 인그레스·게이트웨이에서 차단하면 된다.</p>
+ * <p>{@code /api/v1/mock/**} 는 개발 · 로컬이 아닌 프로필에서
+ * {@link egovframework.unstructured.collector.common.config.MockApiBlockFilter} 가 404 로 막는다.
+ * 인그레스 설정에 기대지 않는다.</p>
  *
  * <p>여기 있는 것은 <b>파괴적 초기화</b>다. 멱등 표식과 수신 디렉터리의 파일을 지운다.
  * Mock 모드에서만 의미가 있으므로, 실물 모드에서는 호출해도 실제 데이터를 건드리지 않도록

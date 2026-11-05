@@ -107,7 +107,7 @@ public class DummyDataService {
             @Schema(description = "대상일 yyyy-MM-dd — CRT_DT 를 이 날 안에 분산한다. 비우면 어제. 미래는 안 된다", example = "2026-10-01")
             LocalDate targetDate,
             @Schema(description = "유형별 건수 1~300 (유형 합계도 300 이하). 비우면 5", example = "10") Integer count,
-            @Schema(description = "유형별 장애 건수 — COLLECT_FAIL · ANALYZE_FAIL · SEND_FAIL. 나머지는 정상",
+            @Schema(description = "유형별 장애 건수 — COLLECT_FAIL · ANALYZE_FAIL · SEND_FAIL · DEIDENT_FAIL(음성 전용). 나머지는 정상",
                     example = "{\"COLLECT_FAIL\":1,\"ANALYZE_FAIL\":1,\"SEND_FAIL\":1}") Map<FailureScenario, Integer> failures,
             @Schema(description = "기존 데이터를 지우지 않고 추가(기본 true). false 면 그 용도의 데이터를 먼저 지운다", example = "true")
             Boolean append,
@@ -261,7 +261,7 @@ public class DummyDataService {
         Map<String, Object> expected = new LinkedHashMap<>();
         for (FailureScenario s : FailureScenario.values()) {
             expected.put(s.name(), Map.of("voice", s.expectedResume().name(), "image", FailureScenario.IMAGE_RERUN,
-                    "voiceStep", s.voiceStep(), "imageStage", s.imageStage().name()));
+                    "voiceStep", s.voiceStep(), "imageStage", s.imageStage() == null ? "-" : s.imageStage().name()));
         }
         out.put("expectedResume", expected);
         out.put("types", types);
@@ -319,6 +319,11 @@ public class DummyDataService {
                     failures.put(s, v);
                 }
             });
+        }
+        // 이미지에는 비식별 단계가 없다 — 표식만 박히고 실패하지 않는 건이 생기지 않게 막는다
+        if (types.contains(DummyDataType.IMAGE)
+                && failures.keySet().stream().anyMatch(s -> s.imageStage() == null)) {
+            throw new IllegalArgumentException("이미지에는 비식별 단계가 없어 DEIDENT_FAIL 을 넣을 수 없습니다 — 음성(접견 · 전화)만 고르십시오");
         }
         int failTotal = failures.values().stream().mapToInt(Integer::intValue).sum();
         for (Map.Entry<DummyDataType, Integer> e : counts.entrySet()) {
@@ -592,7 +597,7 @@ public class DummyDataService {
             one.put("count", e.getValue());
             one.put("voiceStep", s.voiceStep());
             one.put("expectedResume", s.expectedResume().name());
-            one.put("imageStage", s.imageStage().name());
+            one.put("imageStage", s.imageStage() == null ? "-" : s.imageStage().name());
             w.put(s.name(), one);
             idx += e.getValue();
         }

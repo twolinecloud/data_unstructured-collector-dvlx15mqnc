@@ -68,6 +68,8 @@ class DummyKeysTest {
     void markerParsing() {
         assertThat(FailureScenario.ofKey("DMY-MEET-20261001-CF-0001")).contains(FailureScenario.COLLECT_FAIL);
         assertThat(FailureScenario.ofKey("SIM-PHONE-20261001-AF-0002")).contains(FailureScenario.ANALYZE_FAIL);
+        assertThat(FailureScenario.ofKey("DMY-MEET-20261001-DF-0003")).contains(FailureScenario.DEIDENT_FAIL);
+        assertThat(FailureScenario.ofKey("DMYIMG2610010003DF")).as("이미지엔 비식별 단계가 없다 — 표식으로 읽지 않는다").isEmpty();
         assertThat(FailureScenario.ofKey("DMYIMG2610010003SF")).contains(FailureScenario.SEND_FAIL);
         assertThat(FailureScenario.ofKey("DMY-MEET-20261001-0001")).isEmpty();
         assertThat(FailureScenario.ofKey("DMYIMG2610010003")).isEmpty();
@@ -79,6 +81,8 @@ class DummyKeysTest {
         assertThat(FailureScenario.COLLECT_FAIL.expectedResume()).isEqualTo(ResumeMode.FULL);
         assertThat(FailureScenario.ANALYZE_FAIL.expectedResume()).isEqualTo(ResumeMode.FROM_ANALYZE);
         assertThat(FailureScenario.SEND_FAIL.expectedResume()).isEqualTo(ResumeMode.FROM_SEND);
+        assertThat(FailureScenario.DEIDENT_FAIL.expectedResume()).isEqualTo(ResumeMode.FROM_SEND);
+        assertThat(FailureScenario.DEIDENT_FAIL.imageStage()).isNull();
         assertThat(FailureScenario.SEND_FAIL.imageStage()).isEqualTo(ImageStage.MAP);
     }
 

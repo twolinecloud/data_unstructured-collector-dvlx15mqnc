@@ -131,6 +131,18 @@ class DummyDataServiceTest {
         return m;
     }
 
+    /** 음성 전용 — {@link #oneEach()} + 비식별 실패(DF). 이미지에는 비식별 단계가 없다. */
+    private static Map<FailureScenario, Integer> oneEachVoice() {
+        Map<FailureScenario, Integer> m = oneEach();
+        m.put(FailureScenario.DEIDENT_FAIL, 1);
+        return m;
+    }
+
+    /** 이미지가 실패할 단계가 있는 시나리오 — 비식별(DF)은 음성 전용. */
+    private static List<FailureScenario> imageScenarios() {
+        return Stream.of(FailureScenario.values()).filter(s -> s.imageStage() != null).toList();
+    }
+
     private int count(String table, String where, Object... args) {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + where, Integer.class, args);
         return n == null ? 0 : n;
@@ -220,9 +232,9 @@ class DummyDataServiceTest {
     // ── 장애 시나리오 ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("음성 시나리오 — CF 는 COLLECT · AF 는 ANALYZE · SF 는 SEND 에서 실패하고, 각 기대 모드(FULL · FROM_ANALYZE · FROM_SEND) 재처리로 성공한다")
+    @DisplayName("음성 시나리오 — CF 는 COLLECT · AF 는 ANALYZE · DF 는 DEIDENT · SF 는 SEND 에서 실패하고, 각 기대 모드(FULL · FROM_ANALYZE · FROM_SEND) 재처리로 성공한다")
     void voiceScenariosFailAtStageAndRecoverWithExpectedMode() {
-        Map<String, Object> g = dummy.generate(req(DummyTarget.DASHBOARD, List.of(DummyDataType.MEET, DummyDataType.PHONE), D, 5, oneEach()));
+        Map<String, Object> g = dummy.generate(req(DummyTarget.DASHBOARD, List.of(DummyDataType.MEET, DummyDataType.PHONE), D, 6, oneEachVoice()));
 
         VoiceBatchResult first = voice.run(day(), null, "TEST", false);
         Map<String, FileProcOutcome> o = byKey(first);
@@ -242,6 +254,8 @@ class DummyDataServiceTest {
         assertThat(Path.of(dirs.work()).resolve("decrypted_" + af.target().srcFileName())).isRegularFile();
         FileProcOutcome sf = o.get(failKeys(g, DummyDataType.PHONE, FailureScenario.SEND_FAIL).get(0));
         assertThat(sttTemp.find(sf.target(), null)).isPresent();
+        FileProcOutcome df = o.get(failKeys(g, DummyDataType.MEET, FailureScenario.DEIDENT_FAIL).get(0));
+        assertThat(sttTemp.find(df.target(), null)).as("비식별 장애도 전사가 남아 비식별부터 잇는다").isPresent();
 
         // 시나리오마다 자기 구간 · 기대 모드로 재처리
         @SuppressWarnings("unchecked")
@@ -262,6 +276,7 @@ class DummyDataServiceTest {
         }
         assertThat(Path.of(dirs.work()).resolve("decrypted_" + af.target().srcFileName())).as("성공하면 보존물 정리").doesNotExist();
         assertThat(sttTemp.find(sf.target(), null)).isEmpty();
+        assertThat(sttTemp.find(df.target(), null)).isEmpty();
 
         VoiceBatchResult again = voice.run(day(), null, "TEST", false);
         assertThat(again.successCnt() + again.failCnt()).as("모두 처리됨 — 다시 돌리면 전부 건너뜀").isZero();
@@ -293,7 +308,7 @@ class DummyDataServiceTest {
                 0L, "TEST", false, null, null));
         Map<String, ImageOutcome> o = r1.outcomes().stream().collect(Collectors.toMap(ImageOutcome::corrNo, Function.identity()));
         assertThat(o).hasSize(4);
-        for (FailureScenario s : FailureScenario.values()) {
+        for (FailureScenario s : imageScenarios()) {
             String corr = failKeys(g, DummyDataType.IMAGE, s).get(0);
             assertThat(o.get(corr).status()).as(corr).isEqualTo("FAIL");
             assertThat(o.get(corr).failedAt()).as(corr).isEqualTo(s.imageStage());
@@ -540,5 +555,8 @@ class DummyDataServiceTest {
                 .as("유형 합계 300 초과").isInstanceOf(IllegalArgumentException.class);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> dummy.generate(req(DummyTarget.DASHBOARD,
                 List.of(DummyDataType.MEET), D, 2, oneEach()))).isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> dummy.generate(req(DummyTarget.DASHBOARD,
+                List.of(DummyDataType.MEET, DummyDataType.IMAGE), D, 2, Map.of(FailureScenario.DEIDENT_FAIL, 1))))
+                .as("이미지에는 비식별 단계가 없다").isInstanceOf(IllegalArgumentException.class).hasMessageContaining("DEIDENT_FAIL");
     }
 }

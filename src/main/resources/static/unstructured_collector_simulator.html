@@ -587,6 +587,7 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-transfer">7. 에이전트 커넥터 전송 시뮬레이션</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-cloud">8. 클라우드 전송 시뮬레이션</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-docdeid">9. 문서 비식별 시뮬레이션</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-dfail">10. 비식별 실패 배치</button></li>
   </ul>
   <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
   <div class="rm-bar" id="rm-bar">
@@ -817,6 +818,7 @@
       </div>
       <div class="hint mb-2">어드민 대시보드의 [긴급 재처리]로 볼 때 — <b>[장애 실행] → [장애 해제] → 어드민 배치 수행 이력 [긴급 재처리]</b>.
         장애를 걷지 않고 누르면 재처리 체인이 돌아도 같은 이유로 다시 실패합니다(어드민은 시뮬레이터가 건 장애를 모릅니다).</div>
+      <div class="hint mb-2">어드민 <b>배치 상세 비식별화 '실패 상태만 보기'</b>를 볼 실패 배치만 필요하면 <b>10번 탭</b>이 간단합니다 — 전역 스위치 없이 표식 건만 실패합니다.</div>
       <div class="sim-only mb-2" id="scen-sim-only"><b>실제 대시보드에 없는 동작</b> — [재처리] · [단독 실행] · [원클릭 자동 실행]은 <b>새 배치 ID</b>로 돌아 실패한 원배치가 그대로 남습니다. 어드민 [긴급 재처리]는 <b>같은 배치를 다시 엽니다</b>. 실제 동작은 위 순서로 확인하십시오.</div>
       <!-- 진행률 — 장애 실행·재처리가 도는 동안. 2번 탭의 진행률과 같은 값을 보여 준다 -->
       <div id="fprog-wrap" class="prog-wrap mb-2 d-none">
@@ -1446,6 +1448,39 @@
   </div>
   </div>
 
+  <div class="tabp" id="tab-dfail">
+  <!-- 10번 탭 — 비식별 실패 배치(2026-11-05). 어드민 배치 상세의 '실패 상태만 보기'(기본 체크)가 비정형 비식별화 단계에서
+       늘 '실패 내역이 없습니다.' 였다 — 개발계 비정형 배치가 비식별에서 실패하는 일이 없어서다. 접견 더미 일부에 비식별 표식(DF)을 박아
+       실제 배치(UNS)로 돌린다. 3번 탭 DEIDENT 스위치와 달리 전역이 아니라 스케줄 배치는 영향받지 않는다. -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>① 비식별 실패 배치 만들기 <span class="hint fw-normal">— 대시보드용(DMY 더미 · 실제 배치 · EXEC_ID UNS) · 어드민 배치 상세 '실패 상태만 보기' 확인용</span></strong>
+      <span class="badge text-bg-light text-secondary" id="df-fault-badge">장애 확인 전</span>
+    </div>
+    <div class="card-body py-2">
+      <div id="df-fault-warn" class="d-none mb-2"></div>
+      <div class="d-flex flex-wrap gap-3 align-items-end mb-2">
+        <div><label class="hint d-block" for="df-count">총 건수 <span class="text-secondary">(접견 · 1 ~ 10)</span></label>
+          <input type="number" class="form-control form-control-sm dm-num" id="df-count" value="3" min="1" max="10"></div>
+        <div><label class="hint d-block" for="df-fail">그중 비식별 실패 <span class="text-secondary">(1 ~ 총 건수)</span></label>
+          <input type="number" class="form-control form-control-sm dm-num" id="df-fail" value="2" min="1" max="10"></div>
+        <label class="small"><input type="checkbox" class="form-check-input me-1" id="df-cleanup" checked>이 탭이 전에 만든 배치 먼저 정리</label>
+        <button class="btn btn-sm btn-danger ms-auto" type="button" id="df-make" title="POST /api/v1/voice/simulator/deident-fail">비식별 실패 배치 만들기</button>
+      </div>
+      <div class="zt-note">💡 표식 건(<code>DMY-MEET-…-DF-…</code>)만 <b>비식별 단계에서 한 번</b> 실패합니다 — 에이전트 커넥터에 닿기 전에 끊어 원문 전사는 보내지 않습니다.
+        결과는 <b>부분 성공</b>(전부 실패면 <b>실패</b>) · 비식별화 카드 부분 성공/실패 · 실패 건 <code>STEP_TYPE_CD=DEIDENT</code>.
+        같은 배치의 어드민 <b>[긴급 재처리]</b>는 보존된 전사로 비식별부터 다시 해 성공합니다(표식은 한 번만 실패).
+        3번 탭 단계별 장애가 걸려 있으면 앞 단계에서 먼저 떨어지므로 만들지 않습니다.</div>
+    </div>
+  </div>
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white py-2">
+      <strong>② 만든 배치 <span class="hint fw-normal">— 어드민에서 볼 곳</span></strong>
+    </div>
+    <div class="card-body py-2" id="df-res"><div class="hint">아직 만든 배치가 없습니다 — ① 에서 만드십시오.</div></div>
+  </div>
+  </div>
+
   <div class="tabp" id="tab-image">
   <!-- ①·② 를 한 장으로 캡처하는 영역 — [📸 전체 리포트 저장] -->
   <div id="im-capture">
@@ -1869,6 +1904,7 @@ function showTab(id) {
   if (id === 'tab-transfer') ztOnShow();
   if (id === 'tab-cloud') csOnShow();
   if (id === 'tab-docdeid') ddOnShow();
+  if (id === 'tab-dfail') dfOnShow();
   if (id === 'tab-fault') hrOnShow();
 }
 document.addEventListener('click', (e) => {
@@ -6998,6 +7034,82 @@ async function hrPoll() {
   } catch (e) { /* 다음 회차에 다시 */ }
 }
 function hrOnShow() { hrPoll(); }
+
+/* ── 10번 탭 — 비식별 실패 배치 ─────────────────────────────────────────────
+   어드민 배치 상세 '실패 상태만 보기'(기본 체크)를 비식별화 단계에서 보려고 실패 배치를 만든다.
+   단계별 장애 스위치가 걸려 있으면 서버가 409 로 거절하므로, 탭을 열 때 먼저 보여 주고 해제 버튼을 둔다. */
+async function dfOnShow() {
+  const st = await call('GET', '/api/v1/voice/status', '', true);
+  const sf = st?.stageFaults || {};
+  const on = Object.entries(sf).filter(([k, v]) => v && typeof v === 'object' && v.mode && v.mode !== 'OFF');
+  const warn = $('df-fault-warn');
+  if (!on.length) {
+    $('df-fault-badge').textContent = '단계별 장애 없음';
+    $('df-fault-badge').className = 'badge text-bg-light text-success';
+    warn.classList.add('d-none');
+    return;
+  }
+  const list = on.map(([k, v]) => `${k}=${v.mode === 'ALL' ? '전체 실패' : '부분 실패'}`).join(' · ');
+  $('df-fault-badge').textContent = '단계별 장애 걸림';
+  $('df-fault-badge').className = 'badge text-bg-danger';
+  warn.className = 'zt-note mb-2';
+  warn.style.cssText = 'border-color:#f1aeb5;background:#fff5f5;color:#842029';
+  warn.innerHTML = `<b>3번 탭 단계별 장애가 걸려 있습니다</b> — ${esc(list)}. 앞 단계에서 먼저 떨어져 비식별까지 가지 않으므로 만들 수 없습니다.
+    스케줄 배치도 같이 떨어지고 있습니다. <button class="btn btn-sm btn-outline-danger ms-2" type="button" id="df-clear-faults">단계별 장애 전체 해제</button>`;
+  $('df-clear-faults').onclick = async () => {
+    await call('DELETE', '/api/v1/voice/faults', '단계별 장애 전체 해제');
+    await dfOnShow();
+  };
+}
+
+$('df-make').onclick = async () => {
+  const count = Math.floor(Number($('df-count').value));
+  const fail = Math.floor(Number($('df-fail').value));
+  if (!(count >= 1 && count <= 10) || !(fail >= 1 && fail <= count)) {
+    showPopup('건수를 확인하십시오', `<div class="pop-lead">총 건수는 1 ~ 10, 비식별 실패는 1 ~ 총 건수입니다 (넣은 값: ${esc(String(count))} · ${esc(String(fail))}).</div>`);
+    return;
+  }
+  const cleanup = $('df-cleanup').checked;
+  const ok = await confirmPopup('비식별 실패 배치 만들기', `<div class="pop-lead">접견 더미 ${count}건 중 <b>${fail}건</b>이 비식별 단계에서 실패하는 배치를 만듭니다.</div>
+    <ul class="pop-list">
+      <li>지금 직전 10분 구간에 더미 원본을 만들고 그 구간만 <b>실제 배치</b>(test=false · EXEC_ID UNS)로 돕니다</li>
+      ${cleanup ? '<li><b>먼저 정리</b> — 이 탭이 전에 만든 배치(보류분은 먼저 보내 마감한 뒤 이력 삭제)</li>' : ''}
+    </ul>`, '만들기', '취소');
+  if (!ok) return;
+  const b = $('df-make');
+  b.disabled = true;
+  b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>만드는 중…';
+  try {
+    const info = await callFull('POST', '/api/v1/voice/simulator/deident-fail', `비식별 실패 배치 — 접견 ${count}건 중 ${fail}건 비식별 실패`,
+      { json: { count, deidentFail: fail, cleanup } });
+    if (!info.ok) {
+      showPopup('배치를 만들지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+      await dfOnShow();
+      return;
+    }
+    const d = info.body || {};
+    const c = d.cleanup || {};
+    const del = Array.isArray(c.deleted) ? c.deleted : [];
+    if (cleanup) log(`  └ 정리 — 이전 ${(c.previous || []).length}건 · 지움 ${del.length}건 ${esc(del.join(', '))}`, 'ok');
+    log(`  └ ${esc(d.execId)} · T1 ${esc(d.t1)} · 비식별 실패 ${d.deidentFail}/${d.requestedDeidentFail}`, d.asRequested ? 'ok' : 'err');
+    const t4 = await fetchT4Steps(d.execId);
+    const keys = Array.isArray(d.keys) ? d.keys : [];
+    $('df-res').innerHTML = `<div class="mb-1"><code class="fs-6">${esc(d.execId)}</code> · T1 ${vfBadge(d.t1)}
+        · 구간 ${esc(String(d.window?.from || '').replace('T', ' '))} ~ ${esc(String(d.window?.to || '').slice(11))}
+        · 성공 ${d.counts?.success ?? '-'} · 실패 ${d.counts?.fail ?? '-'}${d.counts?.skipped ? ` · 건너뜀 ${d.counts.skipped}` : ''}
+        · 비식별 실패 <b>${d.deidentFail}</b>/${d.requestedDeidentFail}${d.asRequested ? '' : ' <b class="text-danger">요청과 다름</b>'}</div>
+      ${d.warning ? `<div class="zt-note mb-1" style="border-color:#f1aeb5;background:#fff5f5;color:#842029">${esc(d.warning)}</div>` : ''}
+      <div class="hint mb-1">더미 키 — ${keys.map(k => /-DF-/.test(k) ? `<code class="text-danger">${esc(k)}</code>` : `<code>${esc(k)}</code>`).join(' · ')}</div>
+      <ol class="small mb-1">${(d.next || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+      ${t4StepsHtml(t4, d.execId)}`;
+    showPopup('비식별 실패 배치를 만들었습니다', `<div class="pop-lead"><code>${esc(d.execId)}</code> — 비식별 실패 ${d.deidentFail}/${d.requestedDeidentFail}건.</div>
+      ${d.warning ? `<div class="pop-note" style="border-color:#f1aeb5;background:#fff5f5">${esc(d.warning)}</div>` : ''}
+      <div class="pop-note">관리 화면 <b>배치 수행 이력</b> 맨 위 → 상세 → 단계별 처리 타임라인 <b>비식별화</b> 카드 → '실패 상태만 보기'(기본 체크).</div>`);
+  } finally {
+    b.disabled = false;
+    b.innerHTML = '비식별 실패 배치 만들기';
+  }
+};
 $('hr-sec').addEventListener('input', () => {
   const n = parseInt($('hr-sec').value, 10);
   $('hr-start').textContent = (n > 0 ? n : 30) + '초 가상 배치 점유 실행';

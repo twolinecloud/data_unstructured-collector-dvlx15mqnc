@@ -34,6 +34,7 @@
   .busy .btn:not(.is-running), .busy .form-control, .busy .form-check-input { opacity:.55; }
   .btn.is-running:disabled { opacity:1; }
   .hint { font-size:.75rem; color:#6c757d; }
+  .sim-only { font-size:.75rem; color:#664d03; background:#fff3cd; border:1px solid #ffe69c; border-radius:.25rem; padding:.35rem .5rem; }
   code { font-size:.76rem; }
 
   /* ── 탭 ─────────────────────────────────────────────────────────────── */
@@ -810,12 +811,13 @@
           <input type="text" class="form-control form-control-sm font-monospace" id="rt-ok-url" value="http://localhost:8082"></div>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-        <button class="btn btn-success btn-sm" id="scen-auto">🚀 원클릭 자동 실행 (1→2→3)</button>
+        <button class="btn btn-success btn-sm" id="scen-auto" title="시뮬레이터 전용 — 재처리를 새 배치 ID 로 돌립니다. 어드민 [긴급 재처리]와 다른 경로입니다">🚀 원클릭 자동 실행 (1→2→3)</button>
         <button class="btn btn-outline-secondary btn-sm" id="scen-reset">전체 해제 · 데이터 재생성</button>
         <span class="hint ms-auto" id="scen-preserved">보존물 —</span>
       </div>
       <div class="hint mb-2">어드민 대시보드의 [긴급 재처리]로 볼 때 — <b>[장애 실행] → [장애 해제] → 어드민 배치 수행 이력 [긴급 재처리]</b>.
         장애를 걷지 않고 누르면 재처리 체인이 돌아도 같은 이유로 다시 실패합니다(어드민은 시뮬레이터가 건 장애를 모릅니다).</div>
+      <div class="sim-only mb-2" id="scen-sim-only"><b>실제 대시보드에 없는 동작</b> — [재처리] · [단독 실행] · [원클릭 자동 실행]은 <b>새 배치 ID</b>로 돌아 실패한 원배치가 그대로 남습니다. 어드민 [긴급 재처리]는 <b>같은 배치를 다시 엽니다</b>. 실제 동작은 위 순서로 확인하십시오.</div>
       <!-- 진행률 — 장애 실행·재처리가 도는 동안. 2번 탭의 진행률과 같은 값을 보여 준다 -->
       <div id="fprog-wrap" class="prog-wrap mb-2 d-none">
         <div class="prog-head">
@@ -2726,6 +2728,8 @@ const SCEN = [
     how:'에이전트 커넥터 전송을 500/Timeout 으로 떨어뜨립니다 — 수신증이 남지 않습니다',
     expect:'전사 결과 보존(stt_temp/{execId}) · T4 SEND=FAIL / PARTIAL · T2 SEND FAIL · 전송 수신증 없음',
     resume:'FROM_SEND', resumeText:'수집·복호화·STT 스킵 → 보존된 전사 결과로 에이전트 커넥터 재전송 → 보낸 뒤 보존물 정리(PV 에는 결과를 남기지 않음)',
+    // 실제 전송은 묶음 단위(AgentConnectorClient.Session.flush)라 건별 부분 실패가 없다 — 화면 확인용임을 밝힌다
+    partialNote:'실제 대시보드에 없는 동작 — 실제 전송은 묶음 단위입니다(기본 50건). 한 묶음이 실패하면 뒤 묶음은 보내지 않아, 50건 이하 배치는 전부 성공 아니면 전부 실패입니다. 여기서는 건별로 떨어뜨려 화면만 확인합니다.',
     kinds:'', modes:true,
   },
 ];
@@ -2748,9 +2752,9 @@ let BROKER_BEFORE = null;
 function scenBuild() {
   $('scen-cards').innerHTML = SCEN.map((s, i) => {
     const modeSel = s.modes ? `
-      <select class="form-select form-select-sm" id="sc-mode-${s.key}" data-mode-for="${s.key}" style="max-width:8.5rem">
+      <select class="form-select form-select-sm" id="sc-mode-${s.key}" data-mode-for="${s.key}" style="max-width:${s.partialNote ? '13rem' : '8.5rem'}">
         <option value="ALL">전체 실패</option>
-        <option value="PARTIAL">부분 실패</option>
+        <option value="PARTIAL">부분 실패${s.partialNote ? ' (실제에 없음)' : ''}</option>
       </select>
       <span class="hint">실패율</span>
       <input type="number" class="form-control form-control-sm" id="sc-pct-${s.key}" value="10" min="1" max="100"
@@ -2776,9 +2780,12 @@ function scenBuild() {
                   title="같은 장애로 배치를 여러 번 연달아 돌립니다 — 실패 배치가 횟수만큼 쌓입니다(긴급 재처리 체인 확인용)">연속 장애 실행</button>
           <button class="btn btn-sm btn-outline-secondary" data-scen="${s.key}" data-act="clear"
                   title="장애만 걷습니다 — 재처리는 돌리지 않습니다(어드민 [긴급 재처리]로 볼 때)">장애 해제</button>
-          <button class="btn btn-sm btn-outline-primary" data-scen="${s.key}" data-act="resume">재처리</button>
-          <button class="btn btn-sm btn-dark" data-scen="${s.key}" data-act="both">단독 실행</button>
+          <button class="btn btn-sm btn-outline-primary" data-scen="${s.key}" data-act="resume"
+                  title="새 배치 ID 로 돕니다 — 어드민 [긴급 재처리]는 같은 배치를 다시 엽니다">재처리 (시뮬레이터 전용)</button>
+          <button class="btn btn-sm btn-dark" data-scen="${s.key}" data-act="both"
+                  title="장애 실행 뒤 새 배치 ID 로 재처리합니다 — 어드민 [긴급 재처리]와 다른 경로입니다">단독 실행 (시뮬레이터 전용)</button>
         </div>
+        ${s.partialNote ? `<div class="sim-only d-none mt-2" id="sc-note-${s.key}">${esc(s.partialNote)}</div>` : ''}
         <div class="scen-res" id="sc-res-${s.key}"></div>
         <div id="sc-vf-${s.key}"></div>
       </div></div></div>
@@ -2789,7 +2796,11 @@ function scenBuild() {
   });
   // 실패율은 '부분 실패' 일 때만 의미가 있다 — 전체 실패에서 숫자를 바꿔도 아무 일이 없으면 헷갈린다
   document.querySelectorAll('#scen-cards [data-mode-for]').forEach(sel => {
-    sel.onchange = () => { $('sc-pct-' + sel.dataset.modeFor).disabled = sel.value !== 'PARTIAL'; };
+    sel.onchange = () => {
+      $('sc-pct-' + sel.dataset.modeFor).disabled = sel.value !== 'PARTIAL';
+      const note = $('sc-note-' + sel.dataset.modeFor);
+      if (note) note.classList.toggle('d-none', sel.value !== 'PARTIAL');
+    };
   });
 }
 
@@ -3089,6 +3100,7 @@ async function scenClear(s) {
 async function scenResume(s) {
   // 장애를 먼저 걷는다 — 켜 둔 채 재처리하면 또 떨어진다.
   await scenClear(s);
+  log(`  ※ [${s.no}] 시뮬레이터 전용 재처리 — 새 배치 ID 로 돕니다(어드민 [긴급 재처리]는 같은 배치를 다시 엽니다)`, 'ok');
   const q = `resume=${s.resume}` + (s.kinds ? `&kinds=${s.kinds}` : '') + (s.resumeQuery ? '&' + s.resumeQuery : '');
   const info = await runBatchInner('/api/v1/voice/batches/resume',
       `[${s.no}] 재처리 — ${s.resumeText}`, s.kinds || null, q);

@@ -221,6 +221,26 @@ class SimulatorWorkflowTest {
         assertThat(((Number) sttTemp.status().get("total")).intValue()).as("재처리로 보낸 뒤 보존물 정리(Purge)").isZero();
     }
 
+    @Test
+    @DisplayName("부분 실패 건수는 이번에 실제로 처리할 건 기준 — 이미 처리돼 건너뛸 건까지 세면 새 건이 전부 떨어진다")
+    void partialFailureCountsOnlyUnprocessed() {
+        service.run(BatchWindow.daily(LocalDateTime.now()), List.of(VoiceKind.MEET), "TEST", true);
+        faults.set(StageFaultState.Stage.DEIDENT, StageFaultState.Mode.PARTIAL, 50);
+
+        // 이틀 구간 = 앞서 처리한 5건 + 새 2건. 건너뛸 5건까지 세면 7 × 50% = 4건이 할당되어 새 2건이 다 실패한다
+        LocalDateTime now = LocalDateTime.now();
+        VoiceBatchResult r = service.run(BatchWindow.manual(now.minusMinutes(2880), now),
+                List.of(VoiceKind.MEET), "TEST", true);
+
+        assertThat(r.failCnt()).as("새 2건의 50%").isEqualTo(1);
+        assertThat(r.successCnt()).isEqualTo(1);
+        assertThat(r.execStsCd()).isEqualTo("PARTIAL");
+
+        faults.clear();
+        batches.resume(ResumeMode.FROM_SEND, r.execId(), List.of(VoiceKind.MEET), true, 2880);
+        assertThat(((Number) sttTemp.status().get("total")).intValue()).as("재처리로 보낸 뒤 보존물 정리(Purge)").isZero();
+    }
+
     // ── 에이전트 커넥터 전송 실패 → 재처리(FROM_SEND) ─────────────────────────────────
 
     @Test

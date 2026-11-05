@@ -242,7 +242,7 @@ curl -X POST "http://localhost:8085/api/v1/voice/batches/daily" # 배치 실행
 curl      "http://localhost:8085/api/v1/voice/status"           # 현재 구성
 ```
 
-> `/api/v1/mock/**` 는 **시연 전용**이다. 운영 배포 시 인그레스·게이트웨이에서 차단한다.
+> `/api/v1/mock/**` · `/api/v1/voice/faults` 는 **시연 전용**이다. 개발 · 로컬이 아닌 프로필에서는 `MockApiBlockFilter` 가 404 로 막는다(인그레스 설정에 기대지 않는다).
 
 ### 조회 DB 라우팅 — 드롭다운이 곧 DataSource
 

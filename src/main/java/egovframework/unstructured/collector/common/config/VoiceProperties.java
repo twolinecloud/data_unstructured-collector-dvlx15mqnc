@@ -309,5 +309,8 @@ public record VoiceProperties(
 
     public enum DecryptMode { SKIP, REAL }
 
-    public enum SttMode { MOCK, NPU }
+    /**
+     * MOCK(고정 대본) / NPU(온프레미스 · 사양 미확정) / GENON(제논 GenOS 음성 API — 실호출 여부는 {@code genon.stt.mode}).
+     */
+    public enum SttMode { MOCK, NPU, GENON }
 }

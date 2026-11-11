@@ -36,7 +36,9 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
 @EnableConfigurationProperties({VoiceProperties.class, ImageProperties.class,
         egovframework.unstructured.collector.common.transfer.AgentConnectorProperties.class,
         egovframework.unstructured.collector.batch.UnstructuredBatchProperties.class,
-        egovframework.unstructured.collector.mock.MockDataProperties.class})
+        egovframework.unstructured.collector.mock.MockDataProperties.class,
+        egovframework.unstructured.collector.mock.SttDeidProperties.class,
+        egovframework.unstructured.collector.voice.stt.genon.GenonSttProperties.class})
 @SpringBootApplication
 public class Main {
 

@@ -66,6 +66,8 @@ public class VoiceBatchController {
     private final egovframework.unstructured.collector.common.sync.PhoneFileProvider phoneFileProvider;
     private final DecryptService decryptService;
     private final SttClient sttClient;
+    /** STT 모드 GENON 일 때 주소 · 호출 모드를 상태에 싣는다. */
+    private final egovframework.unstructured.collector.voice.stt.genon.GenonSttClient genonStt;
     private final LogCollectorClient logCollector;
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
     private final egovframework.unstructured.collector.common.config.FaultInjector faultInjector;
@@ -727,6 +729,9 @@ public class VoiceBatchController {
     private String sttEndpoint() {
         if (modeState.stt() == VoiceProperties.SttMode.MOCK) {
             return "내부 Mock STT (고정 문구 반환)";
+        }
+        if (modeState.stt() == VoiceProperties.SttMode.GENON) {
+            return genonStt.endpoint();
         }
         String base = blankToNull(props.stt().baseUrl());
         return base == null ? "NPU STT 주소 미설정" : base;

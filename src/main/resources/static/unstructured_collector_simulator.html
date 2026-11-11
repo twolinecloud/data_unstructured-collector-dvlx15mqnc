@@ -309,6 +309,8 @@
                color:#495057; background:#f8f9fa; white-space:nowrap; }
   .pf-engine.MOCK { color:#0f5132; background:#d1e7dd; border-color:#a3cfbb; }
   .pf-engine.NPU  { color:#842029; background:#f8d7da; border-color:#f1aeb5; }
+  .pf-engine.GENON { color:#084298; background:#cfe2ff; border-color:#9ec5fe; }
+  .pf-engine.REST { color:#842029; background:#f8d7da; border-color:#f1aeb5; }
   .pf-preset.active { background:#212529; color:#fff; border-color:#212529; }
   .pf-warn { font-size:.75rem; border:1px solid #ffe69c; background:#fff8e1; color:#664d03; border-radius:.4rem; padding:.4rem .6rem; }
   .pf-warn code { font-size:.7rem; }
@@ -493,6 +495,38 @@
   .cs-table td, .cs-table th { font-size:.8rem; vertical-align:middle; }
   .cs-chain { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; font-size:.78rem; }
   .cs-chain .arrow { color:#adb5bd; }
+  /* 11번 탭 — 음성(STT) 비식별 시뮬레이션. ①~③ 파이프라인(sd-) · ④~⑥ 제논 단건 호출(gs-) */
+  .sd-presets { display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:.4rem; }
+  @media (max-width: 768px) { .sd-presets { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  .sd-preset { border:1px solid #ced4da; border-radius:.45rem; background:#fff; padding:.35rem .55rem; text-align:left; line-height:1.25; }
+  .sd-preset b { display:block; font-size:.95rem; font-family:var(--mono); }
+  .sd-preset span { display:block; color:#6c757d; font-size:.72rem; }
+  .sd-preset.active { background:#212529; border-color:#212529; color:#fff; }
+  .sd-preset.active span { color:#ced4da; }
+  .sd-stages { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; }
+  .sd-stages .cs-chip { font-size:.78rem; padding:.15rem .6rem; }
+  .sd-stages .arrow { color:#adb5bd; }
+  .sd-tiles { grid-template-columns:repeat(5, minmax(0,1fr)); }
+  @media (max-width: 992px) { .sd-tiles { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  @media (max-width: 576px) { .sd-tiles { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  .sd-view { max-height:18rem; overflow:auto; font-size:.84rem; }
+  .sd-seed { display:block; margin-top:.45rem; padding-top:.35rem; border-top:1px dashed #adb5bd; }
+  .sd-seed .lbl { display:block; font-size:.7rem; color:#664d03; }
+  mark.sd-tok { background:#cfe2ff; color:#084298; padding:0 .15rem; border-radius:.2rem; font-family:var(--mono); font-size:.8rem; }
+  mark.sd-mask { background:#e2e3e5; color:#41464b; padding:0 .15rem; border-radius:.2rem; }
+  #sd-runs tr[data-sd-run] { cursor:pointer; }
+  #sd-runs tr.sel td { background:#e7f1ff; }
+  .gs-drop { border:2px dashed #ced4da; border-radius:.5rem; padding:.9rem; text-align:center; font-size:.85rem; color:#495057; background:#f8f9fa; }
+  .gs-drop.over { border-color:#0d6efd; background:#e7f1ff; }
+  .gs-badge { display:inline-block; font-weight:700; font-size:.72rem; padding:.05rem .5rem; border-radius:1rem; white-space:nowrap; }
+  .gs-badge.PASS { background:#d1e7dd; color:#0f5132; } .gs-badge.FAIL { background:#f8d7da; color:#842029; }
+  .gs-badge.WARN { background:#fff3cd; color:#664d03; }
+  .gs-text { background:#f8f9fa; border:1px solid #dee2e6; border-radius:.4rem; padding:.55rem .7rem; font-size:.9rem;
+             white-space:pre-wrap; min-height:2.6rem; }
+  .gs-kv { display:flex; flex-wrap:wrap; gap:.3rem .9rem; font-size:.8rem; margin-bottom:.45rem; align-items:center; }
+  .gs-kv .k { color:#6c757d; } .gs-kv b { font-family:var(--mono); }
+  .gs-issues { font-size:.78rem; margin:.25rem 0 0; padding-left:1.1rem; }
+  #gs-samples tr.sel td { background:#e7f1ff; }
 </style>
 </head>
 <body>
@@ -588,6 +622,7 @@
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-cloud">8. 클라우드 전송 시뮬레이션</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-docdeid">9. 문서 비식별 시뮬레이션</button></li>
     <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-dfail">10. 비식별 실패 배치</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-tab="tab-stt">11. 음성(STT) 비식별 시뮬레이션</button></li>
   </ul>
   <!-- 실행 용도 — exec_id 를 만드는 모든 시나리오(2~7번 탭)에 같이 걸린다(2026-10-05). REAL 은 실제 운영처럼 UNS 로 채번 -->
   <div class="rm-bar" id="rm-bar">
@@ -1481,6 +1516,212 @@
   </div>
   </div>
 
+  <div class="tabp" id="tab-stt">
+  <!-- 11번 탭 — 음성(STT) 비식별 시뮬레이션.
+       ①~③ 파이프라인(2026-11-11) — 가상 접견 · 전화 음원(합성 낭독 22초를 이어 붙임) → 제논 /audio/transcribe(600초 넘는 PCM WAV 는
+       600초 이하 조각으로 나눠 차례로) → 조각 전사 병합 → 에이전트 커넥터 /api/v1/deid/run(persist=false). SIM 은 화면에만 남고,
+       REAL 은 로그 컬렉터 T1~T4(작업 VOICE_STT_DEID · 비정형)에 남아 대시보드 '배치 수행 이력' 에 나온다.
+       뒷단 SttDeidSimController · SttDeidSimService · 시험 SttDeidSimServiceTest
+       ④~⑥ 제논 단건 호출(2026-11-06) — 제논(GenOS) 음성 API(외부망 호출 가이드 2026-11-05 기준)를 실제로 불러 본다.
+       사전 검증(포맷 · 20MiB · 600초)이 경계에서 막는지, 통과한 파일을 제논이 어떻게 받는지 본다. 배치 ANALYZE 단계도 같은
+       클라이언트(GenonSttClient)를 쓴다 — '배치 STT 엔진'을 GENON 으로 두면 배치가 ④ 의 호출 모드(MOCK · REST)를 따른다.
+       뒷단 SttSimController · 시험 SttValidationAndCallTest -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>① 음성 전사 · 비식별 실행 <span class="hint fw-normal">— 가상 음원 → 제논 STT(10분 넘으면 나눠 전사) → 전사문 병합 → 에이전트 커넥터 비식별</span></strong>
+      <span class="d-flex flex-wrap gap-1 align-items-center" id="sd-engines"><span class="pf-engine">상태 확인 전</span></span>
+    </div>
+    <div class="card-body py-2">
+      <div class="sd-presets mb-2" id="sd-presets" role="group" aria-label="음원 길이">
+        <button type="button" class="sd-preset active" data-sd-preset="S20"><b>20초</b><span>짧은 음성 · 기본 동작</span></button>
+        <button type="button" class="sd-preset" data-sd-preset="M5"><b>5분</b><span>일반 대화</span></button>
+        <button type="button" class="sd-preset" data-sd-preset="M10"><b>10분</b><span>제논 한 번 호출 한도</span></button>
+        <button type="button" class="sd-preset" data-sd-preset="M20"><b>20분</b><span>2회 분할 — 10분 × 2</span></button>
+        <button type="button" class="sd-preset" data-sd-preset="M30"><b>30분</b><span>법정 표준 — 10분 × 3 분할</span></button>
+      </div>
+      <div class="d-flex flex-wrap gap-3 align-items-end mb-2">
+        <div><label class="hint d-block">유형</label>
+          <div class="btn-group btn-group-sm" role="group" aria-label="음성 유형">
+            <button type="button" class="btn btn-outline-secondary active" data-sd-kind="MEET">접견</button>
+            <button type="button" class="btn btn-outline-secondary" data-sd-kind="PHONE">전화</button>
+          </div></div>
+        <div><label class="hint d-block">기록</label>
+          <div class="btn-group btn-group-sm" role="group" aria-label="실행 모드">
+            <button type="button" class="btn btn-outline-success active" data-sd-mode="SIM" title="결과는 이 화면에만 — 로그 컬렉터를 부르지 않습니다(대시보드 무변화)">SIM · test=true</button>
+            <button type="button" class="btn btn-outline-danger" data-sd-mode="REAL" title="로그 컬렉터 T1~T4 에 남겨 대시보드 배치 수행 이력(비정형)에 나옵니다">REAL · test=false</button>
+          </div></div>
+        <label class="small" title="합성 낭독에는 개인정보가 없습니다 — 지어낸 이름 · 번호 두 줄을 전사 끝에 붙여 가려지는지 봅니다">
+          <input type="checkbox" class="form-check-input me-1" id="sd-seed" checked>가상 개인정보 문장 덧붙이기</label>
+        <button type="button" class="btn btn-sm btn-primary ms-auto" id="sd-run" title="POST /api/v1/voice/simulator/stt-deid/runs">음성 전사 및 비식별 실행</button>
+      </div>
+      <div class="hint" id="sd-plan"></div>
+      <div class="sim-only mt-2 d-none" id="sd-real-note"><b>REAL</b> — 로그 컬렉터에 T1~T4 이력이 남아 어드민 <b>배치 수행 이력</b>(데이터 유형 비정형 · 작업
+        <span id="sd-job-nm">음성 STT·비식별 검증</span>)에 나옵니다. 시험 데이터 삭제(TEST_BATCH 기준)로는 지워지지 않습니다.
+        가린 글만 PV 에 적재하고 원문 전사는 쓰지 않습니다. 클라우드로는 아무것도 보내지 않습니다.</div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>② 진행 · 결과 <span class="hint fw-normal" id="sd-run-title">— 아직 실행하지 않음</span></strong>
+      <span id="sd-run-badge"></span>
+    </div>
+    <div class="card-body py-2">
+      <div class="sd-stages mb-2" id="sd-stages"></div>
+      <div class="d-flex flex-wrap gap-1 mb-2" id="sd-items"></div>
+      <div class="mb-2" id="sd-chunks"></div>
+      <div class="pf-tiles sd-tiles" id="sd-tiles"></div>
+      <div id="sd-error"></div>
+      <div class="row g-2 mb-2">
+        <div class="col-lg-6">
+          <div class="d-flex justify-content-between align-items-baseline gap-2"><span class="small fw-semibold">STT 원본 전사문</span><span class="hint" id="sd-raw-sum"></span></div>
+          <div class="gs-text sd-view" id="sd-raw"><span class="hint">실행하면 제논 전사(조각을 순서대로 이은 글)가 나옵니다.</span></div>
+        </div>
+        <div class="col-lg-6">
+          <div class="d-flex justify-content-between align-items-baseline gap-2"><span class="small fw-semibold">비식별 결과</span><span class="hint" id="sd-deid-sum"></span></div>
+          <div class="gs-text sd-view" id="sd-deid"><span class="hint">커넥터가 돌려준 가린 글이 나옵니다 — 토큰 · 별표를 칠해 보입니다.</span></div>
+        </div>
+      </div>
+      <div id="sd-where"></div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>③ 최근 실행 · 일 단위 묶음 <span class="hint fw-normal">— 새벽 스케줄 · [즉시 실행]이 함께 접수한 건도 여기 나옵니다</span></strong>
+      <span class="d-flex gap-2 align-items-center">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="sd-refresh">새로고침</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="sd-daily" title="POST /api/v1/voice/simulator/stt-deid/daily">일 단위 묶음만 접수</button>
+      </span>
+    </div>
+    <div class="card-body py-2">
+      <div class="hint mb-2" id="sd-daily-sum"></div>
+      <div style="max-height:16rem;overflow:auto">
+        <table class="table table-sm mb-0 cs-table">
+          <thead class="table-light"><tr>
+            <th>실행</th><th>기록</th><th>트리거</th><th>상태</th><th>건수</th><th>음원</th><th>소요</th><th>실행 ID</th>
+          </tr></thead>
+          <tbody id="sd-runs"><tr><td colspan="8" class="hint">탭을 열면 목록을 받습니다</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+      <strong>④ 제논 음성 API 연결 <span class="hint fw-normal">— 키는 배포 Secret(<code>GENON_STT_API_KEY</code>)에서만 읽고 화면에는 가린 값만 보입니다</span></strong>
+      <span class="pf-engine" id="gs-mode-badge">상태 확인 전</span>
+    </div>
+    <div class="card-body py-2">
+      <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+        <div class="flex-grow-1" style="min-width:18rem"><label class="hint d-block" for="gs-base">Base URL <span class="text-secondary">(설정값 · 화면에서 바꾸지 않음)</span></label>
+          <input type="text" class="form-control form-control-sm" id="gs-base" style="font-family:var(--mono)" value="—" readonly></div>
+        <div style="width:19rem"><label class="hint d-block" for="gs-key">API Key <span id="gs-key-exp"></span></label>
+          <input type="text" class="form-control form-control-sm" id="gs-key" style="font-family:var(--mono)" value="—" readonly></div>
+        <div><label class="hint d-block">호출 모드</label>
+          <div class="btn-group btn-group-sm" role="group" aria-label="제논 호출 모드">
+            <button type="button" class="btn btn-outline-success" data-gs-mode="MOCK" title="외부망을 부르지 않고 제논 모양 응답을 돌려줍니다">MOCK</button>
+            <button type="button" class="btn btn-outline-danger" data-gs-mode="REST" title="genos.genon.ai 를 실제로 부릅니다">REST</button>
+          </div></div>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="gs-probe" title="GET /health — 이 경로가 토큰을 검사하므로 연결과 토큰을 한 번에 봅니다">연결 테스트</button>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <span class="small fw-semibold">제약</span>
+        <span id="gs-limits" class="d-flex flex-wrap gap-1"><span class="cs-chip cs-WAIT">동시 1건</span><span class="cs-chip cs-WAIT">20MB</span><span class="cs-chip cs-WAIT">600초</span><span class="cs-chip cs-WAIT">WAV · MP3 · M4A</span></span>
+        <span class="hint ms-auto" id="gs-probe-res"></span>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <label class="small fw-semibold" for="gs-batch-stt">배치 STT 엔진</label>
+        <select class="form-select form-select-sm" id="gs-batch-stt" style="width:8rem" title="PUT /api/v1/mock/modes/stt — 1번 탭 STT 스위치와 같은 값">
+          <option value="MOCK">MOCK</option><option value="NPU">NPU</option><option value="GENON">GENON</option>
+        </select>
+        <span class="hint" id="gs-batch-hint"></span>
+        <span class="hint ms-auto" id="gs-last"></span>
+      </div>
+      <div class="sim-only">⚠ <b>REST 는 외부망(genos.genon.ai)으로 파일을 보냅니다</b> — 실제 수용자 음성은 올리지 마십시오. 아래 생성 샘플 · 합성 낭독으로 시험합니다.
+        원래 파일 이름은 보내지 않습니다(<code>audio.wav</code> 처럼 형식만).</div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-lg-5">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+          <strong>⑤ 입력 파일</strong>
+          <span class="d-flex gap-2 align-items-center">
+            <span class="hint" id="gs-samples-sum">샘플 목록 확인 전</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="gs-del" title="DELETE …/stt/samples — PV 에 만든 샘플(약 40MB)을 지웁니다">샘플 지우기</button>
+          </span>
+        </div>
+        <div class="card-body py-2">
+          <div class="d-flex flex-wrap gap-1 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-success" data-gs-gen="WAV_3S">정상 3초 WAV 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-gs-gen="MP3_3S">정상 MP3 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-gs-gen="M4A_3S">정상 M4A 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-gs-gen="OVER_SIZE">20MB 초과 샘플 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-gs-gen="OVER_DURATION">600초 초과 샘플 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-gs-gen="UNSUPPORTED">미지원 포맷 생성</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-gs-gen="SPEECH_22S" title="한국어 합성 낭독(사람 목소리 아님) — 말소리가 전사되는지 확인">합성 낭독 22초</button>
+          </div>
+          <div style="max-height:16rem;overflow:auto" class="mb-2">
+            <table class="table table-sm mb-0 cs-table">
+              <thead class="table-light"><tr>
+                <th style="width:1.6rem"></th><th>샘플</th><th style="width:4.8rem">크기</th><th style="width:4rem">길이</th>
+                <th style="width:3.8rem">검증</th><th style="width:2.4rem"></th>
+              </tr></thead>
+              <tbody id="gs-samples"><tr><td colspan="6" class="hint">탭을 열면 목록을 받습니다</td></tr></tbody>
+            </table>
+          </div>
+          <div class="gs-drop mb-2" id="gs-drop">
+            파일을 여기로 끌어 놓거나
+            <label class="btn btn-sm btn-outline-secondary mb-0 ms-1">찾아보기<input type="file" id="gs-file" accept=".wav,.mp3,.m4a,audio/*" hidden></label>
+            <div class="hint mt-1">WAV · MP3 · M4A · 20MB · 600초 — 사전 검증이 막는지 보려면 다른 파일도 올릴 수 있습니다(업로드 한도 25MB)</div>
+          </div>
+          <div class="zt-note mb-2 d-none" id="gs-proxy-note">admin-fe 경유로 열었습니다 — nginx 업로드 한도(설정이 없으면 1MB)에 먼저 걸릴 수 있습니다.
+            큰 파일은 <b>서버 샘플</b>을 쓰거나 수집기 화면(포트포워딩)에서 여십시오.</div>
+          <div id="gs-meta"><span class="hint">샘플을 고르거나 파일을 올리면 크기 · 형식 · 재생 길이와 사전 검증 결과가 나옵니다.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+          <strong>⑥ STT 변환(단건) <span class="hint fw-normal">— 서버 사전 검증을 통과해야 보냅니다 · 위반이면 400 으로 막고 제논은 부르지 않습니다(나누지 않음)</span></strong>
+        </div>
+        <div class="card-body py-2">
+          <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+            <div><label class="hint d-block" for="gs-api">API</label>
+              <select class="form-select form-select-sm" id="gs-api" style="width:19.5rem">
+                <option value="transcribe">transcribe — POST /audio/transcribe</option>
+                <option value="process">process — POST /audio/process</option>
+              </select></div>
+            <div class="gs-proc d-none"><label class="hint d-block" for="gs-cid">접견 ID</label>
+              <input type="text" class="form-control form-control-sm" id="gs-cid" value="CONTACT-SIM-001" maxlength="64" style="width:11rem"></div>
+            <div class="gs-proc d-none"><label class="hint d-block" for="gs-ctype">유형</label>
+              <select class="form-select form-select-sm" id="gs-ctype" style="width:5.5rem"><option value="접견">접견</option><option value="전화">전화</option></select></div>
+            <div class="gs-proc d-none"><label class="hint d-block" for="gs-at">발생 일시 <span class="text-secondary">(KST)</span></label>
+              <input type="datetime-local" step="1" class="form-control form-control-sm" id="gs-at" style="width:13.5rem"></div>
+          </div>
+          <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+            <button type="button" class="btn btn-sm btn-primary" id="gs-run">STT 변환 실행</button>
+            <label class="small"><input type="checkbox" class="form-check-input me-1" id="gs-skip">사전 검증 건너뛰기 <span class="hint">— 제논이 직접 거절하는지 볼 때만</span></label>
+          </div>
+          <div class="hint mb-2" id="gs-input-line">입력 — 아직 고르지 않음</div>
+          <div id="gs-result"><span class="hint">실행하면 HTTP 상태 · 소요 시간 · 전사 텍스트 · 구간 표 · 응답 JSON 이 나옵니다.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="zt-note mb-3">💡 <b>2026-11-06 실측</b> — 무음 · 사인파는 <b>200 + 빈 전사</b>(정상)이고 합성 낭독 22초는 약 2.2초 걸립니다.
+    동시 2건째는 <b>HTTP 200 + error_code 13040001</b>(사용 중)로 오며 <code>retry_after_ms</code> 뒤 자동으로 다시 보냅니다.
+    제논은 길이를 <b>실제 디코딩 길이</b>로 잽니다(헤더만 610초인 1초 파일은 통과) — 사전 검증은 헤더로 미리 막는 것입니다.
+    <code>/audio/process</code> 는 말소리가 든 파일에 <b>502 signal_analysis_incomplete</b> 를 돌려줬습니다(무음은 200 · 제논 측 확인 필요).
+    ⑥ 단건 변환은 600초 넘는 녹음을 사전 검증에서 막습니다. 위 ① 파이프라인은 <b>PCM 16bit WAV</b> 를 600초 이하 조각으로 나눠 차례로 보내고 잇습니다
+    (경계는 고른 자리 ±15초 안 가장 조용한 20ms · 제논이 한 조각을 길이로 거절하면 그 조각만 반으로 다시) — MP3 · M4A 는 나누지 않습니다.
+    <b>딱 600초 조각은 실측 전</b>입니다(570초 통과 · 605초 거절 — 11-09). 배치 ANALYZE 단계는 아직 나누지 않습니다(600초 넘으면 실패).</div>
+  </div>
+
   <div class="tabp" id="tab-image">
   <!-- ①·② 를 한 장으로 캡처하는 영역 — [📸 전체 리포트 저장] -->
   <div id="im-capture">
@@ -1687,7 +1928,7 @@ const SWITCH_OPTS = {
   broker : ['MOCK','REST'],
   phone  : ['MOCK','ESB'],
   decrypt: ['SKIP','REAL'],
-  stt    : ['MOCK','NPU'],
+  stt    : ['MOCK','NPU','GENON'],
 };
 const MOCKISH = ['MOCK','SKIP'];
 // 디렉터리 4종 — 라벨·순서는 서버(/status 의 dirs.labels)가 내려준다. 없을 때의 기본값.
@@ -1904,6 +2145,7 @@ function showTab(id) {
   if (id === 'tab-transfer') ztOnShow();
   if (id === 'tab-cloud') csOnShow();
   if (id === 'tab-docdeid') ddOnShow();
+  if (id === 'tab-stt') { sdOnShow(); gsOnShow(); }
   if (id === 'tab-dfail') dfOnShow();
   if (id === 'tab-fault') hrOnShow();
 }
@@ -4380,7 +4622,8 @@ function agRender() {
     <tr><th>상태</th><td>${on ? '<b class="ks-ok">활성화(ON)</b>' : '<b>비활성화(OFF)</b>'} — ${esc(s.sourceLabel)}${s.changedAt ? ` · 바꾼 시각 ${esc(agDt(s.changedAt))}` : ''}
       <span class="hint">· 설정 기본값 <code>unstructured.mock.daily.enabled=${esc(s.configEnabled)}</code></span></td></tr>
     <tr><th>일정</th><td><code>${esc(s.cron)}</code> ${esc(s.zone)} · 다음 실행 ${on ? `<b>${esc(agDt(s.nextRun))}</b>` : `<span class="text-secondary">없음(꺼짐 — 켜면 ${esc(agDt(s.nextFire))})</span>`}</td></tr>
-    <tr><th>만드는 것</th><td>대상일 = 실행일의 어제 · ${esc(agTypesText(s.types))} 유형별 ${esc(s.count)}건 · 장애 ${esc(agFailText(s.failures))} · 접두 DMY / 생성자 dmyadm (추가 — 기존 DMY 는 그대로)</td></tr>
+    <tr><th>만드는 것</th><td>대상일 = 실행일의 어제 · ${esc(agTypesText(s.types))} 유형별 ${esc(s.count)}건 · 장애 ${esc(agFailText(s.failures))} · 접두 DMY / 생성자 dmyadm (추가 — 기존 DMY 는 그대로)
+      <div class="hint">+ 음성 STT·비식별 묶음 — 접견 · 전화 몇 건(기본 3~5건 · 20~300초)을 생성 → 제논 STT → 커넥터 비식별로 백그라운드 처리 · REAL(배치 수행 이력 비정형) · 11번 탭 ③</div></td></tr>
     <tr><th>지우는 것</th><td>${s.retainDays > 0 ? `실행일 기준 <b>${esc(s.retainDays)}일</b> 이전 대상일의 DMY — 행 · 더미 원본 · 저장 사진 · Admin 사진 매핑 (수행 이력 T1~T5 는 남음)` : '지우지 않음(retain-days 0)'}</td></tr>
     <tr><th>스위치 파일</th><td><span class="font-monospace">${esc(s.stateFile || '-')}</span> <span class="hint">${s.stateFileExists ? '있음 — 화면에서 바꾼 값' : '없음 — 설정 기본값을 따름'}</span></td></tr>
     <tr><th>마지막 실행</th><td>${last ? `${esc(AG_TRIGGER_LABEL[last.trigger] || last.trigger)} · ${esc(agDt(last.at))} · 실행일 ${esc(last.runDate)} ${agLastText(last.result)}`
@@ -4391,8 +4634,17 @@ function agLastText(r) {
   if (!r) return '';
   if (r.verdict) return `· 판정 <b>${esc(r.verdict)}</b> (대상일 ${esc(r.generatedFrom)} ~ ${esc(r.generatedTo)})`;
   const err = r.generateError || r.purgeError || r.skipped;
-  return err ? `· <span class="ks-ng">${esc(err)}</span>`
-    : `· 대상일 ${esc(r.targetDate)} 생성 ${esc(r.generated?.rows ?? 0)}건 · 정리 ${esc(r.purged?.dbRows ?? 0)}행`;
+  const voice = r.voiceSttDeid ? ` · ${esc(agVoiceText(r.voiceSttDeid))}` : '';
+  return (err ? `· <span class="ks-ng">${esc(err)}</span>`
+    : `· 대상일 ${esc(r.targetDate)} 생성 ${esc(r.generated?.rows ?? 0)}건 · 정리 ${esc(r.purged?.dbRows ?? 0)}행`) + voice;
+}
+/** 즉시 실행 · 새벽 스케줄이 함께 접수한 음성 STT·비식별 묶음(11번 탭) — 한 줄. 결과는 기다리지 않는다(백그라운드). */
+function agVoiceText(v) {
+  if (!v) return '';
+  if (v.skipped) return `음성 STT·비식별 — 건너뜀(${v.skipped === 'dashboard disabled' ? '대시보드 더미 생성이 꺼진 서버' : v.skipped})`;
+  if (v.error) return `음성 STT·비식별 — 접수 실패: ${v.error}`;
+  return `음성 STT·비식별 ${v.mode} — ${(v.items || []).length}건 접수(${(v.items || []).join(', ')}) · 실행 ${v.runId}`
+    + `${v.ahead ? ` · 앞 ${v.ahead}건 뒤에 줄 섬` : ''} · 11번 탭 ③ 에서 진행 확인`;
 }
 
 /** 오래 걸리는 호출 — 그동안 버튼을 잠그고 상태를 1.5초마다 다시 읽어 진행 회차를 배지에 보인다. */
@@ -4443,6 +4695,7 @@ function agTriggerHtml(r) {
       · ${r.purgeBefore ? `${esc(r.purgeBefore)} 이전 정리 — 행 ${esc(p.dbRows ?? 0)} · 파일 ${esc(p.files ?? 0)}` : '정리 없음'}
       ${err ? `<div class="ks-ng">${esc(err)}</div>` : ''}</div>
     ${r.readBy ? `<div class="hint mb-1">이 데이터를 읽는 배치 — <b>${esc(r.readBy)}</b></div>` : ''}
+    ${r.voiceSttDeid ? `<div class="hint mb-1 ${r.voiceSttDeid.error ? 'ks-ng' : ''}">🎙 ${esc(agVoiceText(r.voiceSttDeid))}</div>` : ''}
     <div class="hint">대상일별 ${sim ? 'SIM' : 'DMY'} 건수 (접견 / 전화 / 이미지 수용자) — 실행 뒤</div>
     <div class="table-responsive"><table class="table table-sm mb-0 dm-tbl" style="max-width:34rem"><thead class="table-light"><tr><th>대상일</th><th>건수</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
@@ -4466,7 +4719,9 @@ $('ag-run').onclick = async () => {
           <span class="d-block hint">새벽 스케줄과 같은 일 — 유형별 ${esc(AG?.count ?? '?')}건 추가 · 실행일 ${esc(runDate)} 기준 ${rd > 0 ? `<b>${esc(ymdShift(runDate, -rd))}</b> 이전 DMY 삭제` : '정리 없음'}.
             실제 배치(스케줄 · 바로 실행 · 긴급 실행 · EXEC_ID <b>UNS</b>)가 읽어 로그 컬렉터 이력 · 대시보드에 나옵니다${dash ? '' : ' — 이 서버는 대시보드 생성이 꺼져 있습니다'}</span></span></label>
     </div>
-    <div class="pop-note">상단 실행 용도가 고른 용도와 다르면 함께 바꿉니다 — 이어서 돌리는 배치가 이 데이터를 읽게(SIM ↔ TST · DMY ↔ UNS).</div>`, '실행', '취소');
+    <div class="pop-note">상단 실행 용도가 고른 용도와 다르면 함께 바꿉니다 — 이어서 돌리는 배치가 이 데이터를 읽게(SIM ↔ TST · DMY ↔ UNS).</div>
+    <div class="pop-note">음성 STT·비식별 묶음(접견 · 전화 몇 건 · 20~300초)도 백그라운드로 접수합니다 — 대시보드·배치용은 <b>REAL</b>(배치 수행 이력 비정형에 남음),
+      시뮬레이터용은 SIM(화면에만). 진행은 11번 탭 ③ 에서 봅니다.</div>`, '실행', '취소');
   if (!ok) return;
   const purpose = document.querySelector('input[name="ag-target"]:checked')?.value || def;
   await agExclusive(async () => {
@@ -4483,7 +4738,9 @@ $('ag-run').onclick = async () => {
     log(`  └ 대상일 ${r.targetDate} 생성 ${g.rows ?? 0}건(정상 ${g.normal ?? 0} · 장애 ${g.fail ?? 0} · 파일 ${g.files ?? 0}) · `
       + (r.purgeBefore ? `${r.purgeBefore} 이전 정리 — 행 ${r.purged?.dbRows ?? 0} · 파일 ${r.purged?.files ?? 0}` : '정리 없음'), r.ok ? 'ok' : 'er');
     if (r.generateError || r.purgeError) log(`  └ ${r.generateError || r.purgeError}`, 'er');
+    if (r.voiceSttDeid) log(`  └ ${agVoiceText(r.voiceSttDeid)}`, r.voiceSttDeid.error ? 'er' : r.voiceSttDeid.skipped ? 'wr' : 'ok');
     $('ag-result').innerHTML = agTriggerHtml(r);
+    if (r.voiceSttDeid?.runId && $('tab-stt').classList.contains('active')) sdOnShow();   // 11번 탭을 보고 있으면 방금 접수한 음성 묶음을 따라간다
     accToggle('ag-acc', true);
     await dmLoadStatus();
     showPopup(r.ok ? '즉시 실행 완료' : '즉시 실행 — 일부 실패', `<div class="pop-lead">대상일 ${esc(r.targetDate)} 치를 ${r.target === 'SIMULATOR' ? '시뮬레이터용(SIM)' : '대시보드·배치용(DMY)'}으로 만들었습니다.</div>
@@ -4492,6 +4749,7 @@ $('ag-run').onclick = async () => {
         <li>생성: <span class="n">${esc(g.rows ?? 0)}</span>건 <div class="sub">정상 ${esc(g.normal ?? 0)} · 장애 ${esc(g.fail ?? 0)} · 더미 원본 ${esc(g.files ?? 0)}개</div></li>
         ${r.purgeBefore ? `<li>정리(${esc(r.purgeBefore)} 이전): DB <span class="n">${esc(r.purged?.dbRows ?? 0)}</span>행 · 파일 ${esc(r.purged?.files ?? 0)}개</li>` : '<li>정리: 없음(시뮬레이터용은 추가만)</li>'}
         ${r.generateError || r.purgeError ? `<li class="ks-ng">${esc(r.generateError || r.purgeError)}</li>` : ''}
+        ${r.voiceSttDeid ? `<li class="${r.voiceSttDeid.error ? 'ks-ng' : ''}">${esc(agVoiceText(r.voiceSttDeid))}</li>` : ''}
       </ul>
       <div class="pop-note">날짜별 건수는 상단 [일 단위 자동 생성 스케줄러] 패널에 있습니다.</div>`);
   });
@@ -4637,11 +4895,17 @@ function pfCheckBadge(c) {
   if (!c || c.available === false) return `<span class="vf-b x" title="${esc(c?.reason || '')}">정합성 확인 불가</span>`;
   return c.ok ? '<span class="vf-b SUCCESS">정합성 ✓</span>' : '<span class="vf-b FAIL">정합성 ✗</span>';
 }
+/** 가상 지연(MockSttLatency)을 쓰지 않는 STT — NPU · GENON. MOCK 만 건당 처리 시간 · 고속 모드가 먹는다. */
+function realStt(mode) { return !!mode && mode !== 'MOCK'; }
+/** 제논은 외부망 · 동시 1건이고 더미 음성이 무음이라 빈 전사로 실패한다 — 부하 시험 전에 알린다. */
+function sttRealNote(mode) {
+  return mode === 'GENON' ? ' <span class="text-danger">(제논 — 동시 1건 · 호출 모드가 REST 면 외부망 · 무음 더미는 빈 전사로 실패)</span>' : '';
+}
 function engineBadge(id) {
   const i = PF_INFO, e = $(id);
   if (!i) { e.className = 'pf-engine'; e.textContent = 'STT 엔진 — 조회 실패'; return; }
   e.className = 'pf-engine ' + (i.sttMode || '');
-  e.textContent = i.sttMode === 'NPU' ? 'STT 엔진: NPU — 실제 부하 (건당 처리 시간 무시)' : `STT 엔진: ${i.sttMode} — 건당 처리 시간`;
+  e.textContent = realStt(i.sttMode) ? `STT 엔진: ${i.sttMode} — 실제 엔진 호출 (건당 처리 시간 무시)` : `STT 엔진: ${i.sttMode} — 건당 처리 시간`;
   e.title = `voice.stt.mode=${i.sttMode} · 1번 탭에서 바꿀 수 있습니다`;
 }
 function sharedDb() { const i = PF_INFO || {}; return i.env === 'K8S' || /postgre/i.test(i.db || ''); }
@@ -4715,7 +4979,7 @@ function pfEstimate() {
   const q = pfRequest();
   const n = (q.meetCount || 0) + (q.phoneCount || 0);
   if (!n) { $('pf-est').textContent = ''; return; }
-  if (PF_INFO?.sttMode === 'NPU') { $('pf-est').textContent = '실 NPU — 건당 처리 시간·고속 모드는 쓰지 않습니다'; return; }
+  if (realStt(PF_INFO?.sttMode)) { $('pf-est').textContent = `실 ${PF_INFO.sttMode} — 건당 처리 시간·고속 모드는 쓰지 않습니다`; return; }
   const sec = sttEstimateSec(q.meetCount || 0, q.phoneCount || 0, q.sttPercent, q.sttWorkers, q.latencyMode,
     q.meetLatencyMs || 0, q.phoneLatencyMs || 0, q.jitterPercent, q.sttTimeoutMs);
   const by = bypassCount(q.phoneCount || 0, q.sttPercent);
@@ -4750,8 +5014,8 @@ async function pfStart() {
   const ok = await confirmPopup('기본 부하 검증 시작', `
     <div class="pop-lead">${esc(req.scenario)} — 접견 ${req.meetCount} · 전화 ${req.phoneCount}건 · 워커 ${esc(wText(req))}</div>
     <ul class="pop-list">
-      <li><span class="lbl">STT:</span> <b>${esc(i.sttMode || '?')}</b>${i.sttMode === 'NPU'
-          ? ' — 건당 처리 시간은 쓰지 않고 <b>실제 NPU</b> 로 요청이 갑니다'
+      <li><span class="lbl">STT:</span> <b>${esc(i.sttMode || '?')}</b>${realStt(i.sttMode)
+          ? ` — 건당 처리 시간은 쓰지 않고 <b>실제 ${esc(i.sttMode)}</b> 로 요청이 갑니다${sttRealNote(i.sttMode)}`
           : ` · ${esc(latText({ mode:req.latencyMode, meetMs:req.meetLatencyMs, phoneMs:req.phoneLatencyMs, jitterPercent:req.jitterPercent }))}`
             + ` · 타임아웃 ${req.sttTimeoutMs ? fmtMs(req.sttTimeoutMs) : '없음'} · <b>${req.realSleep ? '실제 대기 모드' : '고속 모드'}</b>`}</li>
       <li><span class="lbl">전송:</span> ${transferLine()}</li>
@@ -5130,7 +5394,7 @@ function rpPlanPreview() {
   const q = rpRequest(), plan = rpPlan();
   const n = (q.meetCount || 0) + (q.phoneCount || 0);
   let est = '';
-  if (PF_INFO?.sttMode !== 'NPU' && n) {
+  if (!realStt(PF_INFO?.sttMode) && n) {
     const sttW = w => q.rampTarget === 'STT' ? w : (q.sttWorkers || 1);
     const sec = plan.reduce((s, w) => s + sttEstimateSec(q.meetCount || 0, q.phoneCount || 0, q.sttPercent, sttW(w), q.latencyMode,
       q.meetLatencyMs || 0, q.phoneLatencyMs || 0, q.jitterPercent, q.sttTimeoutMs), 0);
@@ -5164,7 +5428,7 @@ async function rpStart() {
   const ok = await confirmPopup('임계 성능 테스트 시작', `
     <div class="pop-lead">${esc(rpAxis(req))} ${esc(plan.join(' → '))} (${esc(req.rampTarget === 'STT' ? `XVARM 확보 워커 ${req.acquireWorkers} 고정` : `STT 처리 워커 ${req.sttWorkers} 고정`)}) · 단계마다 접견 ${req.meetCount} · 전화 ${req.phoneCount}건</div>
     <ul class="pop-list">
-      <li><span class="lbl">STT:</span> <b>${esc(i.sttMode || '?')}</b>${i.sttMode === 'NPU' ? ' — 실제 NPU 로 요청이 갑니다'
+      <li><span class="lbl">STT:</span> <b>${esc(i.sttMode || '?')}</b>${realStt(i.sttMode) ? ` — 실제 ${esc(i.sttMode)} 로 요청이 갑니다${sttRealNote(i.sttMode)}`
           : ` · ${esc(latText({ mode:req.latencyMode, meetMs:req.meetLatencyMs, phoneMs:req.phoneLatencyMs, jitterPercent:req.jitterPercent }))}`
             + ` · 타임아웃 ${req.sttTimeoutMs ? fmtMs(req.sttTimeoutMs) : '없음'} · <b>${req.realSleep ? '실제 대기 모드' : '고속 모드'}</b>`}</li>
       <li><span class="lbl">전송:</span> ${transferLine()}</li>
@@ -7124,6 +7388,878 @@ $('hr-release').addEventListener('click', async () => {
   const info = await callFull('POST', `${HR_API}/release`, '가상 배치 점유 강제 해제');
   if (info.ok) hrRender(info.body);
 });
+
+/* ── 11번 탭 ④~⑥ — 제논 단건 호출(음성 데이터 시뮬레이션) ──────────────────────
+   제논 음성 API 를 MOCK · REST 로 불러 본다. 판정은 서버 사전 검증(AudioInspector — 헤더 판독)이 한다.
+   화면의 PASS · FAIL 은 업로드 전에 브라우저가 확장자 · MIME · 크기 · 재생 길이로 미리 본 것뿐이다.
+   업로드는 FormData 라 callFull(JSON 전용) 대신 fetch 를 직접 쓰고, 요약 바 · 로그 모양만 맞춘다.
+   전사 텍스트는 결과 카드에만 그린다 — 로그 패널에는 글자 수만 남긴다. */
+const GS_PATH = '/api/v1/voice/simulator/stt';
+function gsApi(suffix) {
+  const base = (typeof API_BASE === 'string') ? API_BASE : '';
+  return base + GS_PATH + (suffix || '');
+}
+const GS_UPLOAD_MAX = 25 * 1024 * 1024;   // 수집기 multipart 한도(MULTIPART_MAX_FILE_SIZE) — 넘으면 서버에 닿기 전에 413
+const GS_FORMATS = ['wav', 'mp3', 'm4a'];
+const GS_MIME_OK = ['audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/x-pn-wav', 'audio/mpeg', 'audio/mp3',
+                    'audio/mpeg3', 'audio/x-mpeg-3', 'audio/x-mp3', 'audio/mp4', 'audio/m4a', 'audio/x-m4a'];
+let GS_STATUS = null;   // 마지막 GET …/stt/status
+let gsSamples = [];     // 마지막 샘플 목록
+let gsInput = null;     // { kind:'sample', name } | { kind:'file', file, check }
+let gsListed = false;   // 샘플 목록을 한 번이라도 받았는지
+
+function gsLimits() {
+  const L = GS_STATUS?.limits || {};
+  return { maxBytes: L.maxBytes ?? 20971520, maxSec: L.maxDurationSec ?? 600, conc: L.maxConcurrency ?? 1,
+           formats: L.formats || GS_FORMATS.map(f => f.toUpperCase()) };
+}
+/** 서버 AudioInspector.human 과 같은 1024 단위 — 20MB 경계를 서버와 같은 숫자로 보이게 한다. */
+function gsMb(n) {
+  if (n == null) return '-';
+  if (n < 1024) return n + 'B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + 'KB';
+  return (n / 1048576).toFixed(2) + 'MB';
+}
+function gsSec(s) { return s == null ? '?' : Number(s).toFixed(1) + '초'; }
+function gsBadge(pass, warned) {
+  if (pass == null) return '<span class="gs-badge WARN">?</span>';
+  return pass ? `<span class="gs-badge ${warned ? 'WARN' : 'PASS'}" title="${warned ? '통과 — 주의 사항 있음' : '통과'}">PASS</span>`
+              : '<span class="gs-badge FAIL">FAIL</span>';
+}
+/** 위반 · 주의 목록 — 서버 Issue{code,message} 와 화면 검사의 문자열 둘 다 받는다. */
+function gsIssues(list, cls) {
+  if (!list || !list.length) return '';
+  return `<ul class="gs-issues ${cls}">${list.map(x => typeof x === 'string'
+      ? `<li>${esc(x)}</li>` : `<li><code>${esc(x.code)}</code> ${esc(x.message)}</li>`).join('')}</ul>`;
+}
+
+// ── 상태 · 호출 모드 · 연결 테스트 ──
+async function gsLoadStatus(probe) {
+  const info = await callFull('GET', `${GS_PATH}/status${probe ? '?probe=true' : ''}`,
+      probe ? '제논 연결 테스트 — GET /health' : '제논 STT 상태', { quiet: !probe });
+  if (!info.ok) {
+    const b = $('gs-mode-badge');
+    b.className = 'pf-engine';
+    b.textContent = info.status === 404 ? '뒷단 없음(404) — 수집기 배포 확인' : '상태 조회 실패';
+    if (probe) $('gs-probe-res').textContent = '';
+    return null;
+  }
+  GS_STATUS = info.body;
+  gsRenderStatus();
+  if (probe) gsRenderProbe(info.body.probe);
+  return info.body;
+}
+function gsRenderStatus() {
+  const s = GS_STATUS || {}, L = gsLimits();
+  $('gs-base').value = s.baseUrl || '—';
+  $('gs-key').value = s.apiKeySet ? s.apiKeyMasked : '(없음 — GENON_STT_API_KEY 미설정 · MOCK 만 됩니다)';
+  const d = s.keyDaysLeft;
+  $('gs-key-exp').innerHTML = s.keyExpiresOn
+    ? `<span class="${d != null && d <= 14 ? 'text-danger fw-semibold' : 'text-secondary'}">· 만료 ${esc(s.keyExpiresOn)}${d == null ? '' : d < 0 ? ' (지남)' : ` (D-${d})`}</span>` : '';
+  document.querySelectorAll('[data-gs-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.gsMode === s.mode);
+    b.disabled = b.dataset.gsMode === 'REST' && !s.apiKeySet;
+  });
+  const badge = $('gs-mode-badge');
+  badge.className = 'pf-engine ' + (s.mode || '');
+  badge.textContent = s.mode === 'REST' ? '호출 REST — 실제 제논(외부망)' : '호출 MOCK — 외부망 안 부름';
+  badge.title = `genon.stt.mode 설정값 ${s.configuredMode || '?'} — 재기동하면 설정값으로 돌아갑니다`;
+  const mb = L.maxBytes / 1048576;
+  $('gs-limits').innerHTML = [`동시 ${L.conc}건`, (Number.isInteger(mb) ? mb : mb.toFixed(2)) + 'MB', `${L.maxSec}초`,
+      L.formats.join(' · '), `응답 ${s.timeoutSec ?? 60}초`]
+    .map(t => `<span class="cs-chip cs-WAIT">${esc(t)}</span>`).join('');
+  const bm = s.batchSttMode;
+  if (bm) $('gs-batch-stt').value = bm;
+  $('gs-batch-hint').innerHTML = bm !== 'GENON'
+    ? `배치는 ${esc(bm || '?')} — 이 탭의 호출은 배치 설정과 상관없이 제논으로 갑니다`
+    : s.mode === 'REST'
+      ? '<span class="text-danger">배치가 실제 제논을 부릅니다 — 동시 1건 · 무음 더미는 빈 전사로 실패 · 600초 넘는 녹음은 사전 검증에서 실패</span>'
+      : '배치가 제논 클라이언트를 MOCK 호출로 씁니다 — 외부망은 부르지 않습니다';
+  const lc = s.lastCall?.at ? s.lastCall : null;   // 첫 호출 전에는 빈 객체다
+  $('gs-last').innerHTML = (s.inFlight || s.waiting ? `진행 ${s.inFlight} · 대기 ${s.waiting} · ` : '')
+    + (lc ? `최근 ${esc(String(lc.at || '').slice(11, 19))} ${esc(lc.mode)} ${esc(lc.path)} · HTTP ${lc.httpStatus || '-'} · ${lc.elapsedMs}ms`
+          + (lc.ok ? '' : ` · <span class="text-danger">${esc(lc.failure || '실패')}</span>`) : '');
+}
+function gsRenderProbe(p) {
+  if (!p) return;
+  const [cls, word] = p.reachable == null ? ['WARN', '건너뜀']
+      : p.reachable === false ? ['FAIL', '연결 실패']
+      : p.tokenValid === false ? ['FAIL', '토큰 거절']
+      : p.tokenValid === true ? ['PASS', '정상']
+      : p.httpStatus === 200 ? ['WARN', '연결만 확인'] : ['FAIL', 'HTTP ' + p.httpStatus];
+  $('gs-probe-res').innerHTML = `<span class="gs-badge ${cls}">${word}</span> ${esc(p.message)} · ${p.elapsedMs}ms`;
+  log(`  └ 연결 테스트 — ${p.message} · ${p.elapsedMs}ms`, cls === 'PASS' ? 'ok' : cls === 'FAIL' ? 'er' : 'wr');
+}
+$('gs-probe').addEventListener('click', async () => {
+  $('gs-probe-res').innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>확인 중…';
+  await gsLoadStatus(true);
+});
+document.querySelectorAll('[data-gs-mode]').forEach(b => b.addEventListener('click', async () => {
+  const v = b.dataset.gsMode;
+  if (GS_STATUS?.mode === v) return;
+  if (v === 'REST') {
+    const ok = await confirmPopup('제논 실호출(REST)로 바꿉니다', `<div class="pop-lead">이제부터 이 탭의 호출${GS_STATUS?.batchSttMode === 'GENON' ? '과 <b>배치 STT</b>' : ''}이
+        <b>외부망 genos.genon.ai</b> 로 실제 파일을 보냅니다.</div>
+      <ul class="pop-list">
+        <li>실제 수용자 음성은 올리지 마십시오 — 생성 샘플 · 합성 낭독으로 시험합니다</li>
+        <li>동시 1건 한도입니다 — 같은 키로 다른 호출이 진행 중이면 '사용 중' 응답을 받고 잠시 뒤 자동으로 다시 보냅니다</li>
+        <li>재기동하면 설정값(${esc(GS_STATUS?.configuredMode || 'MOCK')})으로 돌아갑니다</li>
+      </ul>`, 'REST 로 바꾸기', '취소');
+    if (!ok) return;
+  }
+  const info = await callFull('PUT', `${GS_PATH}/mode?value=${v}`, `제논 호출 모드 → ${v}`);
+  if (info.ok) {
+    GS_STATUS = info.body;
+    gsRenderStatus();
+    sdLoadStatus();   // ① 파이프라인도 같은 호출 모드를 쓴다
+    log(`  └ 제논 호출 모드 ${info.body.before} → ${info.body.mode}`, 'ok');
+  } else {
+    showPopup('바꾸지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+  }
+}));
+$('gs-batch-stt').addEventListener('change', async () => {
+  const sel = $('gs-batch-stt'), v = sel.value;
+  if (v === 'GENON' && GS_STATUS?.mode === 'REST') {
+    const ok = await confirmPopup('배치가 실제 제논을 부릅니다', `<div class="pop-lead">호출 모드가 <b>REST</b> 라 배치 ANALYZE 단계가 외부망 제논으로 음성을 보냅니다.</div>
+      <ul class="pop-list">
+        <li>동시 1건이라 배치가 한 건씩 차례로 갑니다(차례 대기 ${GS_STATUS?.queueTimeoutSec ?? 180}초 넘으면 실패)</li>
+        <li>더미 음성은 무음이라 <b>빈 전사 → 'STT 결과가 비어 있음' 실패</b>가 됩니다</li>
+        <li>600초 넘는 녹음은 사전 검증에서 실패합니다</li>
+      </ul>`, 'GENON 으로 바꾸기', '취소');
+    if (!ok) { sel.value = GS_STATUS?.batchSttMode || 'MOCK'; return; }
+  }
+  const d = await call('PUT', `/api/v1/mock/modes/stt?value=${encodeURIComponent(v)}`, `배치 STT 엔진 → ${v}`);
+  if (d) log(`  └ stt: ${d.before} → ${d.after}`, 'ok');
+  await loadStatus(true);
+  await gsLoadStatus(false);
+});
+
+// ── 샘플 ──
+document.querySelectorAll('[data-gs-gen]').forEach(b => b.addEventListener('click', async () => {
+  const info = await callFull('POST', `${GS_PATH}/generate-samples?kind=${b.dataset.gsGen}`, `음성 샘플 생성 — ${b.textContent.trim()}`);
+  if (!info.ok) {
+    showPopup('샘플을 만들지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+    return;
+  }
+  const made = info.body.generated || [];
+  gsSamples = info.body.samples || [];
+  gsListed = true;
+  log(`  └ ${made.join(', ')} · ${info.body.elapsedMs}ms`, 'ok');
+  if (made.length) gsPickSample(made[0]); else gsRenderSamples();
+}));
+$('gs-del').addEventListener('click', async () => {
+  const ok = await confirmPopup('샘플 지우기', '<div class="pop-lead">PV 에 만든 음성 샘플을 모두 지웁니다(다시 만들 수 있습니다).</div>', '지우기', '취소');
+  if (!ok) return;
+  const info = await callFull('DELETE', `${GS_PATH}/samples`, '음성 샘플 지우기');
+  if (!info.ok) return;
+  log(`  └ ${info.body.deleted}개 지움`, 'ok');
+  if (gsInput?.kind === 'sample') { gsInput = null; gsRenderMeta(); }
+  await gsLoadSamples();
+});
+async function gsLoadSamples() {
+  const info = await callFull('GET', `${GS_PATH}/samples`, '음성 샘플 목록', { quiet: true });
+  if (!info.ok) {
+    $('gs-samples').innerHTML = `<tr><td colspan="6" class="hint text-danger">목록을 받지 못했습니다 — ${info.error ? esc(info.error) : 'HTTP ' + info.status}</td></tr>`;
+    return;
+  }
+  gsSamples = Array.isArray(info.body) ? info.body : [];
+  gsListed = true;
+  gsRenderSamples();
+}
+function gsRenderSamples() {
+  const tb = $('gs-samples');
+  $('gs-samples-sum').textContent = `만든 샘플 ${gsSamples.filter(s => s.exists).length}/${gsSamples.length}`;
+  if (!gsSamples.length) { tb.innerHTML = '<tr><td colspan="6" class="hint">샘플 종류가 없습니다</td></tr>'; return; }
+  tb.innerHTML = gsSamples.map(s => {
+    const a = s.audio || {};
+    const sel = gsInput?.kind === 'sample' && gsInput.name === s.name;
+    // 예상(expectPass)과 서버 판정이 다르면 생성기나 검사기가 틀린 것이다
+    const off = s.exists && a.ok !== s.expectPass;
+    return `<tr class="${sel ? 'sel' : ''}" data-gs-row="${esc(s.name)}" style="cursor:${s.exists ? 'pointer' : 'default'}">
+      <td><input type="radio" name="gs-pick" class="form-check-input" ${sel ? 'checked' : ''} ${s.exists ? '' : 'disabled'} aria-label="${esc(s.name)} 고르기"></td>
+      <td><code>${esc(s.name)}</code><div class="hint">${esc(s.label)} · ${s.expectPass ? '통과 예상' : '막힘 예상'}${off ? ' <b class="text-danger">예상과 다름</b>' : ''}</div></td>
+      <td>${s.exists ? esc(a.size) : '-'}</td>
+      <td>${s.exists ? gsSec(a.durationSec) : '-'}</td>
+      <td>${s.exists ? gsBadge(a.ok, (a.warnings || []).length) : '<span class="hint">없음</span>'}</td>
+      <td>${s.exists ? `<a href="${esc(gsApi('/samples/' + encodeURIComponent(s.name)))}" target="_blank" rel="noopener" title="새 창에서 열기(듣기 · 내려받기)">열기</a>` : ''}</td>
+    </tr>`;
+  }).join('');
+}
+$('gs-samples').addEventListener('click', e => {
+  if (e.target.closest('a')) return;
+  const tr = e.target.closest('tr[data-gs-row]');
+  if (tr) gsPickSample(tr.dataset.gsRow);
+});
+function gsPickSample(name) {
+  const s = gsSamples.find(x => x.name === name);
+  if (!s || !s.exists) { gsRenderSamples(); return; }
+  gsInput = { kind: 'sample', name };
+  $('gs-file').value = '';
+  gsRenderSamples();
+  gsRenderMeta();
+}
+
+// ── 업로드 — 브라우저 미리 검사 ──
+/** 재생 길이 — 브라우저 디코더 메타데이터. 못 읽으면(코덱 · 깨진 헤더) null 이고 판정은 서버에 맡긴다. */
+function gsProbeDuration(file) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const a = new Audio();
+    let done = false;
+    const finish = v => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      a.removeAttribute('src');
+      URL.revokeObjectURL(url);
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), 4000);
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => finish(Number.isFinite(a.duration) ? a.duration : null);
+    a.onerror = () => finish(null);
+    a.src = url;
+  });
+}
+async function gsClientCheck(file) {
+  const L = gsLimits();
+  const name = file.name || '';
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  const mime = (file.type || '').split(';')[0].trim().toLowerCase();
+  const v = [], w = [];
+  if (!file.size) v.push('빈 파일');
+  if (!GS_FORMATS.includes(ext)) v.push(`확장자 .${ext || '(없음)'} — WAV · MP3 · M4A 만 받습니다`);
+  if (!mime || mime === 'application/octet-stream') w.push('브라우저가 오디오 MIME 을 붙이지 않음 — 서버가 내용으로 판정');
+  else if (!GS_MIME_OK.includes(mime)) v.push(`MIME ${mime} — 지원 오디오 형식이 아님`);
+  if (file.size > L.maxBytes) v.push(`크기 ${gsMb(file.size)}(${file.size.toLocaleString()} B) — 상한 ${gsMb(L.maxBytes)}(${L.maxBytes.toLocaleString()} B) 초과`);
+  const sec = file.size && (GS_FORMATS.includes(ext) || mime.startsWith('audio/')) ? await gsProbeDuration(file) : null;
+  if (sec == null) w.push('브라우저가 재생 길이를 읽지 못함 — 서버가 헤더로 판정');
+  else if (sec > L.maxSec) v.push(`재생 시간 ${sec.toFixed(1)}초 — 상한 ${L.maxSec}초 초과`);
+  return { pass: !v.length, violations: v, warnings: w, sec, ext, mime };
+}
+async function gsTakeFile(file) {
+  if (!file) return;
+  gsInput = { kind: 'file', file, check: null };
+  gsRenderSamples();   // 샘플 선택 표시를 지운다
+  gsRenderMeta();
+  const c = await gsClientCheck(file);
+  if (gsInput?.file !== file) return;   // 검사하는 사이 다른 입력을 골랐다
+  gsInput.check = c;
+  gsRenderMeta();
+}
+$('gs-file').addEventListener('change', e => gsTakeFile(e.target.files[0]));
+const gsDrop = $('gs-drop');
+['dragenter', 'dragover'].forEach(ev => gsDrop.addEventListener(ev, e => { e.preventDefault(); gsDrop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => gsDrop.addEventListener(ev, e => { e.preventDefault(); gsDrop.classList.remove('over'); }));
+gsDrop.addEventListener('drop', e => gsTakeFile(e.dataTransfer?.files?.[0]));
+// 칸 밖에 떨어뜨리면 브라우저가 파일을 열어 화면 상태가 날아간다 — 이 탭이 열려 있을 때만 막는다
+['dragover', 'drop'].forEach(ev => window.addEventListener(ev, e => {
+  if ($('tab-stt').classList.contains('active') && !gsDrop.contains(e.target)) e.preventDefault();
+}));
+
+function gsMetaHtml(o) {
+  return `<div class="d-flex align-items-center gap-2 mb-1">${gsBadge(o.pass, (o.warnings || []).length)} <span class="small">${o.title}</span></div>
+    <div class="gs-kv">
+      <span><span class="k">형식</span> <b>${esc(o.format || '?')}</b></span>
+      <span><span class="k">크기</span> <b>${esc(o.size || '-')}</b>${o.bytes != null ? ` <span class="hint">(${Number(o.bytes).toLocaleString()} B)</span>` : ''}</span>
+      <span><span class="k">길이</span> <b>${gsSec(o.sec)}</b>${o.from ? ` <span class="hint">(${esc(o.from)})</span>` : ''}</span>
+      ${o.detail ? `<span><span class="k">세부</span> ${esc(o.detail)}</span>` : ''}
+    </div>
+    ${gsIssues(o.violations, 'text-danger')}${gsIssues(o.warnings, 'text-secondary')}
+    <div class="hint mt-1">${esc(o.who)}</div>`;
+}
+function gsRenderMeta() {
+  if (!gsInput) {
+    $('gs-meta').innerHTML = '<span class="hint">샘플을 고르거나 파일을 올리면 크기 · 형식 · 재생 길이와 사전 검증 결과가 나옵니다.</span>';
+    $('gs-input-line').textContent = '입력 — 아직 고르지 않음';
+    return;
+  }
+  if (gsInput.kind === 'sample') {
+    const a = gsSamples.find(x => x.name === gsInput.name)?.audio || {};
+    $('gs-meta').innerHTML = gsMetaHtml({
+      title: `서버 샘플 <code>${esc(gsInput.name)}</code>`,
+      who: '서버 사전 검증(헤더 판독) 결과입니다 — 실행하면 같은 검사를 한 번 더 합니다',
+      pass: a.ok, format: String(a.format || '').toUpperCase(), size: a.size, bytes: a.sizeBytes,
+      sec: a.durationSec, from: a.durationFrom,
+      detail: [a.sampleRate && a.sampleRate + 'Hz', a.channels && (a.channels === 1 ? '모노' : a.channels + '채널'), a.codec].filter(Boolean).join(' · '),
+      violations: a.violations, warnings: a.warnings });
+    $('gs-input-line').innerHTML = `입력 — 서버 샘플 <code>${esc(gsInput.name)}</code> <span class="text-secondary">(업로드 없이 서버에 있는 파일을 씁니다)</span>`;
+    return;
+  }
+  const f = gsInput.file, c = gsInput.check;
+  $('gs-meta').innerHTML = !c
+    ? '<span class="hint"><span class="spinner-border spinner-border-sm me-1"></span>브라우저에서 미리 검사 중…</span>'
+    : gsMetaHtml({
+        title: `업로드 <code>${esc(f.name)}</code>`,
+        who: '브라우저 미리 검사입니다 — 판정은 실행할 때 서버가 다시 합니다',
+        pass: c.pass, format: (c.ext || '?').toUpperCase(), size: gsMb(f.size), bytes: f.size,
+        sec: c.sec, from: c.sec == null ? null : '브라우저 메타데이터', detail: c.mime || 'MIME 없음',
+        violations: c.violations, warnings: c.warnings });
+  $('gs-input-line').innerHTML = `입력 — 업로드 <code>${esc(f.name)}</code> · ${gsMb(f.size)}`;
+}
+
+// ── 실행 ──
+$('gs-api').addEventListener('change', () => {
+  const p = $('gs-api').value === 'process';
+  document.querySelectorAll('#tab-stt .gs-proc').forEach(el => el.classList.toggle('d-none', !p));
+});
+/** datetime-local 기본값 — 브라우저 시간대와 상관없이 KST 벽시계(서버가 오프셋 없는 값을 KST 로 본다). */
+function gsKstNow() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 19); }
+
+$('gs-run').addEventListener('click', async () => {
+  if (!gsInput) {
+    showPopup('입력 파일이 없습니다', '<div class="pop-lead">왼쪽에서 샘플을 만들어 고르거나 파일을 올리십시오.</div>');
+    return;
+  }
+  const isFile = gsInput.kind === 'file';
+  if (isFile && !gsInput.check) {
+    showPopup('미리 검사 중입니다', '<div class="pop-lead">브라우저가 파일을 읽는 중입니다 — 잠시 뒤 다시 누르십시오.</div>');
+    return;
+  }
+  if (isFile && gsInput.file.size > GS_UPLOAD_MAX) {
+    showPopup('올릴 수 없습니다', `<div class="pop-lead">업로드 한도 25MB 를 넘습니다(${gsMb(gsInput.file.size)}) — 서버가 받기 전에 413 으로 막힙니다.</div>
+      <div class="pop-note">20MB 초과 시험은 <b>20MB 초과 샘플 생성</b>(서버 샘플)을 쓰십시오.</div>`);
+    return;
+  }
+  const api = $('gs-api').value, skip = $('gs-skip').checked, rest = GS_STATUS?.mode === 'REST';
+  const notes = [];
+  if (isFile && !gsInput.check.pass && !skip) notes.push('브라우저 미리 검사가 <b>FAIL</b> 입니다 — 서버 사전 검증이 400 으로 막는지 보는 시험이면 그대로 보내십시오');
+  if (isFile && rest) notes.push('<b>REST</b> — 올린 파일이 외부망 genos.genon.ai 로 갑니다. 실제 수용자 음성이 아닌지 확인하십시오');
+  if (skip && rest) notes.push('<b>사전 검증을 건너뜁니다</b> — 위반 파일도 그대로 제논에 보냅니다(제논이 직접 거절하는지 보는 시험)');
+  if (notes.length && !(await confirmPopup('보내기 전에 확인', `<ul class="pop-list">${notes.map(n => `<li>${n}</li>`).join('')}</ul>`, '보내기', '취소'))) return;
+
+  const fd = new FormData();
+  if (isFile) fd.append('file', gsInput.file, gsInput.file.name);
+  else fd.append('sample', gsInput.name);
+  fd.append('api', api);
+  if (api === 'process') {
+    fd.append('contactId', $('gs-cid').value.trim() || 'CONTACT-SIM-001');
+    fd.append('contactType', $('gs-ctype').value);
+    if ($('gs-at').value) fd.append('occurredAt', $('gs-at').value);
+  }
+  if (skip) fd.append('skipValidation', 'true');
+
+  const url = gsApi('/call');
+  const label = `STT 변환 — ${api} · ${isFile ? '업로드 ' + gsInput.file.name : '샘플 ' + gsInput.name}${skip ? ' · 사전 검증 건너뜀' : ''}`;
+  const btn = $('gs-run');
+  btn.disabled = true;
+  btn.classList.add('is-running');
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${rest ? '제논 호출 중…' : 'MOCK 호출 중…'}`;
+  $('gs-result').innerHTML = '<span class="hint">응답을 기다리는 중…</span>';
+  busyScope().classList.add('busy');
+  log(`▶ ${label} — POST ${url}`, 'hd');
+  const info = { method: 'POST', url, label, status: 0, statusText: '', ms: 0, ok: false, body: null, error: null, raw: '' };
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, { method: 'POST', body: fd, headers: { 'Accept': 'application/json' } });
+    info.status = res.status;
+    info.statusText = res.statusText || '';
+    info.raw = await res.text();
+    try { info.body = JSON.parse(info.raw); } catch (e) { /* nginx 413 같은 HTML 은 JSON 이 아니다 */ }
+    info.ok = res.ok;
+  } catch (e) {
+    info.error = e.message;
+  } finally {
+    info.ms = Math.round(performance.now() - t0);
+    busyScope().classList.remove('busy');
+    btn.disabled = false;
+    btn.classList.remove('is-running');
+    btn.textContent = 'STT 변환 실행';
+  }
+  gsRenderResult(info);
+  gsLoadStatus(false);   // 최근 호출 · 진행 건수 갱신
+});
+
+function gsResSummary(info) {
+  const b = info.body;
+  if (info.error) return '';
+  if (info.ok && b) return `<b class="ok">${esc(b.mode)}</b> · 제논 HTTP ${b.httpStatus} · ${b.transcript?.charCount ?? 0}자`;
+  if (b?.stage === 'VALIDATION') return '<b class="ng">사전 검증 FAIL</b> · 보내지 않음';
+  if (b?.stage === 'GENON') return `<b class="ng">${esc(b.kind)}</b>${b.upstreamStatus ? ' · 제논 HTTP ' + b.upstreamStatus : ''}`;
+  return `<b class="ng">${esc(b?.stage || '실패')}</b>`;
+}
+/** 사전 검증 한 줄 — sent 면 제논에 실제로 간 이름(audio.wav 등)을 붙인다. 막힌 파일은 보내지 않았으니 이름을 뺀다. */
+function gsAudioLine(a, sent) {
+  if (!a) return '';
+  return `<div class="hint">사전 검증 ${a.ok ? '통과' : '위반'} — ${esc(String(a.format || '?').toUpperCase())} · ${esc(a.size)} · ${gsSec(a.durationSec)}${a.durationFrom ? ' (' + esc(a.durationFrom) + ')' : ''}${sent ? ` · 보낸 이름 <code>${esc(a.uploadName || '-')}</code>` : ' · 제논에 보내지 않음'}</div>
+    ${gsIssues(a.warnings, 'text-secondary')}`;
+}
+function gsRenderResult(info) {
+  const b = info.body;
+  let html = summaryBar(info, gsResSummary(info));
+  if (info.error) {
+    html += `<div class="zt-note mt-2">요청이 서버에 닿지 않았습니다 — ${esc(info.error)}</div>`;
+    log(`✖ 요청 실패 — ${info.error}`, 'er');
+  } else if (info.status === 413) {
+    html += b ? `<div class="zt-note mt-2">${esc(b.message)}</div>`
+      : `<div class="zt-note mt-2"><b>앞단(nginx)이 업로드를 막았습니다</b> — admin-fe 경유(<code>${esc(API_BASE || '-')}</code>)면 nginx 업로드 한도(설정이 없으면 1MB)가 먼저 걸립니다.
+          서버 샘플을 쓰거나 수집기 화면(포트포워딩)에서 여십시오.</div>`;
+    log(`✖ HTTP 413 (${info.ms}ms) — 업로드 한도`, 'er');
+  } else if (!b) {
+    html += `<div class="zt-note mt-2">JSON 이 아닌 응답입니다 — HTTP ${info.status}</div><pre class="small mb-0" style="white-space:pre-wrap">${esc(info.raw.slice(0, 600))}</pre>`;
+    log(`✖ HTTP ${info.status} (${info.ms}ms) — JSON 아님`, 'er');
+  } else if (b.stage === 'VALIDATION') {
+    const a = b.audio || {};
+    html += `<div class="mt-2 mb-1">${gsBadge(false)} <b>${esc(b.message)}</b></div>
+      ${gsIssues(a.violations, 'text-danger')}
+      ${gsAudioLine(a)}
+      <div class="mt-2">${jsonBox(b, { compact: true })}</div>`;
+    log(`✖ HTTP ${info.status} (${info.ms}ms) — 사전 검증 FAIL · ${b.detail || ''}`, 'er');
+  } else if (b.ok === false && b.stage === 'GENON') {
+    let up = null;
+    try { up = b.upstreamBody ? JSON.parse(b.upstreamBody) : null; } catch (e) { /* 텍스트 본문(401 등) */ }
+    html += `<div class="mt-2 mb-1"><span class="gs-badge FAIL">${esc(b.kind)}</span> <b>${esc(b.message)}</b></div>
+      <div class="gs-kv">
+        <span><span class="k">제논 HTTP</span> <b>${b.upstreamStatus || '-'}</b></span>
+        <span><span class="k">오류 코드</span> <b>${esc(b.errorCode ?? '-')}</b></span>
+        ${b.hint ? `<span><span class="k">뜻</span> ${esc(b.hint)}</span>` : ''}
+        <span><span class="k">시도</span> <b>${b.attempts ?? '-'}</b></span>
+        <span><span class="k">소요</span> <b>${b.elapsedMs ?? '-'}ms</b></span>
+      </div>
+      ${b.upstreamBody ? `<div class="hint mb-1">제논 응답 원문</div>${up ? jsonBox(up, { compact: true }) : `<pre class="small mb-2" style="white-space:pre-wrap">${esc(b.upstreamBody)}</pre>`}` : ''}
+      <details class="mt-1"><summary class="hint">수집기 응답 전체</summary>${jsonBox(b, { compact: true })}</details>`;
+    log(`✖ HTTP ${info.status} (${info.ms}ms) — ${b.kind} · ${b.message}`, 'er');
+  } else if (b.ok === false) {
+    html += `<div class="zt-note mt-2"><b>${esc(b.stage || '요청')}</b> — ${esc(b.message || '')}</div>`;
+    log(`✖ HTTP ${info.status} (${info.ms}ms) — ${b.message || ''}`, 'er');
+  } else {
+    const t = b.transcript || {}, segs = Array.isArray(t.segments) ? t.segments : [];
+    const inp = b.response?.input, sr = inp?.speech_results?.[0], cr = inp?.contact_records?.[0];
+    html += `<div class="gs-kv mt-2">
+        <span><span class="k">제논 HTTP</span> <b>${b.httpStatus}</b></span>
+        <span><span class="k">제논 소요</span> <b>${b.elapsedMs}ms</b></span>
+        <span><span class="k">왕복</span> <b>${info.ms}ms</b></span>
+        <span class="pf-engine ${esc(b.mode)}">${b.mode === 'REST' ? 'REST — 실제 제논' : 'MOCK — 가짜 응답'}</span>
+        ${b.queuedMs ? `<span><span class="k">차례 대기</span> <b>${b.queuedMs}ms</b></span>` : ''}
+        ${b.attempts > 1 ? `<span><span class="k">시도</span> <b>${b.attempts}</b> <span class="hint">(동시 한도로 다시 보냄)</span></span>` : ''}
+        <span><span class="k">경로</span> <b>${esc(b.path)}</b></span>
+        ${b.validationSkipped ? '<span class="gs-badge WARN">사전 검증 건너뜀</span>' : ''}
+      </div>
+      ${cr || sr ? `<div class="gs-kv">
+        <span><span class="k">function</span> <b>${esc(b.response?.function ?? '-')}</b></span>
+        ${cr ? `<span><span class="k">contact</span> <b>${esc(cr.contact_id)}</b> · ${esc(cr.contact_type)} · ${esc(cr.occurred_at)}</span>` : ''}
+        ${sr ? `<span><span class="k">prosody</span> <b>${esc(sr.prosody_status ?? '-')}</b></span>
+          <span><span class="k">audio</span> <b>${esc(sr.audio_status ?? '-')}</b></span>
+          <span><span class="k">duration_ms</span> <b>${sr.duration_ms ?? '-'}</b></span>` : ''}
+      </div>` : ''}
+      ${gsAudioLine(b.audio, true)}
+      <div class="hint mt-2 mb-1">전사 텍스트 · ${t.charCount ?? 0}자 · 구간 ${segs.length}개</div>
+      <div class="gs-text mb-2">${t.text ? esc(t.text) : '<span class="hint">(빈 전사 — 무음 · 사인파면 정상입니다. 말소리는 합성 낭독 22초로 확인하십시오)</span>'}</div>
+      ${segs.length ? `<div style="max-height:14rem;overflow:auto" class="mb-2"><table class="table table-sm mb-0 cs-table">
+        <thead class="table-light"><tr><th style="width:2.2rem">#</th><th style="width:6rem">start_ms</th><th style="width:6rem">end_ms</th><th>text</th></tr></thead>
+        <tbody>${segs.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(String(s.start_ms ?? '-'))}</td><td>${esc(String(s.end_ms ?? '-'))}</td><td>${esc(s.text ?? '')}</td></tr>`).join('')}</tbody>
+      </table></div>` : ''}
+      <div class="hint mb-1">제논 응답 원문</div>
+      ${jsonBox(b.response)}`;
+    // 전사 텍스트는 로그 패널에 남기지 않는다 — 글자 수만
+    log(`✔ HTTP ${info.status} (${info.ms}ms) — 제논 ${b.mode} ${b.path} · HTTP ${b.httpStatus} · ${b.elapsedMs}ms · ${t.charCount ?? 0}자 · 구간 ${segs.length}개`, 'ok');
+  }
+  $('gs-result').innerHTML = html;
+}
+
+async function gsOnShow() {
+  if (!$('gs-at').value) $('gs-at').value = gsKstNow();
+  $('gs-proxy-note').classList.toggle('d-none', !(API_BASE && !/^https?:\/\//i.test(API_BASE)));
+  await gsLoadStatus(false);
+  if (!gsListed) await gsLoadSamples();
+}
+
+/* ── 11번 탭 ①~③ — 음성 STT · 비식별 파이프라인 ──────────────────────────────
+   가상 음원(합성 낭독 22초를 이어 붙임) → 제논 /audio/transcribe(600초 넘으면 조각) → 병합 → 커넥터 /api/v1/deid/run →
+   (REAL) 가린 글 적재 · T1~T4. 서버가 백그라운드로 돈다 — POST …/runs 로 접수(202)하고 GET …/runs/{id} 를 1초마다 읽는다.
+   폴링은 quietGet 으로 한다 — callFull 은 부를 때마다 탭 전체를 잠가(.busy) 1초 주기면 클릭이 먹지 않는다.
+   전사 원문 · 가린 글은 ② 카드에만 그린다 — 로그 패널에는 글자 수 · 토큰 수 · 시간만 남긴다. */
+const SD_PATH = '/api/v1/voice/simulator/stt-deid';
+const SD_PRESET_SEC = { S20: 20, M5: 300, M10: 600, M20: 1200, M30: 1800 };
+const SD_STAGE_LABEL = { QUEUED: '대기', GENERATE: '음원 생성', STT: 'STT 분할 전사', MERGE: '전사문 병합', DEID: '커넥터 비식별',
+                         STORE: '결과 적재 · 이력', DONE: '완료' };
+const SD_STEP_LABEL = { COLLECT: '음원 생성(COLLECT)', ANALYZE: 'STT · 병합(ANALYZE)', DEIDENT: '커넥터 비식별(DEIDENT)', STORE: '결과 적재(STORE)' };
+const SD_STS = { QUEUED: ['cs-WAIT', '대기'], RUNNING: ['cs-RUNNING', '진행 중'], SUCCESS: ['cs-SUCCESS', '성공'],
+                 PARTIAL: ['cs-PARTIAL', '부분 성공'], FAIL: ['cs-FAIL', '실패'] };
+let SD_STATUS = null;          // 마지막 GET …/status
+let sdPreset = 'S20', sdKind = 'MEET', sdMode = 'SIM';
+let sdSeedTouched = false;     // 체크를 손으로 바꿨으면 설정 기본값으로 덮지 않는다
+let sdRunId = null;            // ② 에 그리는 실행
+let sdItemNo = 1;              // ② 에 그리는 건(일 단위 묶음은 여러 건)
+let sdLast = null;             // 마지막 GET …/runs/{id}
+let sdTimer = null, sdMiss = 0;
+let sdT0 = 0;                  // 이 화면에서 접수한 시각 — 진행 중 '전체 소요' 를 화면 시계로 보인다
+
+function sdSecNum(ms) { return ms == null ? '-' : (ms / 1000).toFixed(1); }
+function sdClock(sec) {
+  const s = Math.max(0, Number(sec) || 0), m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`;
+}
+function sdStsChip(sts) {
+  const [c, t] = SD_STS[sts] || ['cs-x', sts || '-'];
+  return `<span class="cs-chip ${c}">${esc(t)}</span>`;
+}
+function sdKindLabel(k) { return k === 'PHONE' ? '전화' : '접견'; }
+
+// ── 상태 · 계획 ──
+async function sdLoadStatus() {
+  SD_STATUS = await quietGet(SD_PATH + '/status');
+  if (SD_STATUS && !sdSeedTouched) $('sd-seed').checked = SD_STATUS.seedPiiDefault !== false;
+  sdRenderEngines();
+  sdRenderPlan();
+  sdRenderDaily();
+  sdSyncButtons();
+  return SD_STATUS;
+}
+function sdRenderEngines() {
+  const s = SD_STATUS;
+  if (!s) {
+    $('sd-engines').innerHTML = '<span class="pf-engine">상태를 읽지 못함 — 수집기 버전(11번 탭 뒷단) · 연결 확인</span>';
+    return;
+  }
+  const stt = s.stt || {}, d = s.deid || {}, lc = s.logCollector || {};
+  $('sd-engines').innerHTML = [
+    `<span class="pf-engine ${esc(stt.callMode || '')}" title="${esc(stt.baseUrl || '')} — ④ 에서 바꿉니다">STT 제논 ${esc(stt.callMode || '?')}</span>`,
+    `<span class="pf-engine ${esc(d.mode || '')}" title="${esc(d.endpoint || '')} · 응답 대기 ${esc(d.readTimeoutSec ?? '-')}초 · 설정 agent-connector.mode">`
+      + `비식별 ${d.mode === 'MOCK' ? '수집기 내장 MOCK' : '커넥터 REST'}</span>`,
+    `<span class="pf-engine ${lc.enabled ? 'GENON' : ''}" title="${esc(lc.baseUrl || '(주소 없음)')}">이력 ${lc.enabled ? '로그 컬렉터 연동' : '미연동'}</span>`
+  ].join('');
+  $('sd-job-nm').textContent = lc.jobNm || '음성 STT·비식별 검증';
+}
+/** 조각 계획 — 서버 GenonSttClient#chunkMaxSec 와 같은 셈(설정 · 600초 · 크기 한도 중 작은 것 · 16kHz 모노 16bit 기준). */
+function sdChunkPlan(sec) {
+  const L = SD_STATUS?.stt?.limits || {};
+  const maxDur = L.maxDurationSec ?? 600, maxBytes = L.maxBytes ?? 20971520;
+  if (sec <= maxDur && sec * 32000 + 44 <= maxBytes) return { n: 1, each: sec };
+  const cap = Math.min(L.chunkMaxSec ?? 600, maxDur, (maxBytes - 44) / 32000);
+  const n = Math.ceil(sec / cap);
+  return { n, each: sec / n };
+}
+function sdRenderPlan() {
+  const sec = SD_PRESET_SEC[sdPreset] || 20, p = sdChunkPlan(sec), rest = SD_STATUS?.stt?.callMode === 'REST';
+  $('sd-plan').innerHTML = `${sdKindLabel(sdKind)} ${esc(fmtSec(sec))} — 16kHz · 모노 · PCM 16bit WAV 약 ${((sec * 32000 + 44) / 1048576).toFixed(1)}MB`
+    + ` → 제논 ${p.n === 1 ? '한 번 호출(나누지 않음)' : `<b>조각 ${p.n}개</b>(${esc(fmtSec(Math.round(p.each)))} 안팎 · 차례로 · 동시 1건)`}`
+    + (rest ? ' <span class="text-danger">· REST(외부망)</span>' : ' · MOCK')
+    + ` → 커넥터 비식별 1회${$('sd-seed').checked ? '(가상 개인정보 문장 2줄 덧붙임)' : ''}`
+    + ` → ${sdMode === 'REAL' ? '<b class="text-danger">REAL — 가린 글 적재 · T1~T4 · 대시보드</b>' : 'SIM — 화면에만'}`;
+  $('sd-real-note').classList.toggle('d-none', sdMode !== 'REAL');
+}
+function sdRenderDaily() {
+  const s = SD_STATUS;
+  if (!s) { $('sd-daily-sum').textContent = ''; return; }
+  const d = s.daily || {}, last = s.lastDaily, a = s.active;
+  $('sd-daily-sum').innerHTML = `일 단위 묶음 — ${d.enabled ? '켜짐' : '<b>꺼짐</b>(unstructured.mock.stt-deid.daily.enabled=false)'}`
+    + ` · 접견 · 전화 ${esc(d.minItems)}~${esc(d.maxItems)}건 · 각 ${esc(d.minSec)}~${esc(d.maxSec)}초 무작위${(d.maxSec ?? 0) < 1200 ? '(20 · 30분 음원은 넣지 않음)' : ''}`
+    + ' · 새벽 스케줄(상단 일 단위 자동 생성 ON)과 [즉시 실행] 대시보드·배치용은 <b>REAL</b>, 시뮬레이터용은 SIM'
+    + (last ? `<div>마지막 접수 <code>${esc(last.runId)}</code> · ${esc(last.mode)} · ${esc((last.items || []).join(', '))}</div>` : '')
+    + (s.busy ? `<div class="text-primary">진행 중${a ? ` <code>${esc(a.runId)}</code> — ${esc(SD_STAGE_LABEL[a.stage] || a.stage)}` : ''}`
+        + `${s.pending > 1 ? ` · 줄 선 실행 ${s.pending - 1}건` : ''}</div>` : '');
+}
+/** 한 번에 하나씩 돈다 — 돌고 있으면 실행 버튼을 잠근다(일 단위 묶음은 줄을 서므로 잠그지 않는다). */
+function sdSyncButtons() {
+  const running = !!SD_STATUS?.busy || !!(sdLast && !sdLast.endedAt);
+  const b = $('sd-run');
+  b.disabled = !SD_STATUS || running;
+  b.innerHTML = running ? '<span class="spinner-border spinner-border-sm me-1"></span>실행 중…' : '음성 전사 및 비식별 실행';
+  b.title = running ? '한 번에 하나씩 돕니다 — 끝나면 다시 누를 수 있습니다' : 'POST /api/v1/voice/simulator/stt-deid/runs';
+  $('sd-daily').disabled = !SD_STATUS;
+}
+
+// ── 고르기 ──
+document.querySelectorAll('[data-sd-preset]').forEach(b => b.addEventListener('click', () => {
+  sdPreset = b.dataset.sdPreset;
+  document.querySelectorAll('[data-sd-preset]').forEach(x => x.classList.toggle('active', x === b));
+  sdRenderPlan();
+}));
+document.querySelectorAll('[data-sd-kind]').forEach(b => b.addEventListener('click', () => {
+  sdKind = b.dataset.sdKind;
+  document.querySelectorAll('[data-sd-kind]').forEach(x => x.classList.toggle('active', x === b));
+  sdRenderPlan();
+}));
+document.querySelectorAll('[data-sd-mode]').forEach(b => b.addEventListener('click', () => {
+  sdMode = b.dataset.sdMode;
+  document.querySelectorAll('[data-sd-mode]').forEach(x => x.classList.toggle('active', x === b));
+  sdRenderPlan();
+}));
+$('sd-seed').addEventListener('change', () => { sdSeedTouched = true; sdRenderPlan(); });
+
+// ── 실행 · 따라가기 ──
+$('sd-run').addEventListener('click', async () => {
+  if (!SD_STATUS && !(await sdLoadStatus())) {
+    showPopup('실행할 수 없습니다', '<div class="pop-lead">상태를 읽지 못했습니다 — 수집기가 11번 탭 뒷단(SttDeidSimController)을 가진 버전인지, dev · local 프로필인지 확인하십시오.</div>');
+    return;
+  }
+  const s = SD_STATUS, sec = SD_PRESET_SEC[sdPreset], p = sdChunkPlan(sec);
+  const notes = [];
+  if (sdMode === 'REAL') {
+    notes.push(s.logCollector?.enabled
+      ? `<b>REAL</b> — 로그 컬렉터 T1~T4 에 남아 어드민 <b>배치 수행 이력</b>(비정형 · ${esc(s.logCollector.jobNm)})에 나옵니다. 시험 데이터 삭제(TEST_BATCH 기준)로는 지워지지 않습니다`
+      : '<b>REAL</b> 인데 로그 컬렉터가 <b>미연동</b>입니다 — 로컬 실행 ID 로 돌고 대시보드에는 남지 않습니다(log-collector.enabled · base-url 확인)');
+  }
+  if (s.stt?.callMode === 'REST') {
+    notes.push(`<b>제논 REST</b> — 합성 낭독 음원을 외부망 제논으로 ${p.n > 1 ? `조각 ${p.n}개 차례로` : '한 번'} 보냅니다(동시 1건 — 다른 호출이 있으면 기다립니다)`);
+  }
+  if (s.deid?.mode !== 'MOCK' && sec >= 1200) {
+    notes.push('긴 전사문은 커넥터 쪽 AI-R 처리가 오래 걸려 대기 한도에 걸릴 수 있습니다 — 실패하면 ② 에 HTTP 상태 · 코드가 나옵니다');
+  }
+  if (notes.length && !(await confirmPopup('실행 전에 확인', `<ul class="pop-list">${notes.map(n => `<li>${n}</li>`).join('')}</ul>`, '실행', '취소'))) return;
+  const q = new URLSearchParams({ preset: sdPreset, kind: sdKind, mode: sdMode, seedPii: String($('sd-seed').checked) });
+  const info = await callFull('POST', `${SD_PATH}/runs?${q}`, `음성 STT·비식별 실행 — ${sdKindLabel(sdKind)} ${fmtSec(sec)} · ${sdMode}`);
+  if (!info.ok || !info.body?.runId) {
+    showPopup(info.status === 409 ? '이미 실행 중입니다' : '접수하지 못했습니다',
+      `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+    await sdLoadStatus();
+    return;
+  }
+  log(`  └ 접수 ${info.body.runId} — 백그라운드로 돕니다 · 1초마다 진행을 읽습니다`, 'ok');
+  sdFollow(info.body.runId, info.body, true);
+});
+$('sd-daily').addEventListener('click', async () => {
+  const d = SD_STATUS?.daily || {};
+  const ok = await confirmPopup('일 단위 묶음만 접수', `<div class="pop-lead">접견 · 전화 <b>${esc(d.minItems ?? 3)}~${esc(d.maxItems ?? 5)}건</b>(각 ${esc(d.minSec ?? 20)}~${esc(d.maxSec ?? 300)}초 무작위)을
+      만들어 생성 → 제논 STT → 커넥터 비식별${sdMode === 'REAL' ? ' → 적재' : ''} 합니다.</div>
+    <ul class="pop-list">
+      <li>기록: <b>${sdMode}</b> — ${sdMode === 'REAL' ? '로그 컬렉터 T1~T4 · 대시보드 배치 수행 이력(실행 유형 MANUAL)' : '화면에만(로그 컬렉터 안 부름)'}</li>
+      <li>새벽 스케줄 · 상단 [즉시 실행]이 붙이는 것과 같은 묶음입니다 — 더미(DMY · SIM)는 만들지 않습니다</li>
+      <li>앞 실행이 있으면 줄을 서서 뒤이어 돕니다</li>
+    </ul>`, '접수', '취소');
+  if (!ok) return;
+  const info = await callFull('POST', `${SD_PATH}/daily?mode=${sdMode}`, `음성 STT·비식별 일 단위 묶음 — ${sdMode}`);
+  if (!info.ok || !info.body) {
+    showPopup('접수하지 못했습니다', `<div class="pop-lead">${esc(info.body?.message || info.error || ('HTTP ' + info.status))}</div>`);
+    return;
+  }
+  const b = info.body;
+  if (b.skipped) { showPopup('건너뜀', `<div class="pop-lead">${esc(b.skipped)}</div>`); return; }
+  log(`  └ 접수 ${b.runId} — ${(b.items || []).join(', ')}${b.ahead ? ` · 앞 ${b.ahead}건 뒤에 줄 섬` : ''}`, 'ok');
+  sdFollow(b.runId, null, true);
+  sdLoadRuns();
+});
+
+/** ② 에 이 실행을 그리고 끝날 때까지 1초마다 읽는다. mine — 이 화면에서 접수한 것(진행 중 전체 시간을 화면 시계로 보인다). */
+function sdFollow(runId, first, mine) {
+  clearTimeout(sdTimer);
+  sdRunId = runId;
+  sdItemNo = 1;
+  sdMiss = 0;
+  sdT0 = mine ? performance.now() : 0;
+  if (first) sdRender(first);
+  if (!first || !first.endedAt) sdTimer = setTimeout(sdTick, 500);
+}
+async function sdTick() {
+  const id = sdRunId;
+  if (!id) return;
+  const r = await quietGet(`${SD_PATH}/runs/${encodeURIComponent(id)}`);
+  if (id !== sdRunId) return;   // 그사이 다른 실행을 골랐다
+  if (!r) {
+    if (++sdMiss >= 5) {
+      $('sd-run-title').innerHTML = `— <code>${esc(id)}</code> 진행을 읽지 못함(수집기가 다시 떴으면 실행 기록이 사라집니다)`;
+      sdLast = null;
+      sdSyncButtons();
+      return;
+    }
+  } else {
+    sdMiss = 0;
+    sdRender(r);
+    if (r.endedAt) { sdDone(r); return; }
+  }
+  sdTimer = setTimeout(sdTick, 1000);
+}
+function sdDone(r) {
+  const t = r.timings || {}, ok = r.status === 'SUCCESS';
+  log(`${ok ? '✔' : '✖'} 음성 STT·비식별 ${r.runId} — ${r.status} · 성공 ${r.successCount}/${r.itemCount}`
+    + ` · STT ${sdSecNum(t.sttMs)}초 · 비식별 ${sdSecNum(t.deidMs)}초 · 전체 ${sdSecNum(t.totalMs)}초`
+    + (r.logged ? ` · 실행 ID ${r.execId}(대시보드)` : r.mode === 'REAL' ? ' · 로그 컬렉터 미연동(이력 없음)' : ''),
+    ok ? 'ok' : r.status === 'PARTIAL' ? 'wr' : 'er');
+  sdLoadStatus();
+  sdLoadRuns();
+}
+
+// ── ② 그리기 ──
+function sdRender(r) {
+  sdLast = r;
+  const items = r.items || [];
+  if (!items.some(i => i.no === sdItemNo)) sdItemNo = items[0]?.no ?? 1;
+  const it = items.find(i => i.no === sdItemNo) || null;
+  $('sd-run-title').innerHTML = `— <code>${esc(r.runId)}</code> · ${r.trigger === 'DAILY' ? `일 단위 묶음 ${items.length}건` : '화면 실행'}`
+    + ` · ${r.mode === 'REAL' ? '<b class="text-danger">REAL</b>' : 'SIM'}${r.execId ? ` · 실행 ID <code>${esc(r.execId)}</code>` : ''}`;
+  $('sd-run-badge').innerHTML = sdStsChip(r.status);
+  $('sd-items').innerHTML = items.length > 1 ? items.map(i => `<button type="button" class="btn btn-sm ${i.no === sdItemNo ? 'btn-dark' : 'btn-outline-secondary'}" data-sd-item="${i.no}">`
+      + `#${i.no} ${esc(i.kindLabel)} ${esc(fmtSec(i.seconds))} ${i.status === 'SUCCESS' ? '✔' : i.status === 'FAIL' ? '✖' : '…'}</button>`).join('') : '';
+  $('sd-stages').innerHTML = it ? sdStagesHtml(r, it) : '';
+  $('sd-chunks').innerHTML = it ? sdChunksHtml(it) : '';
+  $('sd-tiles').innerHTML = sdTilesHtml(r);
+  $('sd-error').innerHTML = it?.status === 'FAIL' ? sdErrorHtml(it) : r.error ? `<div class="zt-note mb-2">${esc(r.error)}</div>` : '';
+  sdRenderTexts(it);
+  $('sd-where').innerHTML = sdWhereHtml(r, it);
+  document.querySelectorAll('#sd-runs tr[data-sd-run]').forEach(tr => tr.classList.toggle('sel', tr.dataset.sdRun === r.runId));
+  sdSyncButtons();
+}
+$('sd-items').addEventListener('click', e => {
+  const b = e.target.closest('[data-sd-item]');
+  if (!b || !sdLast) return;
+  sdItemNo = Number(b.dataset.sdItem);
+  sdRender(sdLast);
+});
+/** 건 하나의 단계 — 끝났는지는 결과(음원 · 전사 · 비식별 입력 · 가린 글 · 적재 경로)로 본다. 단계 단위로 돌아
+    (모든 건 생성 → 모든 건 STT → …) 다른 건 차례를 기다리는 동안에도 이 건의 '지금 단계' 는 앞 단계에 머물기 때문이다. */
+function sdStagesHtml(r, it) {
+  const order = ['GENERATE', 'STT', 'MERGE', 'DEID'].concat(r.mode === 'REAL' ? ['STORE'] : []);
+  const st = it.stt || {}, d = it.deid || {};
+  const done = { GENERATE: !!it.audio, STT: st.text != null, MERGE: (d.inputChars || 0) > 0, DEID: d.text != null, STORE: !!it.storedAt };
+  const failAt = it.status !== 'FAIL' ? null
+    : { COLLECT: 'GENERATE', ANALYZE: st.text != null ? 'MERGE' : 'STT', DEIDENT: 'DEID', STORE: 'STORE' }[it.failedStep] || it.stage;
+  const live = !r.endedAt && it.status !== 'FAIL';
+  let marked = false;
+  const chips = order.map((s, i) => {
+    let cls = 'cs-x', extra = '';
+    if (done[s]) cls = 'cs-SUCCESS';
+    else if (s === failAt) cls = 'cs-FAIL';
+    else if (live && !marked && it.stage === s) cls = 'cs-RUNNING';
+    else if (live && !marked && (i === 0 || done[order[i - 1]])) { cls = 'cs-WAIT'; extra = ' · 차례 대기'; }
+    if (cls === 'cs-RUNNING' || cls === 'cs-WAIT') marked = true;
+    if (s === 'STT' && (st.chunkTotal || 0) > 1) extra += ` · 조각 ${(st.chunks || []).length}/${st.chunkTotal}`;
+    const spin = cls === 'cs-RUNNING' ? '<span class="spinner-border spinner-border-sm me-1" style="width:.65rem;height:.65rem;border-width:.12em"></span>' : '';
+    return `<span class="cs-chip ${cls}">${spin}${i + 1} ${esc(SD_STAGE_LABEL[s])}${esc(extra)}</span>`;
+  });
+  const end = it.status === 'SUCCESS' ? '<span class="cs-chip cs-SUCCESS">완료</span>'
+    : it.status === 'FAIL' ? '<span class="cs-chip cs-FAIL">실패로 끝남</span>' : '<span class="cs-chip cs-x">완료</span>';
+  return chips.concat(end).join('<span class="arrow">→</span>');
+}
+function sdChunksHtml(it) {
+  const st = it.stt || {}, ch = st.chunks || [], total = st.chunkTotal || 0;
+  if (!ch.length && it.stage !== 'STT') return '';
+  const sending = it.stage === 'STT' && it.status !== 'FAIL' && (st.chunkNo || 0) > ch.length ? st.chunkNo : 0;
+  const rows = ch.map(c => `<tr><td>${esc(c.no)}${c.resplit ? ' <span class="gs-badge WARN" title="제논이 길이 한도로 거절해 반으로 다시 나눈 조각">재분할</span>' : ''}</td>
+      <td>${sdClock(c.startSec)} ~ ${sdClock(c.endSec)} <span class="hint">(${(c.endSec - c.startSec).toFixed(1)}초)</span></td>
+      <td>${esc(c.mode)} · HTTP ${esc(c.httpStatus)}</td>
+      <td>${sdSecNum(c.elapsedMs)}초${c.queuedMs ? ` <span class="hint">· 차례 대기 ${sdSecNum(c.queuedMs)}초</span>` : ''}${c.attempts > 1 ? ` <span class="hint">· 시도 ${esc(c.attempts)}</span>` : ''}</td>
+      <td>${esc(c.chars)}자</td></tr>`).join('');
+  return `<div class="hint mb-1">제논 /audio/transcribe — ${total > 1 ? `<b>조각 ${total}개</b>(600초 넘어 나눔 · 경계는 고른 자리 ±15초 안 가장 조용한 곳)` : '한 번(나누지 않음)'}`
+    + `${sending ? ` · <b class="text-primary">조각 ${sending}/${total} 전사 중…</b>` : ''}</div>`
+    + (ch.length ? `<div style="overflow:auto"><table class="table table-sm mb-0 cs-table" style="max-width:52rem"><thead class="table-light"><tr>
+        <th style="width:6rem">조각</th><th>구간(원래 음원 기준)</th><th>호출</th><th>소요</th><th style="width:4.5rem">글자</th></tr></thead><tbody>${rows}</tbody></table></div>` : '');
+}
+/** 결과 카드 — 실행 단위(일 단위 묶음은 건 합). 끝나기 전 단계 시간은 '…', 돌지 않은 단계는 '-'. */
+function sdTilesHtml(r) {
+  const t = r.timings || {}, items = r.items || [], ended = !!r.endedAt;
+  const reachedStt = items.some(i => (i.stt?.chunks || []).length || i.stt?.text != null || i.failedStep === 'ANALYZE');
+  const reachedDeid = items.some(i => i.deid?.text != null || i.failedStep === 'DEIDENT');
+  const deidDone = items.some(i => i.deid?.text != null);
+  const phase = (ms, reached) => ended ? (reached ? sdSecNum(ms) : '-') : (ms ? sdSecNum(ms) : '…');
+  const total = ended ? sdSecNum(t.totalMs) : sdT0 ? ((performance.now() - sdT0) / 1000).toFixed(1) : '…';
+  const sum = f => items.reduce((n, i) => n + (Number(f(i)) || 0), 0);
+  const many = items.length > 1 ? ` · ${items.length}건 합` : '';
+  const d0 = items[0]?.deid || {};
+  const tile = (k, n, unit, s) => `<div class="pf-tile"><div class="k">${k}</div><div class="n">${n}${unit && n !== '-' && n !== '…' ? `<small>${unit}</small>` : ''}</div>`
+    + `<div class="s" title="${esc(s)}">${esc(s)}</div></div>`;
+  return [
+    tile('STT 소요', phase(t.sttMs, reachedStt), '초', `제논 호출 ${sum(i => (i.stt?.chunks || []).length)}번${many}`),
+    tile('비식별 소요', phase(t.deidMs, reachedDeid), '초', `${d0.mode === 'MOCK' ? '수집기 내장 MOCK' : '커넥터'} · HTTP ${d0.httpStatus || '-'}${many}`),
+    tile('전체 소요', total, '초', `생성 ${sdSecNum(t.generateMs)} · 병합 ${sdSecNum(t.mergeMs)}${r.mode === 'REAL' ? ` · 적재 ${sdSecNum(t.storeMs)}` : ''}초`),
+    tile('음원', esc(fmtSec(sum(i => i.seconds))), '', `${gsMb(sum(i => i.fileSize))} · 16kHz 모노${many}`),
+    // 비식별 전 · 실패면 0개가 아니라 '…' · '-' — '가릴 게 없었다' 로 읽히지 않게
+    tile('가린 자리', deidDone ? String(sum(i => i.deid?.tokens)) : ended ? '-' : '…', '개',
+      deidDone ? `서로 다른 토큰 ${sum(i => i.deid?.uniqueTokens)} · 별표 ${sum(i => i.deid?.masks)}${many}` : ended ? '가린 글 없음' : '비식별 전'),
+  ].join('');
+}
+function sdErrorHtml(it) {
+  const d = it.deid || {};
+  let hint = '';
+  if (it.failedStep === 'DEIDENT') {
+    if (d.httpStatus === 504) hint = d.code === 'DEID_TIMEOUT' ? '커넥터가 AI-R 응답을 기다리다 대기 한도를 넘겼습니다(504 DEID_TIMEOUT) — 잠시 뒤 다시 시도하십시오'
+      : '504 인데 커넥터 오류 코드가 없습니다 — 앞단 프록시(nginx 등)가 먼저 끊었을 수 있습니다';
+    else if (/timed out|타임아웃|시간 초과/i.test(it.error || '')) hint = '시간 초과 — 긴 전사문은 커넥터 쪽 AI-R 처리가 오래 걸립니다';
+    else if (!d.httpStatus) hint = '커넥터에 닿지 못했습니다 — agent-connector.base-url · 전송 모드를 확인하십시오';
+  } else if (it.failedStep === 'ANALYZE') {
+    hint = '제논 STT 단계 — ④ 연결 테스트 · 호출 모드 · 키를 확인하십시오';
+  }
+  return `<div class="zt-note mb-2"><b>${esc(SD_STEP_LABEL[it.failedStep] || it.failedStep || '실패')}</b> — ${esc(it.error || '')}`
+    + (d.httpStatus || d.code ? `<div class="mt-1">커넥터 HTTP <b>${esc(d.httpStatus || '-')}</b>${d.code ? ` · 코드 <code>${esc(d.code)}</code>` : ''}</div>` : '')
+    + (hint ? `<div class="mt-1">${esc(hint)}</div>` : '')
+    + (it.errStack ? `<div class="hint mt-1">T4 ERR_STACK — <code>${esc(it.errStack)}</code></div>` : '') + '</div>';
+}
+function sdRenderTexts(it) {
+  const st = it?.stt || {}, d = it?.deid || {}, seeded = st.seededLines || [];
+  const waiting = !!it && it.status !== 'FAIL' && !sdLast?.endedAt;
+  if (!it || st.text == null) {
+    $('sd-raw').innerHTML = `<span class="hint">${waiting ? 'STT 결과를 기다리는 중…' : '전사문이 없습니다.'}</span>`;
+    $('sd-raw-sum').textContent = '';
+  } else {
+    $('sd-raw').innerHTML = (st.text ? esc(st.text) : '<span class="hint">(빈 전사)</span>') + sdSeedBlock(seeded.map(esc));
+    $('sd-raw-sum').textContent = `${(st.chars ?? 0).toLocaleString()}자 · 구간 ${st.segments ?? 0}개 · ${st.engine || '-'}`
+      + (seeded.length ? ` · 덧붙인 ${seeded.length}줄 포함 비식별 입력 ${(d.inputChars ?? 0).toLocaleString()}자` : '');
+  }
+  if (!it || d.text == null) {
+    $('sd-deid').innerHTML = `<span class="hint">${it?.failedStep === 'DEIDENT' ? '비식별에 실패해 가린 글이 없습니다 — 위 오류를 보십시오'
+      : waiting ? '비식별 결과를 기다리는 중…' : '가린 글이 없습니다.'}</span>`;
+    $('sd-deid-sum').textContent = '';
+    return;
+  }
+  // 덧붙인 줄은 비식별 입력의 끝 줄들이다 — 가린 글도 끝에서 같은 줄 수를 떼어 구분해 보인다(줄 수가 모자라면 통째로)
+  const lines = d.text.split('\n');
+  const n = seeded.length && lines.length > seeded.length ? seeded.length : 0;
+  $('sd-deid').innerHTML = sdMark(lines.slice(0, lines.length - n).join('\n')) + sdSeedBlock(lines.slice(lines.length - n).map(sdMark));
+  const types = Object.entries(d.tokenTypes || {}).map(([k, v]) => `${k} ${v}`).join(' · ');
+  $('sd-deid-sum').textContent = `${(d.chars ?? 0).toLocaleString()}자 · 토큰 ${d.tokens ?? 0}(서로 다른 ${d.uniqueTokens ?? 0}${types ? ' — ' + types : ''}) · 별표 ${d.masks ?? 0}`
+    + ` · ${d.mode === 'MOCK' ? '수집기 내장 MOCK(전화 · 주민번호 · 이메일만)' : `커넥터 ${d.elapsedMs ?? '-'}ms`}`;
+}
+function sdSeedBlock(htmlLines) {
+  return htmlLines.length ? '<span class="sd-seed"><span class="lbl">가상 개인정보 문장 — STT 결과가 아니라 비식별 확인용으로 덧붙인 줄(지어낸 이름 · 번호)</span>'
+    + htmlLines.join('\n') + '</span>' : '';
+}
+/** 가린 글 칠하기 — 원문을 먼저 escape 한다(토큰 · 별표 글자는 escape 로 바뀌지 않는다). */
+function sdMark(text) {
+  return esc(text).replace(/\[([A-Z][A-Z0-9_]*)_(\d+)\]/g, '<mark class="sd-tok" title="$1">$&</mark>')
+    .replace(/\*{2,}/g, '<mark class="sd-mask" title="별표 마스킹">$&</mark>');
+}
+function sdWhereHtml(r, it) {
+  const notes = (r.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
+  let html = notes ? `<ul class="hint mb-2 ps-3">${notes}</ul>` : '';
+  if (r.mode === 'REAL' && r.logged && r.execId) {
+    const lc = SD_STATUS?.logCollector || {};
+    html += `<div class="zt-note">📊 어드민 <b>배치 수행 이력</b> — 데이터 유형 <b>비정형</b> · 작업 <b>${esc(lc.jobNm || '음성 STT·비식별 검증')}</b>`
+      + ` · 실행 ID <code>${esc(r.execId)}</code> · 실행 유형 <b>${r.execType === 'SCHEDULED' ? '스케줄(SCHEDULED)' : '수동(MANUAL)'}</b>`
+      + ` · 단계 수집 · 분석 · 비식별 · 저장(처리 건수 = 저장 단계 통과 건수)${r.endedAt ? '' : ' — 끝나면 상태 · 건수 · 소요가 채워집니다'}`
+      + (it?.storedAt ? `<div class="hint mt-1">가린 글 적재 — <span class="font-monospace">${esc(it.storedAt)}</span>(원문 전사는 쓰지 않음)</div>` : '')
+      + '</div>';
+  }
+  return html;
+}
+
+// ── ③ 최근 실행 ──
+async function sdLoadRuns() {
+  const list = await quietGet(SD_PATH + '/runs');
+  const tb = $('sd-runs');
+  if (!Array.isArray(list)) { tb.innerHTML = '<tr><td colspan="8" class="hint text-danger">목록을 받지 못했습니다</td></tr>'; return; }
+  if (!list.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="hint">수집기가 뜬 뒤로 실행이 없습니다 — 최근 실행은 메모리에만 있어 재기동하면 비워집니다(REAL 이력은 로그 컬렉터에 남음)</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(r => `<tr data-sd-run="${esc(r.runId)}" class="${r.runId === sdRunId ? 'sel' : ''}">
+      <td><code>${esc(r.runId)}</code><div class="hint">${esc(agDt(r.requestedAt))}</div></td>
+      <td>${r.mode === 'REAL' ? '<span class="cs-chip cs-FAIL">REAL</span>' : '<span class="cs-chip cs-x">SIM</span>'}</td>
+      <td>${r.trigger === 'DAILY' ? '일 단위' : '화면'} <span class="hint">${esc(r.triggerBy)} · ${esc(r.execType)}</span></td>
+      <td>${sdStsChip(r.status)}</td>
+      <td>${esc(r.successCount)}/${esc(r.itemCount)}${r.failCount ? ` <span class="ks-ng">실패 ${esc(r.failCount)}</span>` : ''}</td>
+      <td>${esc(fmtSec(r.totalSeconds))}</td>
+      <td>${r.endedAt ? sdSecNum(r.timings?.totalMs) + '초' : '…'}</td>
+      <td>${r.execId ? `<code>${esc(r.execId)}</code>${r.logged ? '' : ' <span class="hint">(로컬 · 이력 없음)</span>'}` : '-'}</td></tr>`).join('');
+}
+$('sd-runs').addEventListener('click', async e => {
+  const tr = e.target.closest('tr[data-sd-run]');
+  if (!tr) return;
+  const r = await quietGet(`${SD_PATH}/runs/${encodeURIComponent(tr.dataset.sdRun)}`);
+  if (!r) {
+    showPopup('실행을 읽지 못했습니다', '<div class="pop-lead">최근 실행만 메모리에 남깁니다 — 목록을 새로 고치십시오.</div>');
+    return;
+  }
+  sdFollow(r.runId, r, false);
+});
+$('sd-refresh').addEventListener('click', () => sdOnShow());   // 다른 데서 접수한 실행(새벽 스케줄 · [즉시 실행])이 돌고 있으면 그것도 따라간다
+
+async function sdOnShow() {
+  await sdLoadStatus();
+  await sdLoadRuns();
+  // 돌고 있는 실행(새벽 스케줄 · [즉시 실행]이 접수한 묶음 포함)이 있고 ② 가 비었거나 끝난 실행을 보이면 그것을 따라간다
+  const a = SD_STATUS?.active;
+  if (a && (!sdLast || sdLast.endedAt) && a.runId !== sdRunId) sdFollow(a.runId, null, false);
+}
 </script>
 </body>
 </html>

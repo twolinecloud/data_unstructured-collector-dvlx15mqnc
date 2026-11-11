@@ -420,7 +420,7 @@ public class VoiceMockController {
                 "broker", List.of("MOCK", "REST"),
                 "phone", List.of("MOCK", "ESB"),
                 "decrypt", List.of("SKIP", "REAL"),
-                "stt", List.of("MOCK", "NPU")));
+                "stt", List.of("MOCK", "NPU", "GENON")));
         return out;
     }
 
@@ -433,7 +433,7 @@ public class VoiceMockController {
                     - `broker` : MOCK / REST — 접견 전용
                     - `phone`  : MOCK / ESB — 전화 전용. 브로커와 별개입니다
                     - `decrypt`: SKIP / REAL
-                    - `stt`    : MOCK / NPU
+                    - `stt`    : MOCK / NPU / GENON(제논 — 실호출 여부는 11번 탭의 MOCK · REST)
 
                     변경은 **이 프로세스에만** 남습니다. 재기동하면 설정값으로 돌아갑니다 —
                     운영에서 실수로 바꾼 모드가 영구히 남지 않게 하려는 것입니다.

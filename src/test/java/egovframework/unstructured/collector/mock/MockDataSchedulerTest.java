@@ -17,8 +17,10 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -183,6 +185,56 @@ class MockDataSchedulerTest {
         MockDataScheduler s = new MockDataScheduler(mock(DummyDataService.class), off);
         assertThatThrownBy(() -> s.trigger(null)).isInstanceOf(DummyDataService.DashboardDisabledException.class);
         assertThatThrownBy(() -> s.simulate(null)).isInstanceOf(DummyDataService.DashboardDisabledException.class);
+    }
+
+    @Test
+    @DisplayName("음성 STT·비식별 — 스케줄 · 대시보드용 즉시 실행은 REAL · 시뮬레이터용은 SIM · N일 경과엔 안 붙음 · 대시보드가 꺼지면 REAL 은 건너뜀")
+    @SuppressWarnings("unchecked")
+    void voiceSttDeidRidesAlong() {
+        DummyDataService dummy = mock(DummyDataService.class);
+        when(dummy.generate(any())).thenReturn(Map.of("totals", Map.of("rows", 1)));
+        when(dummy.purgeDashboardBefore(any())).thenReturn(Map.of("counts", Map.of("dbRows", 0)));
+        when(dummy.dashboardDays(any(), any())).thenReturn(Map.of());
+        when(dummy.days(any(), any(), any())).thenReturn(Map.of());
+        SttDeidSimService voice = mock(SttDeidSimService.class);
+        when(voice.submitDaily(any(), any())).thenAnswer(inv -> Map.of("runId", "SD1", "mode", inv.getArgument(0).toString()));
+        MockDataScheduler s = new MockDataScheduler(dummy, props(true), null, voice);
+        LocalDate target = LocalDate.of(2026, 10, 1);
+
+        s.daily();
+        verify(voice).submitDaily(SttDeidSimService.Mode.REAL, "SCHEDULER");
+        Map<String, Object> last = (Map<String, Object>) s.status().get("lastRun");
+        assertThat((Map<String, Object>) last.get("result")).containsKey("voiceSttDeid");
+
+        Map<String, Object> dash = s.trigger(target, DummyTarget.DASHBOARD);
+        verify(voice).submitDaily(SttDeidSimService.Mode.REAL, "SIMULATOR");
+        assertThat((Map<String, Object>) dash.get("voiceSttDeid")).containsEntry("mode", "REAL");
+        assertThat(dash).containsEntry("ok", true);
+
+        Map<String, Object> sim = s.trigger(target, DummyTarget.SIMULATOR);
+        verify(voice).submitDaily(SttDeidSimService.Mode.SIM, "SIMULATOR");
+        assertThat((Map<String, Object>) sim.get("voiceSttDeid")).containsEntry("mode", "SIM");
+
+        s.simulate(1);
+        verify(voice, times(3)).submitDaily(any(), any());
+
+        // 접수가 실패해도 더미 결과는 그대로 — 사유만 붙는다
+        doThrow(new IllegalStateException("작업 스레드가 접수를 거절했습니다")).when(voice).submitDaily(any(), any());
+        Map<String, Object> err = s.trigger(target, DummyTarget.DASHBOARD);
+        assertThat(err).containsEntry("ok", true);
+        assertThat((Map<String, Object>) err.get("voiceSttDeid")).containsEntry("error", "작업 스레드가 접수를 거절했습니다");
+
+        // 대시보드 더미가 꺼져 있으면 REAL(스케줄)은 건너뛰고, 시뮬레이터용 SIM 은 돈다
+        SttDeidSimService voiceOff = mock(SttDeidSimService.class);
+        when(voiceOff.submitDaily(any(), any())).thenReturn(Map.of("runId", "SD2"));
+        MockDataProperties off = new MockDataProperties(new MockDataProperties.Dashboard(false), props(true).daily());
+        MockDataScheduler offS = new MockDataScheduler(dummy, off, null, voiceOff);
+        offS.daily();
+        verify(voiceOff, never()).submitDaily(any(), any());
+        Map<String, Object> offLast = (Map<String, Object>) ((Map<String, Object>) offS.status().get("lastRun")).get("result");
+        assertThat((Map<String, Object>) offLast.get("voiceSttDeid")).containsEntry("skipped", "dashboard disabled");
+        offS.trigger(target, DummyTarget.SIMULATOR);
+        verify(voiceOff).submitDaily(SttDeidSimService.Mode.SIM, "SIMULATOR");
     }
 
     @Test

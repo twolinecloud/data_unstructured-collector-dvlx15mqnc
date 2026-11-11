@@ -3,6 +3,7 @@ package egovframework.unstructured.collector.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import lombok.extern.log4j.Log4j2;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +38,10 @@ import java.util.function.Supplier;
  * <p>cron 은 늘 돌고, 꺼져 있으면 그 자리에서 건너뛴다. 놓친 날을 따라잡지 않는다(catch-up 없음) — 수집기가 내려가 있던 날은 비어 있다.
  * 실패해도 예외를 밖으로 던지지 않는다(다음 날 다시 돈다). 즉시 실행 · N일 경과 시뮬레이션은 스위치와 상관없이 돈다 —
  * 한 번에 하나만(겹치면 {@link BusyException}).</p>
+ *
+ * <p><b>음성 STT · 비식별 건</b>({@link SttDeidSimService}) — 스케줄 · 즉시 실행이 더미를 만든 뒤 접견 · 통화 3~5건(20~300초)을
+ * 백그라운드로 접수한다(수집 → 제논 STT → 커넥터 비식별). 스케줄 · 대시보드용 즉시 실행은 REAL(T1~T4 → 대시보드),
+ * 시뮬레이터용 즉시 실행은 SIM(기록 안 함). N일 경과 시뮬레이션에는 붙이지 않는다. 결과를 기다리지 않는다.</p>
  */
 @Log4j2
 @Component
@@ -54,6 +59,8 @@ public class MockDataScheduler {
     private final MockDataProperties props;
     /** 스위치 파일 — null 이면 메모리만(단위 테스트). */
     private final Supplier<Path> file;
+    /** 음성 STT · 비식별 건 — null 이면 붙이지 않는다(단위 테스트). */
+    private final SttDeidSimService sttDeid;
     private final AtomicBoolean enabled = new AtomicBoolean();
     /** 지금 값이 어디서 왔나 — CONFIG(설정) · UI(화면에서 바꿈 · 파일). */
     private volatile String source = "CONFIG";
@@ -70,8 +77,9 @@ public class MockDataScheduler {
     }
 
     @Autowired
-    public MockDataScheduler(DummyDataService dummy, MockDataProperties props, VoiceDirState dirs) {
-        this(dummy, props, () -> Path.of(dirs.baseDir(), FILE));
+    public MockDataScheduler(DummyDataService dummy, MockDataProperties props, VoiceDirState dirs,
+                             ObjectProvider<SttDeidSimService> sttDeid) {
+        this(dummy, props, () -> Path.of(dirs.baseDir(), FILE), sttDeid.getIfAvailable());
     }
 
     /** 파일 없이 — 설정값으로 시작하고 메모리에서만 바꾼다(단위 테스트용). */
@@ -81,9 +89,15 @@ public class MockDataScheduler {
 
     /** 이 파일에 스위치를 남긴다 — 재기동 흉내 단위 테스트용. */
     MockDataScheduler(DummyDataService dummy, MockDataProperties props, Supplier<Path> file) {
+        this(dummy, props, file, null);
+    }
+
+    /** 음성 STT · 비식별 건까지 — 단위 테스트용. */
+    MockDataScheduler(DummyDataService dummy, MockDataProperties props, Supplier<Path> file, SttDeidSimService sttDeid) {
         this.dummy = dummy;
         this.props = props;
         this.file = file;
+        this.sttDeid = sttDeid;
         this.enabled.set(props.daily().enabled());
         load();
         log.info("[Dummy:daily] 일 단위 자동 생성 — {} ({}) · cron {} · 보존 {}일", enabled.get() ? "켜짐" : "꺼짐",
@@ -108,7 +122,9 @@ public class MockDataScheduler {
         try {
             runningWhat = "스케줄";
             LocalDate today = LocalDate.now(ZONE);
-            remember("SCHEDULER", today, runOnce(today));
+            Map<String, Object> r = runOnce(today);
+            voice(r, SttDeidSimService.Mode.REAL, "SCHEDULER");
+            remember("SCHEDULER", today, r);
         } finally {
             runningWhat = null;
             running.unlock();
@@ -245,12 +261,14 @@ public class MockDataScheduler {
                 out.put("ok", !out.containsKey("generateError"));
                 out.put("readBy", READ_BY_SIMULATOR);
                 out.put("days", dummy.days(t, target, target));
+                voice(out, SttDeidSimService.Mode.SIM, "SIMULATOR");
                 return out;
             });
         }
         requireDashboard();
         return exclusive("즉시 실행", () -> {
             Map<String, Object> r = runOnce(target.plusDays(1));
+            voice(r, SttDeidSimService.Mode.REAL, "SIMULATOR");
             remember("MANUAL", target.plusDays(1), r);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("trigger", "MANUAL");
@@ -390,6 +408,26 @@ public class MockDataScheduler {
         } catch (Exception e) {
             out.put("generateError", e.getMessage());
             log.error("[Dummy:daily] 생성 실패 — {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 음성 STT · 비식별 건을 백그라운드로 접수하고 접수 요약을 {@code voiceSttDeid} 로 붙인다(결과는 기다리지 않는다).
+     * REAL 은 대시보드 더미가 꺼져 있으면 건너뛴다 — 이력이 대시보드에 남기 때문이다. 접수가 실패해도 더미 결과는 그대로다.
+     */
+    private void voice(Map<String, Object> out, SttDeidSimService.Mode mode, String triggerBy) {
+        if (sttDeid == null) {
+            return;
+        }
+        if (mode == SttDeidSimService.Mode.REAL && !props.dashboard().enabled()) {
+            out.put("voiceSttDeid", Map.of("skipped", "dashboard disabled"));
+            return;
+        }
+        try {
+            out.put("voiceSttDeid", sttDeid.submitDaily(mode, triggerBy));
+        } catch (Exception e) {
+            out.put("voiceSttDeid", Map.of("error", String.valueOf(e.getMessage())));
+            log.error("[Dummy:daily] 음성 STT·비식별 접수 실패 — {}", e.getMessage(), e);
         }
     }
 

@@ -16,6 +16,13 @@ spring:
     date-format: "yyyy-MM-dd'T'HH:mm:ss"
     default-property-inclusion: non_null
 
+  # 업로드 한도 — 스프링 기본(파일 1MB)이면 음성 STT 시뮬레이터(10번 탭)의 경계 시험 파일(20.5MB)과 문서 비식별(9번 탭)
+  #   시험 문서가 컨트롤러에 닿기 전에 막힌다. 업로드를 받는 경로는 dev · local 시뮬레이터뿐이다(운영 프로필엔 그 빈이 없다).
+  servlet:
+    multipart:
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:25MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:26MB}
+
   # DB 시간 표준 = KST. 로그 컬렉터와 같은 시계를 봐야 한 배치의 T1·T4 가 어긋나지 않는다.
   # (Main.main 에서 JVM 기본 타임존도 고정한다)
   #
@@ -178,7 +185,7 @@ voice:
     rvs-key-path: ${VOICE_RVS_KEY_PATH:}     # 접견 복호화 키(rvs_key.txt) — 미수령(Q8)
 
   stt:
-    mode: ${VOICE_STT_MODE:MOCK}             # MOCK | NPU
+    mode: ${VOICE_STT_MODE:MOCK}             # MOCK | NPU | GENON(제논 — 아래 genon.stt)
     base-url: ${VOICE_STT_BASE_URL:}
     timeout-sec: ${VOICE_STT_TIMEOUT_SEC:300}
     mock-latency-ms: ${VOICE_STT_MOCK_LATENCY_MS:0}   # MOCK 가상 지연(NPU 응답 흉내) — 성능 테스트가 회차마다 덮어쓴다
@@ -207,6 +214,31 @@ voice:
     #   이미 적재된 T4·T5 이력과 이어지지 않는다(unstructured-collector 이관 2026-09-29).
     salt: ${VOICE_PID_SALT:kcais-voice-collector}
     prefix: VP
+
+# ── 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05) ─────────────────────────────────────────
+#   voice.stt.mode=GENON 이면 배치 ANALYZE 가 쓴다. 시뮬레이터 11번 탭은 STT 모드와 상관없이 직접 부른다.
+#   mode    : MOCK(외부망 안 부름 · 제논 모양 응답) | REST(실호출). 기동값이고 11번 탭이 재시작 없이 바꾼다
+#   api-key : ⚠ 레포에 적지 않는다 — 배포 Secret → 환경변수 GENON_STT_API_KEY 로만. 비어 있으면 REST 로 못 바꾼다
+#   한도    : 외부망 시험 키 기준(동시 1건 · 20MiB · 600초 · WAV/MP3/M4A). 넘는 파일은 보내지 않고 막는다
+#   분할    : 한도를 넘는 PCM WAV 만 조각내 차례로 보내고 이어 붙인다(chunk-max-sec 이하 · 개수 최소 · 경계는 앞뒤 chunk-search-sec
+#             안 가장 조용한 20ms). 20분 → 600×2 · 30분 → 600×3. MP3/M4A 는 나누지 않는다(지금처럼 막힘)
+#   base-url: 런타임에 바꾸지 않는다(토큰이 엉뚱한 곳으로 가지 않게) — 바꾸려면 환경변수로 다시 띄운다
+genon:
+  stt:
+    mode: ${GENON_STT_MODE:MOCK}
+    base-url: ${GENON_STT_BASE_URL:https://genos.genon.ai/api/gateway/code_serving/1007/8690}
+    api-key: ${GENON_STT_API_KEY:}
+    key-expires-on: ${GENON_STT_KEY_EXPIRES_ON:2026-12-11}
+    timeout-sec: ${GENON_STT_TIMEOUT_SEC:60}
+    connect-timeout-sec: ${GENON_STT_CONNECT_TIMEOUT_SEC:10}
+    max-bytes: ${GENON_STT_MAX_BYTES:20971520}
+    max-duration-sec: ${GENON_STT_MAX_DURATION_SEC:600}
+    max-concurrency: ${GENON_STT_MAX_CONCURRENCY:1}
+    queue-timeout-sec: ${GENON_STT_QUEUE_TIMEOUT_SEC:180}
+    busy-retries: ${GENON_STT_BUSY_RETRIES:3}
+    busy-retry-max-wait-ms: ${GENON_STT_BUSY_RETRY_MAX_WAIT_MS:5000}
+    chunk-max-sec: ${GENON_STT_CHUNK_MAX_SEC:600}
+    chunk-search-sec: ${GENON_STT_CHUNK_SEARCH_SEC:15}
 
 logging:
   level:
@@ -251,6 +283,24 @@ unstructured:
       analyze-fail: ${UNSTRUCTURED_MOCK_DAILY_ANALYZE_FAIL:0}
       send-fail: ${UNSTRUCTURED_MOCK_DAILY_SEND_FAIL:0}
       retain-days: ${UNSTRUCTURED_MOCK_DAILY_RETAIN_DAYS:7}
+    # 음성 STT·비식별 검증(시뮬레이터 11번 탭 · 일 단위 자동 생성) — 가상 음원 → 제논 STT(600초 넘으면 분할) → 커넥터 /api/v1/deid/run
+    #   REAL 은 T1(작업 VOICE_STT_DEID · 비정형) · T2(COLLECT · ANALYZE · DEIDENT · STORE) · T4 → 대시보드 '배치 수행 이력'. SIM 은 기록 안 함
+    #   daily: 스케줄(01:30) · [즉시 실행] 이 접견 · 통화 3~5건(20~300초)을 백그라운드로 붙인다. 20~30분 음원은 11번 탭에서만
+    #   seed-pii: 합성 낭독에는 개인정보가 없어 가상 개인정보 문장 두 줄을 전사 끝에 덧붙인다(화면은 실행마다 고름)
+    stt-deid:
+      job-id: ${STT_DEID_JOB_ID:VOICE_STT_DEID}
+      job-nm: ${STT_DEID_JOB_NM:음성 STT·비식별 검증}
+      deid-path: ${STT_DEID_PATH:/api/v1/deid/run}
+      deid-read-timeout-sec: ${STT_DEID_READ_TIMEOUT_SEC:660}
+      air-mode: ${STT_DEID_AIR_MODE:}
+      seed-pii: ${STT_DEID_SEED_PII:true}
+      keep-runs: ${STT_DEID_KEEP_RUNS:20}
+      daily:
+        enabled: ${STT_DEID_DAILY_ENABLED:true}
+        min-items: ${STT_DEID_DAILY_MIN_ITEMS:3}
+        max-items: ${STT_DEID_DAILY_MAX_ITEMS:5}
+        min-sec: ${STT_DEID_DAILY_MIN_SEC:20}
+        max-sec: ${STT_DEID_DAILY_MAX_SEC:300}
 
 # ── 에이전트 커넥터 전송 — 파이프라인 3단계 SEND ────────────────────────────────
 #   [수집] COLLECT → [정제/분석] ANALYZE(STT) → [적재/전송] SEND — 에이전트 커넥터 bypass API → 제논.

@@ -38,7 +38,8 @@ import static org.springframework.web.servlet.function.RouterFunctions.route;
         egovframework.unstructured.collector.batch.UnstructuredBatchProperties.class,
         egovframework.unstructured.collector.mock.MockDataProperties.class,
         egovframework.unstructured.collector.mock.SttDeidProperties.class,
-        egovframework.unstructured.collector.voice.stt.genon.GenonSttProperties.class})
+        egovframework.unstructured.collector.voice.stt.genon.GenonSttProperties.class,
+        egovframework.unstructured.collector.voice.risk.RiskWf9Properties.class})
 @SpringBootApplication
 public class Main {
 

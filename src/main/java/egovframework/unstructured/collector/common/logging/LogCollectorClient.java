@@ -536,6 +536,44 @@ public class LogCollectorClient {
         return r == null || !r.hasNonNull("stepLogId") ? null : r.path("stepLogId").asText();
     }
 
+    // ── 접견·전화 주요사항(제논 WF9) ──────────────────────────────────────────
+
+    /**
+     * 녹음파일 하나의 주요사항을 통째로 바꾼다 — {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}(로그 컬렉터 V4).
+     *
+     * <p>한 트랜잭션에서 그 녹음의 행을 지우고 넣는다(같은 녹음을 다시 분석해도 행이 늘지 않는다). {@code signals} 가 비면 지우기만 한다.
+     * {@code signalCn} 에는 되돌린 실명이 있을 수 있어 <b>요청 · 응답 본문을 로그 · 예외 메시지에 싣지 않는다</b>(상태 코드만).</p>
+     *
+     * @return 넣은 행 수
+     * @throws RejectedException    400 — 같은 본문은 다시 보내도 거절된다
+     * @throws UnavailableException 미연동 · 통신 실패 · 시간 초과 · 그 밖의 HTTP 오류 · 빈 응답 — 나중에 다시
+     */
+    public int replaceContactRiskSignals(String recFileId, ContactRiskReplaceReq req) {
+        if (!isEnabled()) {
+            throw new UnavailableException("로그 컬렉터 미연동(log-collector.enabled · base-url)", null);
+        }
+        String u = url("/api/v1/logs/contact-risk-signals/"
+                + org.springframework.web.util.UriUtils.encodePathSegment(recFileId.strip(), java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            return exchangeStrict(HttpMethod.PUT, u, req).path("inserted").asInt(0);
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            int s = e.getStatusCode().value();
+            if (s == 400) {
+                throw new RejectedException("주요사항 적재 거절 — HTTP 400", e);
+            }
+            throw new UnavailableException("주요사항 적재 실패 — HTTP " + s, e);
+        } catch (RuntimeException e) {
+            throw new UnavailableException("주요사항 적재 실패 — " + e.getClass().getSimpleName(), e);
+        }
+    }
+
+    /** 로그 컬렉터가 요청을 거절함(400) — 다시 보내도 같다. */
+    public static class RejectedException extends RuntimeException {
+        public RejectedException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     // ── 내부 ───────────────────────────────────────────────────────────────
 
     private String url(String path) {
@@ -655,6 +693,38 @@ public class LogCollectorClient {
                     : r.contains("connect") || r.contains("i/o error") || r.contains("연결") ? "CONNECTION"
                     : "DATA";
             return "[" + code + "] " + reason.strip();
+        }
+    }
+
+    /**
+     * 주요사항 통째 교체 — 로그 컬렉터 {@code ContactRiskDto.ReplaceReq} 와 필드명이 같아야 한다.
+     *
+     * @param corrNo      교정번호
+     * @param contactSeCd VISIT 접견 · CALL 전화
+     * @param contactDtm  접견 · 통화 일시(KST · offset 없음)
+     * @param execId      스풀에 넣은 배치(T1) — 추적용
+     * @param regUserId   비우면 UNSTRUCTURED_COLLECTOR
+     * @param signals     비면 그 녹음의 행을 모두 지운다(분석했지만 주요사항 없음)
+     */
+    public record ContactRiskReplaceReq(String corrNo, String contactSeCd, LocalDateTime contactDtm, String execId,
+                                        String regUserId, List<ContactRiskSignalReq> signals) {}
+
+    /**
+     * WF9 결과 항목 하나 — 로그 컬렉터 {@code ContactRiskDto.SignalReq}.
+     *
+     * @param signalSeCd  FINDING · REVIEW
+     * @param signalSn    비우면 같은 구분 안에서 목록 순서로 1부터
+     * @param riskClassCd 위험 분류(WF9 값 그대로 · 50자 넘으면 로그 컬렉터가 자른다)
+     * @param signalCn    화면 '내용' — 되돌린 글(D6). 4000자 넘으면 로그 컬렉터가 자른다
+     * @param signalData  WF9 원본 항목(가린 그대로)
+     */
+    public record ContactRiskSignalReq(String signalSeCd, Integer signalSn, String riskClassCd, String signalCn,
+                                       JsonNode signalData) {
+
+        /** 내용을 싣지 않는다. */
+        @Override
+        public String toString() {
+            return "ContactRiskSignalReq[" + signalSeCd + ", " + riskClassCd + ", " + (signalCn == null ? 0 : signalCn.length()) + "자]";
         }
     }
 }

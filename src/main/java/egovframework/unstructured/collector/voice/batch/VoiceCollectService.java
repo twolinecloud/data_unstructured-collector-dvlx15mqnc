@@ -101,6 +101,8 @@ public class VoiceCollectService {
     private final PerfStageMeter meter;
     /** 더미 키 표식(CF) 장애 — 접견 수집에서 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
+    /** 접견·전화 위험 신호(제논 WF9) 스풀 — 복호화 직후 사본만 넣는다. 꺼져 있으면(기본) 아무 일도 하지 않는다. */
+    private final egovframework.unstructured.collector.voice.risk.Wf9Spool wf9Spool;
 
     /**
      * 건을 동시에 처리할 워커 수 — <b>운영 기본은 1(순차)</b>.
@@ -255,6 +257,7 @@ public class VoiceCollectService {
         // ── T2 ① COLLECT — 파일 확보·복호화. 배치 시작에 연다 ────────────────────
         RunContext ctx = new RunContext(execId);
         ctx.fromExecId = fromExecId;
+        ctx.testRun = testRun;
         // 전송 런 — 건마다 레코드를 쌓고 배치 끝에 청크로 나눠 보낸다(data-collector 양식). 재처리면 원배치 런을 이어 받는다
         ctx.transfer = connector.openSession(execId, fromExecId);
         log.info("[Batch]   전송 — 에이전트 커넥터 {} · {} · 청크 {}건", connector.mode(), connector.endpoint(), connector.chunkRecords());
@@ -688,6 +691,8 @@ public class VoiceCollectService {
     private static final class RunContext {
         final String execId;
         String fromExecId;
+        /** 시험 실행(TST) — WF9 스풀은 시험 건을 넣지 않는다(가상 건이 대시보드 표에 섞이지 않게). */
+        boolean testRun;
         String collectStepId;
         String analyzeStepId;
         String deidentStepId;
@@ -1125,6 +1130,7 @@ public class VoiceCollectService {
                     st.fileSize = st.acquired.sizeBytes();
                 } else {
                     st.stt = reused;   // 보라미가 이미 가진 STT(계획서 Q1) — 오디오를 만질 필요가 없다
+                    wf9Spool.noteNoAudio(target, ctx.testRun);   // 그래서 WF9(음성에서 시작)에서는 빠진다
                 }
             }
         } catch (Exception e) {
@@ -1176,6 +1182,9 @@ public class VoiceCollectService {
             }
             if (plain != null) {
                 readyAudio = plain.path();
+                // WF9(접견·전화 위험 신호) — 음성 사본만 스풀에 넣고 바로 다음 단계로. 예외를 던지지 않는다(배치 결과에 영향 없음).
+                //   T1~T5 는 건드리지 않는다(1116 과제 3 · D7). 꺼져 있으면(기본) 아무 일도 하지 않는다
+                wf9Spool.offer(ctx.execId, target, plain.path(), ctx.testRun);
             }
             long tCollected = System.currentTimeMillis();
             ctx.addCollect(tCollected - t0);

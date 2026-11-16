@@ -215,6 +215,39 @@ voice:
     salt: ${VOICE_PID_SALT:kcais-voice-collector}
     prefix: VP
 
+  # ── 접견·전화 위험 신호(제논 WF9) — 1116 통합설계 과제 3 ─────────────────────────────────────
+  #   배치는 복호화 직후 음성 사본을 스풀에 넣기만 한다(T1~T5 그대로 · 넣지 못해도 배치 결과는 같다).
+  #   작업자 하나(전용 스레드)가 음성 배치가 돌지 않을 때: 제논 audio/process → 커넥터 POST /api/v1/deid/speech-results
+  #   (잔존이 있으면 422 — 제논에 안 보냄) → 제논 WF9(SSE) → {findings, reviews} → 로그 컬렉터 주요사항 표(30일 보존).
+  #   ⚠ 계정은 레포에 적지 않는다 — Secret → 환경변수 GENON_PORTAL_USER_ID · GENON_PORTAL_PASSWORD 로만.
+  #   음성 키는 genon.stt.api-key(GENON_STT_API_KEY)를 그대로 쓰고 STT 와 '동시 1건' 차례를 나눈다.
+  #   개발계 외부망 · Secret 결정 전까지 enabled=false 로 배포한다.
+  risk-wf9:
+    enabled: ${VOICE_RISK_WF9_ENABLED:false}
+    spool-dir: ${VOICE_RISK_WF9_SPOOL_DIR:}                 # 비우면 {ROOT}/xvram/wf9-spool(복호화 폴더 옆 · 같은 PVC)
+    skip-test-runs: ${VOICE_RISK_WF9_SKIP_TEST_RUNS:true}   # 시험 실행(TST · 시뮬레이터) 건은 넣지 않는다
+    max-pending: ${VOICE_RISK_WF9_MAX_PENDING:300}
+    max-spool-mb: ${VOICE_RISK_WF9_MAX_SPOOL_MB:4096}       # 배치와 같은 PVC — 가득 채우지 않게
+    analyze-max-sec: ${VOICE_RISK_WF9_ANALYZE_MAX_SEC:600}  # D9 — 더 긴 PCM WAV 는 앞부분만 담는다(MP3/M4A 는 못 자르면 건너뜀)
+    max-retries: ${VOICE_RISK_WF9_MAX_RETRIES:3}
+    retry-base-sec: ${VOICE_RISK_WF9_RETRY_BASE_SEC:300}    # 5분 → 10분 → 20분
+    max-age-hours: ${VOICE_RISK_WF9_MAX_AGE_HOURS:48}       # 넘으면 포기하고 사본 삭제(ERROR 로그)
+    daily-limit: ${VOICE_RISK_WF9_DAILY_LIMIT:0}            # 하루(KST) 처리 상한 · 0 = 없음
+    poll-sec: ${VOICE_RISK_WF9_POLL_SEC:30}
+    initial-delay-sec: ${VOICE_RISK_WF9_INITIAL_DELAY_SEC:60}
+    deid-path: ${VOICE_RISK_WF9_DEID_PATH:/api/v1/deid/speech-results}
+    deid-timeout-sec: ${VOICE_RISK_WF9_DEID_TIMEOUT_SEC:660}  # 커넥터가 AI-R 을 최대 600초 기다린다
+    portal-mode: ${GENON_PORTAL_MODE:MOCK}                  # MOCK(외부망 안 부름 · 가이드 예시 빈 결과) | REST
+    portal-base-url: ${GENON_PORTAL_BASE_URL:https://genos.genon.ai/api/genportal}
+    portal-user-id: ${GENON_PORTAL_USER_ID:}
+    portal-password: ${GENON_PORTAL_PASSWORD:}
+    portal-endpoint: ${GENON_WF9_ENDPOINT:pt6i_10rw_jsd9}
+    portal-connect-timeout-sec: ${GENON_PORTAL_CONNECT_TIMEOUT_SEC:10}
+    portal-timeout-sec: ${GENON_PORTAL_TIMEOUT_SEC:300}
+    # WF9 항목 구조는 가이드에 없다 — 실응답을 보고 고정한다. 앞에 둔 필드부터 찾는다(원 항목은 SIGNAL_DATA 에 그대로)
+    content-fields: ${VOICE_RISK_WF9_CONTENT_FIELDS:content,description,summary,text,detail,reason,evidence,finding,review,message}
+    risk-class-fields: ${VOICE_RISK_WF9_RISK_CLASS_FIELDS:riskClassCode,risk_class_code,riskClassCd,risk_class_cd,riskClass,risk_class,category,riskType,risk_type,type,code}
+
 # ── 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05) ─────────────────────────────────────────
 #   voice.stt.mode=GENON 이면 배치 ANALYZE 가 쓴다. 시뮬레이터 11번 탭은 STT 모드와 상관없이 직접 부른다.
 #   mode    : MOCK(외부망 안 부름 · 제논 모양 응답) | REST(실호출). 기동값이고 11번 탭이 재시작 없이 바꾼다

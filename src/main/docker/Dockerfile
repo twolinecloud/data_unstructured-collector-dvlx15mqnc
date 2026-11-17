@@ -1,4 +1,8 @@
-FROM registry.turacocloud.com/turaco-package/openjdk:17-alpine
+# 기반 JDK 는 GA 판이어야 한다. 플랫폼 기본값 openjdk:17-alpine 은 2021-06 조기 접근판(17-ea+14)이라
+# java.util.HexFormat 의 fromHexDigits 등 6개가 인스턴스 메서드다(GA 17 은 정적). 스프링 6.2 는 URL 경로의
+# %XX 를 풀 때 그 정적 메서드를 불러, 한글 · 공백 · %3A 가 든 경로가 전부 500(IncompatibleClassChangeError)이었다.
+# Harbor 미러의 Temurin 17 GA(같은 Alpine · musl)로 바꾼다 — openjdk:17-alpine 으로 되돌리지 말 것.
+FROM registry.turacocloud.com/turaco-package/eclipse-temurin:17-jdk-alpine
 
 ARG JAR_FILE
 ARG SPRING_PROFILE

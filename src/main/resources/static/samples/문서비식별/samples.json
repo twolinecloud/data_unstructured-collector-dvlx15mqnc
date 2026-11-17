@@ -31,7 +31,7 @@
       "group": "포맷지원",
       "desc": "1쪽 · PII 12종 · 자리 9곳(본문·표 4종·표뒤문단·머리말·꼬리말·문서속성)",
       "format": "hwpx",
-      "bytes": 40987,
+      "bytes": 39011,
       "answers": "probe_answers.json"
     },
     {
@@ -134,7 +134,7 @@
       "group": "표구조",
       "desc": "한 값을 여러 칸에 — 모든 포맷에서 깨진다 (포맷 비교)",
       "format": "hwpx",
-      "bytes": 31777,
+      "bytes": 29985,
       "answers": "table_cases.json",
       "case": "값분할"
     },
@@ -161,7 +161,7 @@
       "group": "표구조",
       "desc": "셀 안에서 두 줄로 — docx 가 가장 심하다 (포맷 비교)",
       "format": "hwpx",
-      "bytes": 31881,
+      "bytes": 30103,
       "answers": "table_cases.json",
       "case": "셀내줄바꿈"
     },

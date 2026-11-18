@@ -374,7 +374,10 @@ public class VoiceCollectService {
             if (transfer.held()) {
                 log.info("[Batch] 에이전트 커넥터가 전송을 보류했다 — {} · SEND 를 전송 대기(WAIT)로 둔다(관리자 확인 후 전송)",
                         transfer.holdReason());
-                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, "WAIT", sendIn, success, sendErr, ctx.sendMs,
+                // 나간 건수는 0 — 커넥터가 받아 보류 장부에 올렸을 뿐 아직 보내지 않았다. 화면 전송 카드 · '성공 N' 이 outCnt 를
+                //   쓰므로 여기 success 를 넣으면 '10건 · 대기' · '성공 10' 으로 보낸 것처럼 보인다(2026-11-18 수정).
+                //   커넥터의 대기 되돌리기(TransmissionReleaseService.requeue)도 WAIT · in=건수 · out=0 이다 — 관리자 트리거가 보낸 뒤 실제 건수로 마감한다.
+                steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, "WAIT", sendIn, 0L, sendErr, ctx.sendMs,
                         sendErrStack));
             } else {
                 steps.add(finishStep(ctx.sendStepId, FileProcOutcome.STEP_SEND, sendIn, success, sendErr, ctx.sendMs,

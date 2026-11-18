@@ -134,6 +134,10 @@ class VoiceSendHeldTest {
         assertThat(r.successCnt()).isEqualTo(4);
         VoiceBatchResult.StepLog send = r.steps().stream().filter(s -> "SEND".equals(s.stepTypeCd())).findFirst().orElseThrow();
         assertThat(send.stepStsCd()).as("보류 — SUCCESS 가 아니라 전송 대기").isEqualTo("WAIT");
+        // 아직 아무것도 나가지 않았다 — 나간 건수는 0(화면 카드 · '성공 N' 이 outCnt 를 쓴다). 커넥터가 대기로 되돌릴 때와 같은 값
+        assertThat(send.inCnt()).as("전송할 건수").isEqualTo(4);
+        assertThat(send.outCnt()).as("보류 중 나간 건수").isZero();
+        assertThat(send.errCnt()).isZero();
         assertThat(r.steps()).filteredOn(s -> !"SEND".equals(s.stepTypeCd()))
                 .allSatisfy(s -> assertThat(s.stepStsCd()).isEqualTo("SUCCESS"));
         assertThat(r.transfer()).containsEntry("held", "true").containsEntry("holdReason", "수동 확인");

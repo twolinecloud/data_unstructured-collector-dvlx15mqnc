@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -15,21 +18,36 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li>코드 울타리(```)가 있으면 첫 울타리 안만 본다 → 첫 '{' ~ 끝 '}' 를 JSON 으로 읽는다 → {@code findings} · {@code reviews}</li>
- *   <li>항목 하나 = 행 하나. 가이드가 항목 구조를 정하지 않아 '내용' · '위험 분류' 는 설정한 필드 이름 목록에서 앞에 둔 것부터 찾는다.
+ *   <li>항목 하나 = 행 하나. '내용' · '위험 분류' 는 설정한 필드 이름 목록에서 앞에 둔 것부터 찾는다.
  *       '내용'을 못 찾으면 항목 JSON 을 그대로 쓴다(항목이 글이면 그 글)</li>
  *   <li>'내용'만 메모리 사전으로 되돌린다(D6) — 원 항목({@code signalData})은 가린 그대로 둔다</li>
+ *   <li>위험 분류는 받은 값 그대로 넘긴다 — 코드표로 맞추는 일은 코드를 가진 로그 컬렉터가 한다(D4 · 코드표 밖은 ETC)</li>
  * </ol>
+ *
+ * <p><b>항목 규격(2026-11-18 · 우리 안)</b>: {@code {"riskClassCode": 코드표 값, "content": 화면 '내용', "evidence": 근거 발화, ...}}.
+ * 목록의 <b>첫 이름</b>이 약속한 필드다(기본 {@code content} · {@code riskClassCode} — 대시보드 API 필드 이름과 같게).
+ * 제논 실응답을 아직 못 봐서, 약속한 '내용' 필드가 없는 항목은 '규격 밖'으로 세고 그 항목이 쓴 필드 이름을 모아 경고로 남긴다
+ * (값은 싣지 않는다) — 실응답이 다르면 설정 {@code voice.risk-wf9.content-fields} · {@code risk-class-fields} 만 바꾸면 된다.</p>
  */
 final class Wf9Signals {
 
     /** 커넥터 토큰 모양 — {@code [NAME_1]} · {@code [CASE_NO_2]}(커넥터 · 로그 컬렉터와 같은 규칙). */
     static final Pattern TOKEN = Pattern.compile("\\[[A-Z][A-Z0-9_]*_\\d+]");
     private static final Pattern FENCE = Pattern.compile("```[^\\n`]*\\n?(.*?)```", Pattern.DOTALL);
+    /** 경고 로그에 싣는 필드 이름 — 짧은 이름 꼴만(값이 아니라 키지만 LLM 이 만든 것이라 거른다). */
+    private static final Pattern FIELD_NAME = Pattern.compile("[\\p{IsHangul}A-Za-z0-9_]{1,40}");
+    private static final int OFF_SPEC_FIELDS_MAX = 10;
 
     record Parsed(List<JsonNode> findings, List<JsonNode> reviews) {}
 
-    /** 행으로 바꾼 결과 — 내용이 비어 버린 항목 수를 함께. */
-    record Rows(List<LogCollectorClient.ContactRiskSignalReq> signals, int skipped) {}
+    /**
+     * 행으로 바꾼 결과.
+     *
+     * @param skipped       내용이 비어 뺀 항목 수
+     * @param offSpec       규격 밖 항목 수 — 약속한 '내용' 필드(목록 첫 이름)에 글이 없는 항목(글 · 배열 항목 포함)
+     * @param offSpecFields 규격 밖 항목들이 쓴 필드 이름(처음 본 순서 · 최대 10개). 객체가 아니면 {@code (글)} · {@code (배열)} 따위
+     */
+    record Rows(List<LogCollectorClient.ContactRiskSignalReq> signals, int skipped, int offSpec, List<String> offSpecFields) {}
 
     private Wf9Signals() {
     }
@@ -77,22 +95,56 @@ final class Wf9Signals {
 
     static Rows toRows(Parsed p, Map<String, String> mapping, List<String> contentFields, List<String> riskClassFields) {
         List<LogCollectorClient.ContactRiskSignalReq> out = new ArrayList<>(p.findings().size() + p.reviews().size());
-        int[] skipped = {0};
-        add(out, skipped, "FINDING", p.findings(), mapping, contentFields, riskClassFields);
-        add(out, skipped, "REVIEW", p.reviews(), mapping, contentFields, riskClassFields);
-        return new Rows(out, skipped[0]);
+        Tally t = new Tally();
+        add(out, t, "FINDING", p.findings(), mapping, contentFields, riskClassFields);
+        add(out, t, "REVIEW", p.reviews(), mapping, contentFields, riskClassFields);
+        return new Rows(out, t.skipped, t.offSpec, List.copyOf(t.offSpecFields));
     }
 
-    private static void add(List<LogCollectorClient.ContactRiskSignalReq> out, int[] skipped, String se, List<JsonNode> items,
+    /** 집계 — 뺀 항목 · 규격 밖 항목 · 그 필드 이름. */
+    private static final class Tally {
+        int skipped;
+        int offSpec;
+        final Set<String> offSpecFields = new LinkedHashSet<>();
+
+        void offSpec(JsonNode item) {
+            offSpec++;
+            if (item.isObject()) {
+                item.fieldNames().forEachRemaining(this::field);
+            } else {
+                field(item.isArray() ? "(배열)" : item.isTextual() ? "(글)" : "(" + item.getNodeType().name().toLowerCase(Locale.ROOT) + ")");
+            }
+        }
+
+        private void field(String name) {
+            if (offSpecFields.size() < OFF_SPEC_FIELDS_MAX) {
+                offSpecFields.add(name.startsWith("(") || FIELD_NAME.matcher(name).matches() ? name : "(이름 형식 밖)");
+            }
+        }
+    }
+
+    /** 약속한 '내용' 필드(목록 첫 이름)에 글이 있는가. */
+    static boolean inSpec(JsonNode item, List<String> contentFields) {
+        if (contentFields.isEmpty() || item == null || !item.isObject()) {
+            return false;
+        }
+        JsonNode v = item.get(contentFields.get(0));
+        return v != null && v.isTextual() && !v.asText().isBlank();
+    }
+
+    private static void add(List<LogCollectorClient.ContactRiskSignalReq> out, Tally t, String se, List<JsonNode> items,
                             Map<String, String> mapping, List<String> contentFields, List<String> riskClassFields) {
         for (JsonNode item : items) {
+            if (!inSpec(item, contentFields)) {
+                t.offSpec(item);
+            }
             String cn = item.isValueNode() ? item.asText() : firstText(item, contentFields);
             if (cn == null) {
                 cn = item.toString();
             }
             cn = restore(cn, mapping).strip();
             if (cn.isEmpty()) {
-                skipped[0]++;
+                t.skipped++;
                 continue;
             }
             String risk = item.isObject() ? firstText(item, riskClassFields) : null;

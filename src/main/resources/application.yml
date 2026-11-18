@@ -244,9 +244,12 @@ voice:
     portal-endpoint: ${GENON_WF9_ENDPOINT:pt6i_10rw_jsd9}
     portal-connect-timeout-sec: ${GENON_PORTAL_CONNECT_TIMEOUT_SEC:10}
     portal-timeout-sec: ${GENON_PORTAL_TIMEOUT_SEC:300}
-    # WF9 항목 구조는 가이드에 없다 — 실응답을 보고 고정한다. 앞에 둔 필드부터 찾는다(원 항목은 SIGNAL_DATA 에 그대로)
-    content-fields: ${VOICE_RISK_WF9_CONTENT_FIELDS:content,description,summary,text,detail,reason,evidence,finding,review,message}
-    risk-class-fields: ${VOICE_RISK_WF9_RISK_CLASS_FIELDS:riskClassCode,risk_class_code,riskClassCd,risk_class_cd,riskClass,risk_class,category,riskType,risk_type,type,code}
+    # WF9 항목 규격(2026-11-18 우리 안 — 제논에 이 이름으로 요청): 첫 이름이 약속한 필드(content · riskClassCode = 대시보드 API 필드 이름)
+    # 나머지는 실응답이 다를 때 받아 주는 후보 — 앞에 둔 것부터 찾는다(원 항목은 SIGNAL_DATA 에 그대로).
+    # 첫 '내용' 필드가 없는 항목은 '[WF9] 항목 규격 밖' 경고(필드 이름만) — 실응답이 그 모양이면 여기만 바꾼다.
+    # 위험 분류 값은 그대로 넘기고, 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는 로그 컬렉터가 맞춘다.
+    content-fields: ${VOICE_RISK_WF9_CONTENT_FIELDS:content,주요사항,내용,description,summary,text,detail,reason,evidence,finding,review,message}
+    risk-class-fields: ${VOICE_RISK_WF9_RISK_CLASS_FIELDS:riskClassCode,risk_class_code,riskClassCd,risk_class_cd,위험분류,위험유형,riskClass,risk_class,category,riskType,risk_type,type,code}
 
 # ── 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05) ─────────────────────────────────────────
 #   voice.stt.mode=GENON 이면 배치 ANALYZE 가 쓴다. 시뮬레이터 11번 탭은 STT 모드와 상관없이 직접 부른다.

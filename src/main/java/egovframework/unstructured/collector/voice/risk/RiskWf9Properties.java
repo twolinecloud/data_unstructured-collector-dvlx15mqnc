@@ -37,8 +37,11 @@ import java.util.List;
  * @param portalEndpoint      WF9 endpoint
  * @param portalConnectTimeoutSec 연결 상한
  * @param portalTimeoutSec    WF9 응답(SSE end 까지) 상한
- * @param contentFields       항목에서 화면 '내용'(SIGNAL_CN)으로 쓸 필드 — 앞에 둔 것부터. 가이드가 항목 구조를 정하지 않아 실응답을 보고 고정한다
- * @param riskClassFields     항목에서 위험 분류(RISK_CLASS_CD)로 쓸 필드 — 앞에 둔 것부터
+ * @param contentFields       항목에서 화면 '내용'(SIGNAL_CN)으로 쓸 필드 — 앞에 둔 것부터. <b>첫 이름이 항목 규격</b>(2026-11-18 우리 안 ·
+ *                            {@code content} — 대시보드 API 필드 이름과 같게)이고, 나머지는 제논 실응답이 다를 때 받아 주는 후보다.
+ *                            첫 이름이 없는 항목은 '규격 밖'으로 경고한다(필드 이름만)
+ * @param riskClassFields     항목에서 위험 분류(RISK_CLASS_CD)로 쓸 필드 — 앞에 둔 것부터. 첫 이름 {@code riskClassCode} 가 규격.
+ *                            값은 그대로 넘기고 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는 로그 컬렉터가 맞춘다
  */
 @ConfigurationProperties(prefix = "voice.risk-wf9")
 public record RiskWf9Properties(
@@ -63,9 +66,9 @@ public record RiskWf9Properties(
         @DefaultValue("pt6i_10rw_jsd9") String portalEndpoint,
         @DefaultValue("10") int portalConnectTimeoutSec,
         @DefaultValue("300") int portalTimeoutSec,
-        @DefaultValue("content,description,summary,text,detail,reason,evidence,finding,review,message")
+        @DefaultValue("content,주요사항,내용,description,summary,text,detail,reason,evidence,finding,review,message")
         List<String> contentFields,
-        @DefaultValue("riskClassCode,risk_class_code,riskClassCd,risk_class_cd,riskClass,risk_class,category,riskType,risk_type,type,code")
+        @DefaultValue("riskClassCode,risk_class_code,riskClassCd,risk_class_cd,위험분류,위험유형,riskClass,risk_class,category,riskType,risk_type,type,code")
         List<String> riskClassFields
 ) {
 

@@ -75,9 +75,15 @@ public class RiskWf9Pipeline {
         }
         String answer = portal.wf9(message);
 
-        // ④ {findings, reviews} → 행(내용만 되돌린다)
+        // ④ {findings, reviews} → 행(내용만 되돌린다 · 위험 분류는 받은 값 그대로 — 코드표로는 로그 컬렉터가 맞춘다)
         Wf9Signals.Parsed parsed = Wf9Signals.parse(om, answer);
         Wf9Signals.Rows rows = Wf9Signals.toRows(parsed, masked.mapping(), props.contentFields(), props.riskClassFields());
+        if (rows.offSpec() > 0) {
+            // 항목 규격(우리 안 — 제논 실응답 확인 전)과 다른 답. 값은 싣지 않고 필드 이름만 — 실응답이 이 모양이면 설정으로 맞춘다
+            log.warn("[WF9] {} — 항목 규격 밖 {}개(약속한 내용 필드 '{}' 없음) · 받은 필드 {} · 맞추려면 voice.risk-wf9.content-fields · risk-class-fields",
+                    job.shortId(), rows.offSpec(), props.contentFields().isEmpty() ? "-" : props.contentFields().get(0),
+                    rows.offSpecFields());
+        }
 
         // ⑤ 로그 컬렉터 — 녹음 단위 통째 교체(0건이면 지우기만)
         int inserted;

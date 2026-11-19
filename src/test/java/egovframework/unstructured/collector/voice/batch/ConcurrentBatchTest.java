@@ -108,6 +108,8 @@ class ConcurrentBatchTest {
         verify(logCollector, times(1)).createStep(anyString(), eq((short) 3), eq(FileProcOutcome.STEP_DEIDENT));
         verify(logCollector, times(1)).createStep(anyString(), eq((short) 4), eq(FileProcOutcome.STEP_SEND));
         verify(logCollector, times(4)).createStep(anyString(), org.mockito.ArgumentMatchers.anyShort(), anyString());
+        // T8 — 비식별을 한 배치는 끝에 한 번 다시 집계한다(관리자 '비식별화 건수' 툴팁)
+        verify(logCollector, times(1)).rebuildDeidentDetails(r.execId());
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
                 .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_DEIDENT,
                         FileProcOutcome.STEP_SEND);

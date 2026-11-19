@@ -363,6 +363,25 @@ public class LogCollectorClient {
         return ids;
     }
 
+    // ── T8 비식별 처리 결과 상세 ────────────────────────────────────────────
+
+    /**
+     * T8({@code TB_DEIDENT_RESULT_DETAIL}) 다시 집계 — {@code PUT /api/v1/logs/batches/{execId}/deident-details}.
+     *
+     * <p>로그 컬렉터가 이 배치의 T5 비식별 성공 행을 개인정보 유형별로 세어 T8 을 지우고 다시 채운다(SQL 한 번).
+     * 관리자 배치 상세 '비식별화 건수' 툴팁의 근거다. 배치 끝에 한 번 — 같은 EXEC_ID 를 다시 연 재처리 뒤에 불러도 겹치지 않는다.
+     * 처리 방식은 컬렉터 기본값('마스킹' — 커넥터 음성 비식별은 별표 마스킹)을 쓴다.</p>
+     *
+     * @return 채운 항목 수. 미연동 · 실패면 -1(수집은 계속)
+     */
+    public int rebuildDeidentDetails(String execId) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return -1;
+        }
+        JsonNode r = exchange(HttpMethod.PUT, url("/api/v1/logs/batches/" + execId.trim() + "/deident-details"), Map.of());
+        return r != null && r.path("ids").isArray() ? r.path("ids").size() : -1;
+    }
+
     /** 배치 상세(T1 + 단계 + 하위 집계) 조회 — 멱등 판정·정합성 대사의 근거. */
     public JsonNode getBatchDetail(String execId) {
         if (!isEnabled() || !StringUtils.hasText(execId)) {

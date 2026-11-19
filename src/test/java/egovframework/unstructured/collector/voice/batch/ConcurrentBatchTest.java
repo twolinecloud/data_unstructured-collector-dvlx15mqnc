@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,9 +25,11 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -110,6 +113,10 @@ class ConcurrentBatchTest {
         verify(logCollector, times(4)).createStep(anyString(), org.mockito.ArgumentMatchers.anyShort(), anyString());
         // T8 — 비식별을 한 배치는 끝에 한 번 다시 집계한다(관리자 '비식별화 건수' 툴팁)
         verify(logCollector, times(1)).rebuildDeidentDetails(r.execId());
+        //   T4 를 적재한 뒤에 — 로그 컬렉터가 파일명을 T4 에서 찾는다(앞서면 전부 배치 공통분 · 2026-11-20 개발계)
+        InOrder t4ThenT8 = inOrder(logCollector);
+        t4ThenT8.verify(logCollector).createFileProcs(eq(r.execId()), anyList());
+        t4ThenT8.verify(logCollector).rebuildDeidentDetails(r.execId());
         assertThat(r.steps()).extracting(VoiceBatchResult.StepLog::stepTypeCd)
                 .containsExactly(FileProcOutcome.STEP_COLLECT, FileProcOutcome.STEP_ANALYZE, FileProcOutcome.STEP_DEIDENT,
                         FileProcOutcome.STEP_SEND);

@@ -363,11 +363,6 @@ public class VoiceCollectService {
             steps.add(finishStep(ctx.deidentStepId, FileProcOutcome.STEP_DEIDENT,
                     deidentIn, deidentIn - deidentErr, deidentErr, ctx.deidentMs,
                     stepErrStack(outcomes, FileProcOutcome.STEP_DEIDENT)));
-            // T8 — 커넥터가 건마다 남긴 T5 의 개인정보 유형별 개수를 배치 단위 항목별 건수로(관리자 '비식별화 건수' 툴팁).
-            //   로그 컬렉터가 T5 에서 지우고 다시 채운다 — 다시 연 배치도 겹치지 않고, 앞서 보내 본문이 파기된 건도 센다
-            //   (유형별 개수는 파기 대상이 아니다 · 로그 컬렉터 V6). 실패해도 배치는 그대로 마감한다.
-            int items = logCollector.rebuildDeidentDetails(execId);
-            log.info("[Batch] T8 비식별 결과 상세 다시 집계 — {}", items < 0 ? "건너뜀(미연동 · 실패)" : "항목 " + items + "개");
         }
         // SEND — 비식별을 통과한 건이 한 번이라도 에이전트 커넥터 전송을 시도했을 때만 행이 있다.
         //   커넥터가 받고 내보내지 않았으면(전송 제어 T7 — 수동 확인 · 전송 중지) SUCCESS 가 아니라 전송 대기(WAIT)로 닫는다 —
@@ -392,6 +387,16 @@ public class VoiceCollectService {
 
         // T4 — 파일 1건 = 1행. 정합성 대사(T1.SUCCESS_CNT == Σ T3·T4·T5)의 근거다.
         logCollector.createFileProcs(execId, toFileProcReqs(outcomes, reopened));
+
+        // T8 — 커넥터가 건마다 남긴 T5 의 개인정보 유형별 개수를 파일 · 항목별 건수로(관리자 '비식별화 건수' 툴팁).
+        //   로그 컬렉터가 T5 에서 지우고 다시 채운다 — 다시 연 배치도 겹치지 않고, 앞서 보내 본문이 파기된 건도 센다
+        //   (유형별 개수는 파기 대상이 아니다 · 로그 컬렉터 V6). 실패해도 배치는 그대로 마감한다.
+        //   반드시 T4 뒤에 — 파일명(FILE_NM)을 T4 에서 찾아 복사한다. 앞에 부르면 T4 가 비어 전부 배치 공통분(NULL)이 된다
+        //   (2026-11-20 개발계 20261120UNS002: PUT 이 T4 적재보다 42ms 앞서 파일명이 다 비었다).
+        if (ctx.deidentStarted) {
+            int items = logCollector.rebuildDeidentDetails(execId);
+            log.info("[Batch] T8 비식별 결과 상세 다시 집계 — {}", items < 0 ? "건너뜀(미연동 · 실패)" : "항목 " + items + "개");
+        }
 
         // 결과를 PV 에 남기지 않는다 — 어디로 보냈는지만 싣는다
         Map<String, String> sent = new LinkedHashMap<>();

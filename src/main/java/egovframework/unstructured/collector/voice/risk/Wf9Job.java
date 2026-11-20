@@ -16,7 +16,7 @@ import java.time.ZoneId;
  * @param corrNo         교정번호 — 로그 컬렉터 적재 키
  * @param kind           MEET · PHONE
  * @param occurredAt     접견일자 / 통화 시작(KST · offset 없는 ISO)
- * @param execId         스풀에 넣은 배치(T1) — 추적용
+ * @param execId         스풀에 넣은 배치(T1) — 추적용 · 제논 실호출 정상 응답 뒤 이 배치의 폐기 상태를 폐기 완료로 적는다
  * @param contactId      제논에 보내는 무작위 대체 ID(실제 키를 내보내지 않는다)
  * @param audioFile      사본 파일 이름
  * @param cutSec         앞부분만 담았으면 그 길이(초 · D9). 통째면 null

@@ -1,6 +1,7 @@
 package egovframework.unstructured.collector.voice.risk;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -14,9 +15,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +39,7 @@ import java.util.regex.Pattern;
 import static egovframework.unstructured.collector.voice.risk.Wf9TestSupport.OM;
 import static egovframework.unstructured.collector.voice.risk.Wf9TestSupport.json;
 import static egovframework.unstructured.collector.voice.risk.Wf9TestSupport.meet;
+import static egovframework.unstructured.collector.voice.risk.Wf9TestSupport.phone;
 import static egovframework.unstructured.collector.voice.risk.Wf9TestSupport.sse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -66,6 +71,8 @@ class RiskWf9FlowTest {
     private final AtomicInteger logins = new AtomicInteger();
     private volatile int deidStatus = 200;
     private volatile int putStatus = 200;
+    /** 가짜 제논 · WF9 가 2026-11-20 실응답(고정 자료)을 돌려준다. */
+    private volatile boolean realShape;
 
     private final Wf9TestSupport.MutableClock clock = new Wf9TestSupport.MutableClock(Instant.parse("2026-11-16T03:00:00Z"));
     private Wf9Spool spool;
@@ -107,9 +114,20 @@ class RiskWf9FlowTest {
     }
 
     private void build(RiskWf9Properties.PortalMode portalMode) {
+        build(portalMode, false);
+    }
+
+    /** @param defaultFields 내용 · 위험 분류 필드 목록을 운영 기본값(@DefaultValue)으로 */
+    private void build(RiskWf9Properties.PortalMode portalMode, boolean defaultFields) {
         Wf9TestSupport.Props p = new Wf9TestSupport.Props();
         p.portalMode = portalMode;
         p.portalBaseUrl = base + "/api/genportal";
+        if (defaultFields) {
+            RiskWf9Properties d = new Binder(new MapConfigurationPropertySource(Map.of()))
+                    .bindOrCreate("voice.risk-wf9", RiskWf9Properties.class);
+            p.contentFields = d.contentFields();
+            p.riskClassFields = d.riskClassFields();
+        }
         RiskWf9Properties props = p.build();
         GenonSttProperties gp = Wf9TestSupport.genon(GenonSttProperties.Mode.REST, base + "/genon", 20_971_520L, 600);
         GenonSttClient genon = new GenonSttClient(gp, OM);
@@ -134,6 +152,20 @@ class RiskWf9FlowTest {
         String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         genonBodies.add(body);
         String cid = field(body, "contact_id");
+        if (realShape) {
+            // 2026-11-20 실응답(합성 낭독 22초) — 받은 필드로 기록 정보만 바꾸고, 가상 이름을 한 구간의 글 · 낱말에 섞는다
+            ObjectNode r = (ObjectNode) OM.readTree(resource("/genon/process_22s_20261120.json"));
+            ((ObjectNode) r.path("input").path("contact_records").path(0)).put("contact_id", cid)
+                    .put("contact_type", field(body, "contact_type")).put("occurred_at", field(body, "occurred_at"));
+            ObjectNode sr = (ObjectNode) r.path("input").path("speech_results").path(0);
+            sr.put("contact_id", cid);
+            ObjectNode seg = (ObjectNode) sr.path("segments").path(5);
+            seg.put("text", NAME + "에게 다음 주에 면회 갈게요.");
+            ((ArrayNode) seg.path("words")).insertObject(0).put("word", NAME + "에게").put("start_ms", 10270.0)
+                    .put("end_ms", 10700.0).put("score", 0.9);
+            json(ex, 200, OM.writeValueAsString(r));
+            return;
+        }
         ObjectNode r = OM.createObjectNode();
         r.put("function", "contact_risk_analysis");
         ObjectNode in = r.putObject("input");
@@ -171,6 +203,20 @@ class RiskWf9FlowTest {
     /** 가짜 WF9 — 울타리 친 JSON 을 토큰 셋으로 나눠 흘린다. */
     private void chat(HttpExchange ex) throws IOException {
         chatBodies.add(OM.readTree(ex.getRequestBody().readAllBytes()));
+        if (realShape) {
+            // 2026-11-20 실응답(가상 위험 대화 → 자살 · 도주 · 부정물품 수수) — token 일부 뒤 result.text 로 답 전체
+            String real = resource("/genon/wf9_findings_20261120.json");
+            ex.getResponseHeaders().add("Content-Type", "text/event-stream");
+            ex.sendResponseHeaders(200, 0);
+            try (OutputStream o = ex.getResponseBody()) {
+                for (String part : List.of(sse("request_id", "req-1"), sse("session_id", "s-1"), sse("token", real.substring(0, 20)),
+                        sse("result", Map.of("text", real)), sse("duration", "10.8"), sse("end", "[DONE]"))) {
+                    o.write(part.getBytes(StandardCharsets.UTF_8));
+                    o.flush();
+                }
+            }
+            return;
+        }
         String answer = "```json\n" + OM.writeValueAsString(Map.of(
                 "findings", List.of(Map.of("content", "[NAME_1]이 [PHONE_1]로 외부 연락을 요청함", "riskClassCode", "EXT_CONTACT")),
                 "reviews", List.of(Map.of("description", "[NAME_1]과의 관계 확인 필요")))) + "\n```";
@@ -189,6 +235,15 @@ class RiskWf9FlowTest {
     private static String field(String multipart, String name) {
         Matcher m = Pattern.compile("name=\"" + name + "\"\\r\\n(?:[^\\r\\n]+\\r\\n)*\\r\\n([^\\r\\n]*)\\r\\n").matcher(multipart);
         return m.find() ? m.group(1) : null;
+    }
+
+    private static String resource(String path) throws IOException {
+        try (InputStream in = RiskWf9FlowTest.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IOException("시험 자료 없음 — " + path);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     // ------------------------------------------------------------------ 시험
@@ -244,6 +299,56 @@ class RiskWf9FlowTest {
         assertThat(s.get(1).path("signalCn").asText()).isEqualTo(NAME + "과의 관계 확인 필요");
         assertThat(s.get(1).path("riskClassCd").isNull()).isTrue();
         assertThat(s.get(1).path("signalSn").isNull()).as("순번은 로그 컬렉터가 매긴다").isTrue();
+    }
+
+    @Test
+    @DisplayName("실응답 모양(2026-11-20 가이드 11-19판) — 전처리 구간 · 낱말 그대로 커넥터로 · WF9 엔 낱말까지 가린 문서 · findings 3건 → 기본 필드 목록으로 3행")
+    void realShapeEndToEnd() throws Exception {
+        realShape = true;
+        build(RiskWf9Properties.PortalMode.REST, true);
+        assertThat(spool.offer("20261120UNS001", phone(REC), audio, false)).isTrue();
+
+        RiskWf9Worker.Report r = worker.drain();
+
+        assertThat(r.succeeded()).isEqualTo(1);
+        assertThat(spool.list()).isEmpty();
+        assertThat(field(genonBodies.get(0), "contact_type")).isEqualTo("전화");
+        assertThat(field(genonBodies.get(0), "occurred_at")).isEqualTo("2026-11-16T14:05:07+09:00");
+
+        // ② 커넥터 — 제논 전처리 본문 그대로(구간 9개 · segment_id · speaker · 낱말 시각 · 운율 상태)
+        JsonNode sr = deidBodies.get(0).path("document").path("input").path("speech_results").path(0);
+        assertThat(sr.path("segments")).hasSize(9);
+        assertThat(sr.path("segments").path(0).path("segment_id").asText()).isEqualTo("SEG-0001");
+        assertThat(sr.path("segments").path(0).path("speaker").asText()).isEqualTo("UNKNOWN");
+        assertThat(sr.path("segments").path(5).path("words").path(0).path("word").asText()).isEqualTo(NAME + "에게");
+        assertThat(sr.path("prosody_status").asText()).isEqualTo("skipped_short");
+
+        // ③ WF9 — 낱말까지 가린 문서만
+        String message = chatBodies.get(0).path("message").asText();
+        assertThat(message).doesNotContain(NAME).contains("[NAME_1]에게");
+        assertThat(OM.readTree(message).path("input").path("speech_results").path(0).path("segments").path(5)
+                .path("words").path(0).path("word").asText()).isEqualTo("[NAME_1]에게");
+
+        // ⑤ 로그 컬렉터 — 한 녹음의 findings 3건이 서로 덮어쓰지 않고 3행(순번은 로그 컬렉터가 1..3 · 분류 코드는 로그 컬렉터가 맞춘다)
+        assertThat(putPaths).containsExactly("PUT /logc/api/v1/logs/contact-risk-signals/" + REC);
+        JsonNode put = putBodies.get(0);
+        assertThat(put.path("contactSeCd").asText()).isEqualTo("CALL");
+        assertThat(put.path("corrNo").asText()).isEqualTo("2026000456");
+        assertThat(put.path("contactDtm").asText()).isEqualTo("2026-11-16T14:05:07");
+        JsonNode s = put.path("signals");
+        assertThat(s).hasSize(3);
+        assertThat(s.findValuesAsText("signalSeCd")).containsOnly("FINDING");
+        assertThat(s.findValuesAsText("riskClassCd")).containsExactly("자살", "도주", "부정물품 수수");
+        assertThat(s.findValuesAsText("signalCn"))
+                .containsExactly("전화통화 중 자살 암시 발언", "전화통화 중 도주 암시 발언", "전화통화 중 부정물품 수수 암시 발언");
+        JsonNode ev = s.get(1).path("signalData").path("evidence");
+        assertThat(ev).hasSize(2);
+        assertThat(ev.get(1).path("segment_id").asText()).isEqualTo("SEG-0003");
+        assertThat(ev.get(1).path("start_ms").asDouble()).isEqualTo(5100.0);
+        assertThat(ev.get(1).get("speaker").isNull()).isTrue();
+        for (JsonNode one : s) {
+            assertThat(one.path("signalSn").isNull()).isTrue();
+        }
     }
 
     @Test

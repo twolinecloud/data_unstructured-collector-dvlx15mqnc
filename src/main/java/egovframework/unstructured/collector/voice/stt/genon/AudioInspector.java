@@ -17,9 +17,9 @@ import java.util.Set;
 /**
  * 제논 STT 사전 검증 — 포맷 · 크기 · 재생 시간을 <b>보내기 전에</b> 본다.
  *
- * <p>제논도 같은 한도로 거절한다(2026-11-06 실측: 20.5 MiB → 400 {@code audio_size_limit_exceeded},
- * 실제 601초 → 400 {@code audio_duration_limit_exceeded}, 텍스트 → 400 {@code unsupported_audio_format}).
- * 그래도 앞에서 막는 까닭은 둘이다 — 20MB 를 외부망으로 다 올린 뒤에야 거절을 받으면 동시 1건 한도의 차례를
+ * <p>제논도 같은 한도로 거절한다(2026-11-06 옛 한도 20 MiB · 600초 때 실측: 20.5 MiB → 400 {@code audio_size_limit_exceeded},
+ * 실제 601초 → 400 {@code audio_duration_limit_exceeded}, 텍스트 → 400 {@code unsupported_audio_format} — 11-19판 한도는 256 MiB · 3900초).
+ * 그래도 앞에서 막는 까닭은 둘이다 — 큰 파일을 외부망으로 다 올린 뒤에야 거절을 받으면 동시 1건 한도의 차례를
  * 그만큼 잡아먹고, 실패 사유도 제논 코드보다 "몇 초라서 안 됨" 이 읽기 쉽다.</p>
  *
  * <p><b>재생 시간은 디코딩하지 않고 헤더로 잰다</b> — WAV 는 fmt · data 청크, MP3 는 첫 프레임 헤더(Xing · Info ·

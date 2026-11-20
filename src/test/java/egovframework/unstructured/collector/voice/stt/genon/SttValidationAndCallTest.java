@@ -359,7 +359,7 @@ class SttValidationAndCallTest {
         assertThat(rejected.kind()).isEqualTo(GenonSttException.Kind.REJECTED);
         assertThat(rejected.httpStatus()).isEqualTo(400);
         assertThat(rejected.errorCode()).isEqualTo("audio_duration_limit_exceeded");
-        assertThat(rejected.hint()).isEqualTo("재생 시간 600초 초과");
+        assertThat(rejected.hint()).isEqualTo("재생 시간 한도 초과(가이드 11-19판 3900초)");
         assertThat(errStack(rejected)).startsWith("[DATA]");
 
         replies.add(new Reply(401, "text/plain", "Invalid token"));
@@ -450,8 +450,8 @@ class SttValidationAndCallTest {
     @DisplayName("실제 제논(선택) — GENON_STT_LIVE=true · GENON_STT_API_KEY 가 있을 때만. 합성 낭독 22초를 전사한다")
     void liveGenon() throws Exception {
         GenonSttClient live = new GenonSttClient(props(GenonSttProperties.Mode.REST,
-                System.getenv("GENON_STT_API_KEY"), 60,
-                "https://genos.genon.ai/api/gateway/code_serving/1007/8690"), om);
+                System.getenv("GENON_STT_API_KEY"), 300,
+                "https://genos.genon.ai/api/gateway/code_serving/1007/9956"), om);   // 가이드 11-19판
         assertThat(live.probe().tokenValid()).as("GET /health 로 토큰 확인").isTrue();
 
         Path speech = AudioSampleGenerator.write(AudioSampleGenerator.Kind.SPEECH_22S, dir);

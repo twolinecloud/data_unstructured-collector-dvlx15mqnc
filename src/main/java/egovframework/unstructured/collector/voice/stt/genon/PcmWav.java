@@ -16,14 +16,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * PCM WAV 다루기 — <b>인코더 없이</b> 길게 이어 붙이고(시험 음원) 600초 한도 아래로 나눈다(제논 분할 전사).
+ * PCM WAV 다루기 — <b>인코더 없이</b> 길게 이어 붙이고(시험 음원) 조각 한도({@code genon.stt.chunk-max-sec}) 아래로 나눈다(제논 분할 전사).
  *
  * <p>파드에 ffmpeg 가 없다. 그래서 다루는 것은 <b>PCM 16bit WAV</b> 하나다 — 표본을 그대로 복사하면 되므로 자르는 자리만
  * 정하면 된다. MP3 · M4A 는 프레임 · 상자 구조를 다시 짜야 하므로 나누지 않는다(제논으로 보내기 전 사전 검증이 막는다).</p>
  *
  * <p><b>나누는 규칙</b>({@link #plan}) — 조각 수는 한도로 덮을 수 있는 가장 적은 수({@code ceil(전체 ÷ 한도)})이고, 길이는 고르게 나눈다
- * (20분 → 600초 × 2 · 30분 → 600초 × 3). 경계는 고른 자리 ±{@code searchSec} 안에서 <b>가장 조용한 20ms</b>로 옮긴다 — 말 한가운데를
- * 자르면 앞뒤 조각이 같은 낱말을 반씩 듣는다. 어떤 조각도 한도를 넘지 않게 옮길 수 있는 폭만 쓴다(30분을 600초 셋으로 나누면 옮길 폭이 없다).</p>
+ * (11-19판 기본 한도 1800초: 30분 → 하나 · 65분 → 1300초 × 3 / 옛 한도 600초 때는 20분 → 600초 × 2 · 30분 → 600초 × 3).
+ * 경계는 고른 자리 ±{@code searchSec} 안에서 <b>가장 조용한 20ms</b>로 옮긴다 — 말 한가운데를 자르면 앞뒤 조각이 같은 낱말을 반씩 듣는다.
+ * 어떤 조각도 한도를 넘지 않게 옮길 수 있는 폭만 쓴다(옛 한도로 30분을 600초 셋으로 나누면 옮길 폭이 없었다).</p>
  */
 public final class PcmWav {
 
@@ -164,7 +165,7 @@ public final class PcmWav {
     /**
      * 나눌 자리를 정한다(파일은 만들지 않는다). {@code maxSec} 이하면 조각 하나다.
      *
-     * @param maxSec    조각 하나의 상한(제논 600초). 어떤 조각도 넘지 않는다
+     * @param maxSec    조각 하나의 상한({@code genon.stt.chunk-max-sec} · 11-19판 기본 1800초 · 옛 600초). 어떤 조각도 넘지 않는다
      * @param searchSec 경계를 고른 자리에서 앞뒤로 옮겨 볼 폭 — 이 안에서 가장 조용한 20ms 를 고른다
      */
     public static List<Piece> plan(Path file, Info info, double maxSec, double searchSec) throws IOException {

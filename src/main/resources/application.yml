@@ -228,7 +228,9 @@ voice:
     skip-test-runs: ${VOICE_RISK_WF9_SKIP_TEST_RUNS:true}   # 시험 실행(TST · 시뮬레이터) 건은 넣지 않는다
     max-pending: ${VOICE_RISK_WF9_MAX_PENDING:300}
     max-spool-mb: ${VOICE_RISK_WF9_MAX_SPOOL_MB:4096}       # 배치와 같은 PVC — 가득 채우지 않게
-    analyze-max-sec: ${VOICE_RISK_WF9_ANALYZE_MAX_SEC:600}  # D9 — 더 긴 PCM WAV 는 앞부분만 담는다(MP3/M4A 는 못 자르면 건너뜀)
+    # D9 — 앞에서부터 이만큼만 분석한다(더 긴 PCM WAV 는 앞부분만 · MP3/M4A 는 제논 한도를 넘으면 건너뜀).
+    #   2026-11-20 600 → 1800: 제논 가이드 11-19판 한도(3900초) 안에서 운영 상한 30분을 통째로 · 전처리 예상 약 133초(20분 실측 88.8초)
+    analyze-max-sec: ${VOICE_RISK_WF9_ANALYZE_MAX_SEC:1800}
     max-retries: ${VOICE_RISK_WF9_MAX_RETRIES:3}
     retry-base-sec: ${VOICE_RISK_WF9_RETRY_BASE_SEC:300}    # 5분 → 10분 → 20분
     max-age-hours: ${VOICE_RISK_WF9_MAX_AGE_HOURS:48}       # 넘으면 포기하고 사본 삭제(ERROR 로그)
@@ -243,37 +245,41 @@ voice:
     portal-password: ${GENON_PORTAL_PASSWORD:}
     portal-endpoint: ${GENON_WF9_ENDPOINT:pt6i_10rw_jsd9}
     portal-connect-timeout-sec: ${GENON_PORTAL_CONNECT_TIMEOUT_SEC:10}
-    portal-timeout-sec: ${GENON_PORTAL_TIMEOUT_SEC:300}
-    # WF9 항목 규격(2026-11-18 우리 안 — 제논에 이 이름으로 요청): 첫 이름이 약속한 필드(content · riskClassCode = 대시보드 API 필드 이름)
-    # 나머지는 실응답이 다를 때 받아 주는 후보 — 앞에 둔 것부터 찾는다(원 항목은 SIGNAL_DATA 에 그대로).
-    # 첫 '내용' 필드가 없는 항목은 '[WF9] 항목 규격 밖' 경고(필드 이름만) — 실응답이 그 모양이면 여기만 바꾼다.
-    # 위험 분류 값은 그대로 넘기고, 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는 로그 컬렉터가 맞춘다.
+    portal-timeout-sec: ${GENON_PORTAL_TIMEOUT_SEC:300}     # SSE end 까지 전체(감시 스레드) — 실측 3건 검출 10.8초 · 20분 전처리 결과 2.5초
+    # WF9 항목 — 앞에 둔 필드부터 찾는다(원 항목은 SIGNAL_DATA 에 그대로). 첫 '내용' 필드가 없는 항목은 '[WF9] 항목 규격 밖' 경고(필드 이름만).
+    #   실응답(2026-11-20 가이드 11-19판): findings[{contact_id, occurred_at, type:"전화", content, risk_type:"자살", evidence:[{start_ms,end_ms,segment_id,speaker,text}]}]
+    #   → 내용 = content · 위험 분류 = risk_type(한글 이름). 'type' 은 접촉 구분(접견 · 전화)이라 위험 분류 후보에서 뺐다(risk_type 없는 항목이 '전화' → ETC 가 되지 않게)
+    #   우리 규격 요청(11-18 riskClassCode · 코드표 값)은 뒤 후보로 둔다. 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는 로그 컬렉터가 맞춘다.
     content-fields: ${VOICE_RISK_WF9_CONTENT_FIELDS:content,주요사항,내용,description,summary,text,detail,reason,evidence,finding,review,message}
-    risk-class-fields: ${VOICE_RISK_WF9_RISK_CLASS_FIELDS:riskClassCode,risk_class_code,riskClassCd,risk_class_cd,위험분류,위험유형,riskClass,risk_class,category,riskType,risk_type,type,code}
+    risk-class-fields: ${VOICE_RISK_WF9_RISK_CLASS_FIELDS:risk_type,riskClassCode,risk_class_code,riskClassCd,risk_class_cd,위험분류,위험유형,riskType,riskClass,risk_class,category,code}
 
-# ── 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05) ─────────────────────────────────────────
+# ── 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-19판) ──────────────────────────────────────
 #   voice.stt.mode=GENON 이면 배치 ANALYZE 가 쓴다. 시뮬레이터 11번 탭은 STT 모드와 상관없이 직접 부른다.
 #   mode    : MOCK(외부망 안 부름 · 제논 모양 응답) | REST(실호출). 기동값이고 11번 탭이 재시작 없이 바꾼다
 #   api-key : ⚠ 레포에 적지 않는다 — 배포 Secret → 환경변수 GENON_STT_API_KEY 로만. 비어 있으면 REST 로 못 바꾼다
-#   한도    : 외부망 시험 키 기준(동시 1건 · 20MiB · 600초 · WAV/MP3/M4A). 넘는 파일은 보내지 않고 막는다
+#   base-url: 11-19판 음성 API — code_serving/1007/9956(옛 1007/8690 은 11-18~20 502 stt_unavailable). 키 · 계정 · 경로는 같다
+#   한도    : 11-19판(동시 1건 · 256MiB · 3900초 · WAV/MP3/M4A — 옛 20MiB · 600초). 넘는 파일은 보내지 않고 막는다
+#   시한    : 응답 하나(audio/transcribe · audio/process 공통) 300초 — 운영 상한 30분 전처리 예상 약 133초(20분 실측 88.8초)의 2배 넘게.
+#             차례 대기는 앞 건 한 번(시한 300초 + 다시 보내기)을 넘게 기다리도록 360초
 #   분할    : 한도를 넘는 PCM WAV 만 조각내 차례로 보내고 이어 붙인다(chunk-max-sec 이하 · 개수 최소 · 경계는 앞뒤 chunk-search-sec
-#             안 가장 조용한 20ms). 20분 → 600×2 · 30분 → 600×3. MP3/M4A 는 나누지 않는다(지금처럼 막힘)
-#   base-url: 런타임에 바꾸지 않는다(토큰이 엉뚱한 곳으로 가지 않게) — 바꾸려면 환경변수로 다시 띄운다
+#             안 가장 조용한 20ms). 조각 상한 1800초(운영 상한 30분 = 시한 300초 안에서 따져 본 길이) — 한도(3900초)를 넘는 것만
+#             나누므로 30분은 한 번에 간다(65분 넘는 파일 → 30분 이하 조각들). MP3/M4A 는 나누지 않는다
+#   base-url 은 런타임에 바꾸지 않는다(토큰이 엉뚱한 곳으로 가지 않게) — 바꾸려면 환경변수로 다시 띄운다
 genon:
   stt:
     mode: ${GENON_STT_MODE:MOCK}
-    base-url: ${GENON_STT_BASE_URL:https://genos.genon.ai/api/gateway/code_serving/1007/8690}
+    base-url: ${GENON_STT_BASE_URL:https://genos.genon.ai/api/gateway/code_serving/1007/9956}
     api-key: ${GENON_STT_API_KEY:}
     key-expires-on: ${GENON_STT_KEY_EXPIRES_ON:2026-12-11}
-    timeout-sec: ${GENON_STT_TIMEOUT_SEC:60}
+    timeout-sec: ${GENON_STT_TIMEOUT_SEC:300}
     connect-timeout-sec: ${GENON_STT_CONNECT_TIMEOUT_SEC:10}
-    max-bytes: ${GENON_STT_MAX_BYTES:20971520}
-    max-duration-sec: ${GENON_STT_MAX_DURATION_SEC:600}
+    max-bytes: ${GENON_STT_MAX_BYTES:268435456}
+    max-duration-sec: ${GENON_STT_MAX_DURATION_SEC:3900}
     max-concurrency: ${GENON_STT_MAX_CONCURRENCY:1}
-    queue-timeout-sec: ${GENON_STT_QUEUE_TIMEOUT_SEC:180}
+    queue-timeout-sec: ${GENON_STT_QUEUE_TIMEOUT_SEC:360}
     busy-retries: ${GENON_STT_BUSY_RETRIES:3}
     busy-retry-max-wait-ms: ${GENON_STT_BUSY_RETRY_MAX_WAIT_MS:5000}
-    chunk-max-sec: ${GENON_STT_CHUNK_MAX_SEC:600}
+    chunk-max-sec: ${GENON_STT_CHUNK_MAX_SEC:1800}
     chunk-search-sec: ${GENON_STT_CHUNK_SEARCH_SEC:15}
 
 logging:
@@ -319,7 +325,7 @@ unstructured:
       analyze-fail: ${UNSTRUCTURED_MOCK_DAILY_ANALYZE_FAIL:0}
       send-fail: ${UNSTRUCTURED_MOCK_DAILY_SEND_FAIL:0}
       retain-days: ${UNSTRUCTURED_MOCK_DAILY_RETAIN_DAYS:7}
-    # 음성 STT·비식별 검증(시뮬레이터 11번 탭 · 일 단위 자동 생성) — 가상 음원 → 제논 STT(600초 넘으면 분할) → 커넥터 /api/v1/deid/run
+    # 음성 STT·비식별 검증(시뮬레이터 11번 탭 · 일 단위 자동 생성) — 가상 음원 → 제논 STT(조각 한도 genon.stt.chunk-max-sec 넘으면 분할) → 커넥터 /api/v1/deid/run
     #   REAL 은 T1(작업 VOICE_STT_DEID · 비정형) · T2(COLLECT · ANALYZE · DEIDENT · STORE) · T4 → 대시보드 '배치 수행 이력'. SIM 은 기록 안 함
     #   daily: 스케줄(01:30) · [즉시 실행] 이 접견 · 통화 3~5건(20~300초)을 백그라운드로 붙인다. 20~30분 음원은 11번 탭에서만
     #   seed-pii: 합성 낭독에는 개인정보가 없어 가상 개인정보 문장 두 줄을 전사 끝에 덧붙인다(화면은 실행마다 고름)

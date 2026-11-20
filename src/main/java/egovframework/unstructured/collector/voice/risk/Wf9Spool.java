@@ -34,7 +34,7 @@ import java.util.stream.Stream;
  *
  * <pre>
  * {spool}/{jobId}/job.json     작업 정보({@link Wf9Job})
- * {spool}/{jobId}/audio.dat    음성 사본(600초 넘는 PCM WAV 는 앞 600초만 — D9)
+ * {spool}/{jobId}/audio.dat    음성 사본(analyze-max-sec · 기본 1800초를 넘는 PCM WAV 는 앞부분만 — D9)
  * {spool}/.tmp-…               넣는 중(다 쓰고 나서 이름을 바꿔 한 번에 보이게 한다)
  * </pre>
  *

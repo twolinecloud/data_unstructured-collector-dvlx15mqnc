@@ -45,7 +45,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
- * 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05) 연동. 배치 STT 모드 {@code GENON} 의 구현이다.
+ * 제논(GenOS) 음성 STT — 외부망 호출 가이드(2026-11-05 · 11-19판) 연동. 배치 STT 모드 {@code GENON} 의 구현이다.
+ *
+ * <p><b>11-19판</b>: 음성 API 주소가 {@code code_serving/1007/9956} 으로 바뀌고 한도가 256 MiB · 3900초로 늘었다
+ * (주소 · 한도 · 시한은 {@link GenonSttProperties} 기본값). 요청 · 응답 모양은 그대로다.</p>
  *
  * <p><b>스위치가 두 겹이다</b> — 배치가 어느 STT 를 쓰는지는 {@code voice.stt.mode}(MOCK · NPU · GENON)가,
  * GENON 이 실제로 외부망을 부르는지는 이 클래스의 호출 모드(MOCK · REST, 기동값 {@code genon.stt.mode})가 정한다.
@@ -223,7 +226,8 @@ public class GenonSttClient implements SttClient {
      * (개수 최소 · 길이 고르게 · 경계는 가장 조용한 20ms). 조각 파일은 {@code workDir} 에 잠깐 썼다가 받자마자 지운다.
      * 원래 이름은 이번에도 보내지 않는다(조각마다 {@code audio.wav}).</p>
      *
-     * <p><b>딱 600초 조각은 실측한 적이 없다</b>(570초 통과 · 605초 거절, 2026-11-09). 제논이 한 조각을 길이 한도로 거절하면
+     * <p>옛 한도(600초) 때는 570초 통과 · 605초 거절(2026-11-09)이었고, 11-19판(3900초)에서는 605초 · 20분이 한 번에
+     * 통과했다(2026-11-20). 한도를 넘는 것만 나누므로 운영 상한 30분은 나누지 않는다. 제논이 한 조각을 길이 한도로 거절하면
      * 그 조각만 반으로 나눠 다시 보낸다 — {@value #RESPLIT_MIN_SEC}초보다 짧은 조각이 거절되면 그대로 실패다.</p>
      *
      * @param wav      음원 — 이름은 보지 않고 내용으로 검사한다
@@ -729,23 +733,35 @@ public class GenonSttClient implements SttClient {
     /**
      * MOCK — 네트워크 없이 제논과 같은 모양을 돌려준다. 대본을 재생 시간에 고르게 나눠 구간을 만든다.
      *
-     * <p>전처리({@code /audio/process})의 {@code speech_results[].segments} 는 실측 때 사인파라 비어 있었다 —
-     * 음성이면 전사와 같은 모양({@code start_ms · end_ms · text})일 것으로 보고 채운다.</p>
+     * <p>전처리({@code /audio/process})는 2026-11-20 실응답(가이드 11-19판 · 합성 음성 22초 · 20분) 모양을 따른다 —
+     * 구간 {@code {start_ms, end_ms, segment_id:"SEG-0001", speaker:"UNKNOWN", text, words:[{word, start_ms, end_ms, score}]}},
+     * {@code prosody_status} 는 실값 중 '운율을 보지 않음'인 {@code skipped_short}(MOCK 은 운율을 보지 않는다).
+     * 커넥터 비식별이 {@code words[].word} 까지 가리므로 낱말 배열이 있어야 같은 경로를 시험한다.</p>
      */
     private GenonCall mock(String path, AudioInspector.Check check, Map<String, String> fields, long queuedMs) {
         long t0 = System.nanoTime();
         Double measured = check.info().durationSec();
         double sec = measured != null && measured > 0 ? measured : MOCK_LINES.size() * 4.5;
+        boolean process = PROCESS.equals(path);
         ArrayNode segs = om.createArrayNode();
         double step = sec / MOCK_LINES.size();
         for (int i = 0; i < MOCK_LINES.size(); i++) {
+            double fromMs = i * step * 1000d;
+            double toMs = (i + 1) * step * 1000d;
             ObjectNode s = segs.addObject();
-            s.put("start_ms", round1(i * step * 1000d));
-            s.put("end_ms", round1((i + 1) * step * 1000d));
+            s.put("start_ms", round1(fromMs));
+            s.put("end_ms", round1(toMs));
+            if (process) {
+                s.put("segment_id", String.format(Locale.ROOT, "SEG-%04d", i + 1));
+                s.put("speaker", "UNKNOWN");
+            }
             s.put("text", MOCK_LINES.get(i));
+            if (process) {
+                mockWords(s.putArray("words"), MOCK_LINES.get(i), fromMs, toMs);
+            }
         }
         ObjectNode body = om.createObjectNode();
-        if (PROCESS.equals(path)) {
+        if (process) {
             body.put("function", "contact_risk_analysis");
             ObjectNode input = body.putObject("input");
             ObjectNode rec = input.putArray("contact_records").addObject();
@@ -754,7 +770,7 @@ public class GenonSttClient implements SttClient {
             sr.put("contact_id", fields.get("contact_id"));
             sr.set("segments", segs);
             sr.putArray("prosody_events");
-            sr.put("prosody_status", "not_run");
+            sr.put("prosody_status", "skipped_short");
             sr.putArray("audio_events");
             sr.put("audio_status", "analyzed");
             sr.put("duration_ms", round1(sec * 1000d));
@@ -763,6 +779,25 @@ public class GenonSttClient implements SttClient {
             body.set("segments", segs);
         }
         return new GenonCall("MOCK", path, 200, ms(t0), queuedMs, 1, body, check);
+    }
+
+    /** MOCK 낱말 시각 — 실응답처럼 {@code {word, start_ms, end_ms, score}}. 구간을 글자 수 비율로 나눈다(점수는 고정). */
+    private static void mockWords(ArrayNode out, String line, double fromMs, double toMs) {
+        String[] words = line.strip().split("\\s+");
+        int total = 0;
+        for (String w : words) {
+            total += w.length();
+        }
+        double at = fromMs;
+        for (String w : words) {
+            double next = at + (toMs - fromMs) * w.length() / Math.max(1, total);
+            ObjectNode o = out.addObject();
+            o.put("word", w);
+            o.put("start_ms", round1(at));
+            o.put("end_ms", round1(next));
+            o.put("score", 0.9d);
+            at = next;
+        }
     }
 
     // ---------------------------------------------------------------- 공통

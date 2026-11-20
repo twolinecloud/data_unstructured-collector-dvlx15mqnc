@@ -30,12 +30,12 @@ public class GenonSttException extends RuntimeException {
         CONFIG
     }
 
-    /** 제논 오류 코드 → 한 줄 풀이(2026-11-06 실측 기준). */
+    /** 제논 오류 코드 → 한 줄 풀이(2026-11-06 실측 기준 · 한도 숫자는 가이드 11-19판). */
     static final Map<String, String> HINTS = Map.ofEntries(
             Map.entry("invalid_request", "요청 형식 오류 — audio 필드 · 필수 항목 확인"),
             Map.entry("unsupported_audio_format", "지원하지 않는 형식 — WAV · MP3 · M4A 만"),
-            Map.entry("audio_size_limit_exceeded", "파일 크기 20MB 초과"),
-            Map.entry("audio_duration_limit_exceeded", "재생 시간 600초 초과"),
+            Map.entry("audio_size_limit_exceeded", "파일 크기 한도 초과(가이드 11-19판 256MiB)"),
+            Map.entry("audio_duration_limit_exceeded", "재생 시간 한도 초과(가이드 11-19판 3900초)"),
             Map.entry("signal_analysis_incomplete", "제논 신호 분석 미완료 — 서버 측 처리 실패"),
             Map.entry(GenonSttClient.BUSY_CODE, "동시 진행 한도(1건) — 잠시 후 다시"),
             Map.entry("Bearer token required", "토큰 없음 — GENON_STT_API_KEY 확인"),

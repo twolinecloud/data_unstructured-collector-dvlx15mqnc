@@ -21,7 +21,8 @@ import java.util.List;
  * @param skipTestRuns        시험 실행(TST · 시뮬레이터) 건은 넣지 않는다 — 가상 건이 대시보드 표에 섞이지 않게
  * @param maxPending          스풀에 쌓아 둘 작업 수 상한 — 넘으면 새 건을 넣지 않는다(경고)
  * @param maxSpoolMb          스풀 디스크 상한(MB) — 배치와 같은 PVC 라 가득 채우면 배치가 멈춘다
- * @param analyzeMaxSec       앞에서부터 분석할 길이(초 · D9). 더 긴 PCM WAV 는 앞부분만 스풀에 담는다
+ * @param analyzeMaxSec       앞에서부터 분석할 길이(초 · D9 · 기본 1800 = 운영 상한 30분). 더 긴 PCM WAV 는 앞부분만 스풀에 담는다.
+ *                            2026-11-20 600 → 1800 — 제논 가이드 11-19판 한도(3900초) 안이고, 30분 전처리 예상 약 133초가 시한 300초 안에 든다
  * @param maxRetries          다시 해 볼 횟수(첫 시도 제외) — 다 쓰면 포기하고 사본을 지운다
  * @param retryBaseSec        다시 하기 전 기다림의 첫 간격(초) — 실패할 때마다 두 배
  * @param maxAgeHours         스풀에 넣은 뒤 이 시간이 지나면 포기하고 사본을 지운다
@@ -36,12 +37,13 @@ import java.util.List;
  * @param portalPassword      제논 공통 계정 비밀번호 — 환경변수로만
  * @param portalEndpoint      WF9 endpoint
  * @param portalConnectTimeoutSec 연결 상한
- * @param portalTimeoutSec    WF9 응답(SSE end 까지) 상한
- * @param contentFields       항목에서 화면 '내용'(SIGNAL_CN)으로 쓸 필드 — 앞에 둔 것부터. <b>첫 이름이 항목 규격</b>(2026-11-18 우리 안 ·
- *                            {@code content} — 대시보드 API 필드 이름과 같게)이고, 나머지는 제논 실응답이 다를 때 받아 주는 후보다.
+ * @param portalTimeoutSec    WF9 응답(SSE end 까지 전체 · 감시 스레드) 상한 300초 — 실측 3건 검출 10.8초 · 20분 전처리 결과 2.5초
+ * @param contentFields       항목에서 화면 '내용'(SIGNAL_CN)으로 쓸 필드 — 앞에 둔 것부터. <b>첫 이름이 항목 규격</b>({@code content} —
+ *                            2026-11-20 실응답과 대시보드 API 필드 이름이 같다)이고, 나머지는 응답이 바뀔 때 받아 주는 후보다.
  *                            첫 이름이 없는 항목은 '규격 밖'으로 경고한다(필드 이름만)
- * @param riskClassFields     항목에서 위험 분류(RISK_CLASS_CD)로 쓸 필드 — 앞에 둔 것부터. 첫 이름 {@code riskClassCode} 가 규격.
- *                            값은 그대로 넘기고 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는 로그 컬렉터가 맞춘다
+ * @param riskClassFields     항목에서 위험 분류(RISK_CLASS_CD)로 쓸 필드 — 앞에 둔 것부터. 첫 이름 {@code risk_type} 이 2026-11-20 실응답
+ *                            (한글 이름 · 예 "자살" · "부정물품 수수"). 값은 그대로 넘기고 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는
+ *                            로그 컬렉터가 맞춘다. 실응답의 {@code type} 은 접촉 구분("접견" · "전화")이라 후보에 넣지 않는다
  */
 @ConfigurationProperties(prefix = "voice.risk-wf9")
 public record RiskWf9Properties(
@@ -50,7 +52,7 @@ public record RiskWf9Properties(
         @DefaultValue("true") boolean skipTestRuns,
         @DefaultValue("300") int maxPending,
         @DefaultValue("4096") long maxSpoolMb,
-        @DefaultValue("600") int analyzeMaxSec,
+        @DefaultValue("1800") int analyzeMaxSec,
         @DefaultValue("3") int maxRetries,
         @DefaultValue("300") int retryBaseSec,
         @DefaultValue("48") int maxAgeHours,
@@ -66,9 +68,13 @@ public record RiskWf9Properties(
         @DefaultValue("pt6i_10rw_jsd9") String portalEndpoint,
         @DefaultValue("10") int portalConnectTimeoutSec,
         @DefaultValue("300") int portalTimeoutSec,
-        @DefaultValue("content,주요사항,내용,description,summary,text,detail,reason,evidence,finding,review,message")
+        // 목록 기본값은 배열로 쓴다 — 쉼표 문자열 하나("a,b")로 쓰면 쪼개지지 않고 원소 하나짜리 목록이 된다(2026-11-20 바로잡음 ·
+        //   운영은 application.yml 이 같은 값을 문자열로 넘겨 쪼개졌기 때문에 드러나지 않았다)
+        @DefaultValue({"content", "주요사항", "내용", "description", "summary", "text", "detail", "reason", "evidence", "finding",
+                "review", "message"})
         List<String> contentFields,
-        @DefaultValue("riskClassCode,risk_class_code,riskClassCd,risk_class_cd,위험분류,위험유형,riskClass,risk_class,category,riskType,risk_type,type,code")
+        @DefaultValue({"risk_type", "riskClassCode", "risk_class_code", "riskClassCd", "risk_class_cd", "위험분류", "위험유형", "riskType",
+                "riskClass", "risk_class", "category", "code"})
         List<String> riskClassFields
 ) {
 

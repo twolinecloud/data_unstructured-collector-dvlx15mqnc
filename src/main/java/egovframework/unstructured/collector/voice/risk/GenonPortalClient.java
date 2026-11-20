@@ -27,12 +27,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 제논 채팅 WF9 — genportal 로그인(토큰 캐시 · 401 이면 한 번 다시 로그인) → {@code POST /chat} SSE 를 {@code end} 까지 읽는다.
  *
- * <p>가이드(GenOS 채팅 API 연동 · 음성 API 외부망 호출 가이드 11-05): 본문 {@code {endpoint, message, file_ids: []}},
- * 응답은 {@code data: {"event": …, "data": …}} 줄. {@code token} 을 이어 붙이고 {@code result.text} 가 있으면 그것을 쓴다.</p>
+ * <p>가이드(GenOS 채팅 API 연동 · 음성 API 외부망 호출 가이드 11-05 · 11-19판 4장): 본문 {@code {endpoint, message, file_ids: []}},
+ * 응답은 {@code data: {"event": …, "data": …}} 줄. {@code token} 을 이어 붙이고 {@code result.text} 가 있으면 그것을 쓴다.
+ * {@code error} 사건은 코드 · 사유 낱말만 남기고 4xx 면 다시 하지 않는다({@link #errorEvent}).</p>
  *
  * <ul>
  *   <li>계정 · 토큰은 로그에 남기지 않는다. 리다이렉트를 따라가지 않는다(토큰이 다른 곳으로 가지 않게)</li>
@@ -344,7 +347,7 @@ public class GenonPortalClient {
                     result[0] = d.asText();
                 }
             }
-            case "error" -> throw Wf9Failure.retry(Wf9Failure.Stage.PORTAL, "제논 WF9 오류 사건(error)");
+            case "error" -> throw errorEvent(d);
             case "end" -> {
                 return true;
             }
@@ -353,6 +356,37 @@ public class GenonPortalClient {
             }
         }
         return false;
+    }
+
+    /** 오류 사건 설명 끝의 {@code (코드 422·invalid_input)} — 숫자 코드와 사유 낱말(영문 · 숫자 · _ . -)만 꺼낸다. */
+    private static final Pattern ERROR_REASON =
+            Pattern.compile("코드\\s*(\\d{3})\\s*[·・:/,\\-]\\s*([A-Za-z][A-Za-z0-9_.\\-]{0,39})");
+
+    /**
+     * {@code error} 사건 → 실패. HTTP 는 200 인 채 SSE 안에서 온다.
+     * 실측(2026-11-20 가이드 11-19판): {@code {"code": 422, "message": "입력 형식이 올바르지 않습니다.\n\n(코드 422·invalid_input)"}}.
+     *
+     * <p>메시지에는 <b>코드와 사유 낱말만</b> 싣는다 — 설명 글은 보낸 문서 조각을 되풀이할 수 있어 싣지 않는다.
+     * 4xx(408 · 429 제외)는 같은 입력을 다시 보내도 같으므로 HTTP 오류와 같이 바로 포기하고, 코드가 없거나 그 밖이면 다시 하기로 넘긴다.</p>
+     */
+    static Wf9Failure errorEvent(JsonNode d) {
+        String message = d != null && d.path("message").isTextual() ? d.path("message").asText() : "";
+        Matcher m = ERROR_REASON.matcher(message);
+        boolean found = m.find();
+        int code = -1;
+        JsonNode c = d == null ? null : d.path("code");
+        if (c != null && c.isIntegralNumber()) {
+            code = c.asInt();
+        } else if (c != null && c.isTextual() && c.asText().strip().matches("\\d{3}")) {
+            code = Integer.parseInt(c.asText().strip());
+        } else if (found) {
+            code = Integer.parseInt(m.group(1));
+        }
+        String msg = "제논 WF9 오류 사건(error)" + (code > 0 ? " — " + code : "") + (found ? " · " + m.group(2) : "");
+        if (code >= 400 && code < 500 && code != 408 && code != 429) {
+            return Wf9Failure.permanent(Wf9Failure.Stage.PORTAL, msg);
+        }
+        return Wf9Failure.retry(Wf9Failure.Stage.PORTAL, msg);
     }
 
     private JsonNode parse(byte[] raw) {

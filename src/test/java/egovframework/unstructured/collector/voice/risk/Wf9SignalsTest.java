@@ -1,10 +1,16 @@
 package egovframework.unstructured.collector.voice.risk;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -123,6 +129,53 @@ class Wf9SignalsTest {
                 "{\"findings\":[{\"riskClassCode\":\"ESCAPE\",\"content\":\"가\"}],\"reviews\":[{\"content\":\"나\"}]}"), Map.of(), CONTENT, RISK);
         assertThat(ok.offSpec()).isZero();
         assertThat(ok.offSpecFields()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("실응답(2026-11-20 가이드 11-19판 · 가상 위험 대화) + 기본 필드 목록 — findings 3건 = 3행 · 내용 content · 분류 risk_type(한글) · evidence 배열은 원 항목에 그대로")
+    void realAnswerWithDefaultFields() throws Exception {
+        RiskWf9Properties d = new Binder(new MapConfigurationPropertySource(Map.of()))
+                .bindOrCreate("voice.risk-wf9", RiskWf9Properties.class);
+        Wf9Signals.Parsed p = Wf9Signals.parse(OM, resource("/genon/wf9_findings_20261120.json"));
+
+        Wf9Signals.Rows rows = Wf9Signals.toRows(p, Map.of(), d.contentFields(), d.riskClassFields());
+
+        List<LogCollectorClient.ContactRiskSignalReq> s = rows.signals();
+        assertThat(s).hasSize(3).allSatisfy(r -> {
+            assertThat(r.signalSeCd()).isEqualTo("FINDING");
+            assertThat(r.signalSn()).as("순번은 로그 컬렉터가 1..n 으로").isNull();
+        });
+        assertThat(s).extracting(LogCollectorClient.ContactRiskSignalReq::riskClassCd)
+                .as("type(전화)이 아니라 risk_type").containsExactly("자살", "도주", "부정물품 수수");
+        assertThat(s).extracting(LogCollectorClient.ContactRiskSignalReq::signalCn)
+                .containsExactly("전화통화 중 자살 암시 발언", "전화통화 중 도주 암시 발언", "전화통화 중 부정물품 수수 암시 발언");
+        JsonNode ev = s.get(1).signalData().path("evidence");
+        assertThat(ev.isArray()).isTrue();
+        assertThat(ev).hasSize(2);
+        assertThat(ev.get(0).path("segment_id").asText()).isEqualTo("SEG-0002");
+        assertThat(ev.get(0).path("start_ms").asDouble()).isEqualTo(1780.0);
+        assertThat(ev.get(0).path("end_ms").asDouble()).isEqualTo(4500.0);
+        assertThat(ev.get(0).get("speaker").isNull()).as("실응답 speaker 는 null").isTrue();
+        assertThat(s.get(0).signalData().path("occurred_at").asText()).isEqualTo("2026-11-20T10:00:00+09:00");
+        assertThat(rows.offSpec()).as("모두 규격(content)대로").isZero();
+        assertThat(p.reviews()).isEmpty();
+
+        // risk_type 없이 접촉 구분 type 만 있는 항목 — '전화' 를 위험 분류로 읽지 않는다(예전 목록은 type 을 읽었다)
+        Wf9Signals.Rows review = Wf9Signals.toRows(Wf9Signals.parse(OM,
+                        "{\"findings\":[],\"reviews\":[{\"contact_id\":\"CONTACT-001\",\"type\":\"전화\",\"content\":\"확인 필요\"}]}"),
+                Map.of(), d.contentFields(), d.riskClassFields());
+        assertThat(review.signals()).singleElement().satisfies(r -> {
+            assertThat(r.signalSeCd()).isEqualTo("REVIEW");
+            assertThat(r.signalCn()).isEqualTo("확인 필요");
+            assertThat(r.riskClassCd()).isNull();
+        });
+    }
+
+    private static String resource(String path) throws IOException {
+        try (InputStream in = Wf9SignalsTest.class.getResourceAsStream(path)) {
+            assertThat(in).as(path).isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     @Test

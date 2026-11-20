@@ -79,7 +79,7 @@ public class RiskWf9Pipeline {
         Wf9Signals.Parsed parsed = Wf9Signals.parse(om, answer);
         Wf9Signals.Rows rows = Wf9Signals.toRows(parsed, masked.mapping(), props.contentFields(), props.riskClassFields());
         if (rows.offSpec() > 0) {
-            // 항목 규격(우리 안 — 제논 실응답 확인 전)과 다른 답. 값은 싣지 않고 필드 이름만 — 실응답이 이 모양이면 설정으로 맞춘다
+            // 항목 규격(2026-11-20 제논 실응답 기준 — content · risk_type)과 다른 답. 값은 싣지 않고 필드 이름만 — 응답 모양이 바뀌면 설정으로 맞춘다
             log.warn("[WF9] {} — 항목 규격 밖 {}개(약속한 내용 필드 '{}' 없음) · 받은 필드 {} · 맞추려면 voice.risk-wf9.content-fields · risk-class-fields",
                     job.shortId(), rows.offSpec(), props.contentFields().isEmpty() ? "-" : props.contentFields().get(0),
                     rows.offSpecFields());

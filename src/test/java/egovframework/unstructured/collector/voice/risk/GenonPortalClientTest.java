@@ -200,6 +200,47 @@ class GenonPortalClientTest {
     }
 
     @Test
+    @DisplayName("error 사건(실측 모양 {code, message}) — 4xx 는 바로 포기 · 503 · 429 는 다시 하기 · 메시지는 코드 · 사유 낱말만")
+    void errorEventCodes() throws Exception {
+        chat = (ex, n) -> {
+            switch (n) {
+                // 2026-11-20 실측 — HTTP 200 SSE 안에 온다
+                case 1 -> stream(ex, sse("session_id", "s"), sse("token", "{\"findings\":"),
+                        sse("error", Map.of("code", 422, "message", "입력 형식이 올바르지 않습니다.\n\n(코드 422·invalid_input)")),
+                        sse("end", "[DONE]"));
+                case 2 -> stream(ex, sse("error", Map.of("code", 503, "message", "홍길동 처리 중 오류\n\n(코드 503·upstream_unavailable)")));
+                case 3 -> stream(ex, sse("error", Map.of("code", "429", "message", "잠시 후 다시")));
+                default -> stream(ex, sse("error", Map.of("message", "홍길동 문장 (코드 400·bad_request)")));
+            }
+        };
+        GenonPortalClient c = client(10);
+
+        assertThatThrownBy(() -> c.wf9("m")).isInstanceOfSatisfying(Wf9Failure.class, f -> {
+            assertThat(f.stage()).isEqualTo(Wf9Failure.Stage.PORTAL);
+            assertThat(f.retryable()).as("같은 입력이면 다시 보내도 422").isFalse();
+            assertThat(f.getMessage()).isEqualTo("제논 WF9 오류 사건(error) — 422 · invalid_input");
+        });
+        assertThatThrownBy(() -> c.wf9("m")).isInstanceOfSatisfying(Wf9Failure.class, f -> {
+            assertThat(f.retryable()).isTrue();
+            assertThat(f.getMessage()).isEqualTo("제논 WF9 오류 사건(error) — 503 · upstream_unavailable");
+        });
+        assertThatThrownBy(() -> c.wf9("m")).isInstanceOfSatisfying(Wf9Failure.class, f -> {
+            assertThat(f.retryable()).as("글로 온 429 도 혼잡 — 다시 하기").isTrue();
+            assertThat(f.getMessage()).isEqualTo("제논 WF9 오류 사건(error) — 429");
+        });
+        assertThatThrownBy(() -> c.wf9("m")).isInstanceOfSatisfying(Wf9Failure.class, f -> {
+            assertThat(f.retryable()).as("code 필드가 없으면 설명 끝 (코드 400·…) 으로").isFalse();
+            assertThat(f.getMessage()).isEqualTo("제논 WF9 오류 사건(error) — 400 · bad_request").doesNotContain("홍길동");
+        });
+
+        Wf9Failure text = GenonPortalClient.errorEvent(OM.readTree("\"홍길동 오류\""));
+        assertThat(text.retryable()).as("모양을 모르면 다시 하기").isTrue();
+        assertThat(text.getMessage()).isEqualTo("제논 WF9 오류 사건(error)");
+        assertThat(GenonPortalClient.errorEvent(OM.missingNode()).retryable()).isTrue();
+        assertThat(GenonPortalClient.errorEvent(OM.readTree("{\"code\":408}")).retryable()).as("408 은 시간 초과 — 다시 하기").isTrue();
+    }
+
+    @Test
     @DisplayName("SSE 가 end 전에 멈추면 시한에 끊고 다시 하기 — 작업자 스레드에 끼어들기가 남지 않는다")
     void stalledStreamTimesOut() {
         chat = (ex, n) -> {

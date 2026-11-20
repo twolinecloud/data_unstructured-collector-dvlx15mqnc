@@ -1,0 +1,261 @@
+{
+  "function": "contact_risk_analysis",
+  "input": {
+    "contact_records": [
+      {
+        "contact_id": "CONTACT-001",
+        "contact_type": "전화",
+        "occurred_at": "2026-11-20T10:00:00+09:00"
+      }
+    ],
+    "speech_results": [
+      {
+        "contact_id": "CONTACT-001",
+        "segments": [
+          {
+            "start_ms": 140.0390625,
+            "end_ms": 700.5859375,
+            "segment_id": "SEG-0001",
+            "speaker": "UNKNOWN",
+            "text": "여보세요.",
+            "words": [
+              {
+                "word": "여보세요.",
+                "start_ms": 140.0,
+                "end_ms": 701.0,
+                "score": 0.864
+              }
+            ]
+          },
+          {
+            "start_ms": 1301.171875,
+            "end_ms": 4364.16015625,
+            "segment_id": "SEG-0002",
+            "speaker": "UNKNOWN",
+            "text": "잘 지내고 있어요?",
+            "words": [
+              {
+                "word": "잘",
+                "start_ms": 1301.0,
+                "end_ms": 1481.0,
+                "score": 0.913
+              },
+              {
+                "word": "지내고",
+                "start_ms": 1601.0,
+                "end_ms": 1942.0,
+                "score": 0.863
+              },
+              {
+                "word": "있어요?",
+                "start_ms": 1982.0,
+                "end_ms": 4364.0,
+                "score": 0.944
+              }
+            ]
+          },
+          {
+            "start_ms": 4384.1796875,
+            "end_ms": 4404.19921875,
+            "segment_id": "SEG-0003",
+            "speaker": "UNKNOWN",
+            "text": "네.",
+            "words": [
+              {
+                "word": "네.",
+                "start_ms": 4384.0,
+                "end_ms": 4404.0,
+                "score": 0.0
+              }
+            ]
+          },
+          {
+            "start_ms": 4984.765625,
+            "end_ms": 7066.796875,
+            "segment_id": "SEG-0004",
+            "speaker": "UNKNOWN",
+            "text": "저는 잘 지내요.",
+            "words": [
+              {
+                "word": "저는",
+                "start_ms": 4985.0,
+                "end_ms": 5205.0,
+                "score": 0.897
+              },
+              {
+                "word": "잘",
+                "start_ms": 5345.0,
+                "end_ms": 5505.0,
+                "score": 0.988
+              },
+              {
+                "word": "지내요.",
+                "start_ms": 5625.0,
+                "end_ms": 7067.0,
+                "score": 0.903
+              }
+            ]
+          },
+          {
+            "start_ms": 7206.93359375,
+            "end_ms": 9909.5703125,
+            "segment_id": "SEG-0005",
+            "speaker": "UNKNOWN",
+            "text": "밥도 잘 먹고 있어요.",
+            "words": [
+              {
+                "word": "밥도",
+                "start_ms": 7207.0,
+                "end_ms": 7327.0,
+                "score": 0.362
+              },
+              {
+                "word": "잘",
+                "start_ms": 7427.0,
+                "end_ms": 7607.0,
+                "score": 0.919
+              },
+              {
+                "word": "먹고",
+                "start_ms": 7727.0,
+                "end_ms": 7988.0,
+                "score": 0.783
+              },
+              {
+                "word": "있어요.",
+                "start_ms": 8028.0,
+                "end_ms": 9910.0,
+                "score": 0.996
+              }
+            ]
+          },
+          {
+            "start_ms": 10269.921875,
+            "end_ms": 13132.71484375,
+            "segment_id": "SEG-0006",
+            "speaker": "UNKNOWN",
+            "text": "다음 주에 면회 갈게요.",
+            "words": [
+              {
+                "word": "다음",
+                "start_ms": 10270.0,
+                "end_ms": 10510.0,
+                "score": 0.996
+              },
+              {
+                "word": "주에",
+                "start_ms": 10630.0,
+                "end_ms": 10790.0,
+                "score": 0.743
+              },
+              {
+                "word": "면회",
+                "start_ms": 10911.0,
+                "end_ms": 11131.0,
+                "score": 0.664
+              },
+              {
+                "word": "갈게요.",
+                "start_ms": 11231.0,
+                "end_ms": 13133.0,
+                "score": 0.91
+              }
+            ]
+          },
+          {
+            "start_ms": 13433.0078125,
+            "end_ms": 14113.671875,
+            "segment_id": "SEG-0007",
+            "speaker": "UNKNOWN",
+            "text": "알겠어요.",
+            "words": [
+              {
+                "word": "알겠어요.",
+                "start_ms": 13433.0,
+                "end_ms": 14114.0,
+                "score": 0.928
+              }
+            ]
+          },
+          {
+            "start_ms": 15054.58984375,
+            "end_ms": 18918.359375,
+            "segment_id": "SEG-0008",
+            "speaker": "UNKNOWN",
+            "text": "날씨가 추우니 따뜻하게 입고 오세요.",
+            "words": [
+              {
+                "word": "날씨가",
+                "start_ms": 15055.0,
+                "end_ms": 15555.0,
+                "score": 0.879
+              },
+              {
+                "word": "추우니",
+                "start_ms": 15695.0,
+                "end_ms": 15996.0,
+                "score": 0.778
+              },
+              {
+                "word": "따뜻하게",
+                "start_ms": 16116.0,
+                "end_ms": 16656.0,
+                "score": 0.83
+              },
+              {
+                "word": "입고",
+                "start_ms": 16716.0,
+                "end_ms": 16976.0,
+                "score": 0.759
+              },
+              {
+                "word": "오세요.",
+                "start_ms": 17037.0,
+                "end_ms": 18918.0,
+                "score": 0.944
+              }
+            ]
+          },
+          {
+            "start_ms": 19298.73046875,
+            "end_ms": 20600.0,
+            "segment_id": "SEG-0009",
+            "speaker": "UNKNOWN",
+            "text": "그럼 다음 주에 봐요.",
+            "words": [
+              {
+                "word": "그럼",
+                "start_ms": 19299.0,
+                "end_ms": 19539.0,
+                "score": 0.928
+              },
+              {
+                "word": "다음",
+                "start_ms": 19679.0,
+                "end_ms": 19899.0,
+                "score": 0.938
+              },
+              {
+                "word": "주에",
+                "start_ms": 20019.0,
+                "end_ms": 20180.0,
+                "score": 0.986
+              },
+              {
+                "word": "봐요.",
+                "start_ms": 20280.0,
+                "end_ms": 20600.0,
+                "score": 0.957
+              }
+            ]
+          }
+        ],
+        "prosody_events": [],
+        "prosody_status": "skipped_short",
+        "audio_events": [],
+        "audio_status": "analyzed",
+        "duration_ms": 22180.0
+      }
+    ]
+  }
+}

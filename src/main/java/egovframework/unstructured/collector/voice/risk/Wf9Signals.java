@@ -24,10 +24,12 @@ import java.util.regex.Pattern;
  *   <li>위험 분류는 받은 값 그대로 넘긴다 — 코드표로 맞추는 일은 코드를 가진 로그 컬렉터가 한다(D4 · 코드표 밖은 ETC)</li>
  * </ol>
  *
- * <p><b>항목 규격(2026-11-18 · 우리 안)</b>: {@code {"riskClassCode": 코드표 값, "content": 화면 '내용', "evidence": 근거 발화, ...}}.
- * 목록의 <b>첫 이름</b>이 약속한 필드다(기본 {@code content} · {@code riskClassCode} — 대시보드 API 필드 이름과 같게).
- * 제논 실응답을 아직 못 봐서, 약속한 '내용' 필드가 없는 항목은 '규격 밖'으로 세고 그 항목이 쓴 필드 이름을 모아 경고로 남긴다
- * (값은 싣지 않는다) — 실응답이 다르면 설정 {@code voice.risk-wf9.content-fields} · {@code risk-class-fields} 만 바꾸면 된다.</p>
+ * <p><b>항목 규격</b> — 2026-11-18 우리 안({@code riskClassCode} · 코드표 값)에서 2026-11-20 제논 실응답(가이드 11-19판)으로 바꿨다:
+ * <br>{@code {"contact_id", "occurred_at", "type": 접견·전화, "content": 화면 '내용', "risk_type": 한글 위험 유형, "evidence": [구간]}}
+ * <br>구간 = {@code {start_ms, end_ms, segment_id, speaker, text}}. 목록의 <b>첫 이름</b>이 약속한 필드다(기본 {@code content} ·
+ * {@code risk_type}). {@code type} 은 접견·전화 구분이라 위험 분류 후보에 두지 않는다. 약속한 '내용' 필드가 없는 항목은 '규격 밖'으로
+ * 세고 그 항목이 쓴 필드 이름을 모아 경고로 남긴다(값은 싣지 않는다) — 응답 모양이 바뀌면 설정 {@code voice.risk-wf9.content-fields} ·
+ * {@code risk-class-fields} 만 바꾸면 된다.</p>
  */
 final class Wf9Signals {
 

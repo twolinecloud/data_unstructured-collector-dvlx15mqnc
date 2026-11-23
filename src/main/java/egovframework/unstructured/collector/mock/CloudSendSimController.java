@@ -53,7 +53,7 @@ public class CloudSendSimController {
         return service.run(req);
     }
 
-    @Operation(summary = "이번 묶음 지금 상태 — T1 · 전송 단계 · 보류 장부 · 폐기")
+    @Operation(summary = "이번 묶음 지금 상태 — T1 · 전송 단계 · 보류 장부")
     @GetMapping
     public Map<String, Object> status() {
         return service.status();

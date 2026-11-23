@@ -133,11 +133,13 @@ class ImagePipelineTest {
         Map<String, String> paths = rows.stream().collect(Collectors.toMap(m -> (String) m.get("corr_no"), m -> (String) m.get("photo_path")));
         assertThat(sim.verifyPlain(paths)).hasSize(3).containsOnlyKeys(paths.keySet()).doesNotContainValue(false);
         assertThat(ImageIO.read(Path.of(paths.values().iterator().next()).toFile())).isNotNull();
-        // 단계 — 건마다 복호화·저장·매핑이 한 번씩, 조회·FILEKEY 는 배치 앞에서 한 번
+        // 단계 — 건마다 복호화·저장·매핑이 한 번씩, FILEKEY 는 청크마다 한 번(3명 = 청크 1개),
+        //   조회는 청크 1개 + 끝을 확인하는 0건 조회 1번 = 2번(청크 크기 기본 2,000 · 0건이 나올 때까지 돈다)
         Map<String, Number> counts = r.stages().stream().collect(Collectors.toMap(s -> (String) s.get("key"), s -> (Number) s.get("count")));
         assertThat(counts.get(ImageStage.DECRYPT.name()).intValue()).isEqualTo(3);
         assertThat(counts.get(ImageStage.MAP.name()).intValue()).isEqualTo(3);
-        assertThat(counts.get(ImageStage.QUERY.name()).intValue()).isEqualTo(1);
+        assertThat(counts.get(ImageStage.QUERY.name()).intValue()).isEqualTo(2);
+        assertThat(counts.get(ImageStage.FILEKEY.name()).intValue()).isEqualTo(1);
         // 받은 원본(암호문)은 남지 않는다
         try (var s = Files.list(Path.of(root.toString(), "esb", "meet"))) {
             assertThat(s.filter(p -> p.getFileName().toString().startsWith("img_")).toList()).isEmpty();

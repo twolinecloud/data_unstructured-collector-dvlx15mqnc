@@ -17,10 +17,16 @@ public record ImageProperties(
         @DefaultValue("") String outputDir,
         /** 건을 동시에 처리할 워커 수(브로커 수신 · 복호화 · 저장 · 매핑). 이미지는 작아 확보·STT 처럼 나누지 않는다 */
         @DefaultValue("4") int workers,
-        /** 보라미 최신 이미지 조회 페이지 크기 */
-        @DefaultValue("500") int pageSize,
-        /** 한 번에 처리할 최대 수용자 수 */
-        @DefaultValue("2000") int maxPerRun,
+        /**
+         * 청크 크기 — 보라미 최신 사진을 이 수만큼씩 {@code CORR_NO} 커서로 끝까지(0건이 나올 때까지) 조회·처리한다.
+         * 한 번의 실행이 처리하는 총수의 상한이 아니다(예전 {@code max-per-run} 은 이 값에 첫 2,000명만 보고 끝났다)
+         */
+        @DefaultValue("2000") int chunkSize,
+        /**
+         * 수집 대상 수용상태 — 수용자기본 {@code TB_IRIM_PRBS_BS.ACMD_STTUS_CD} 가 이 값인 수용자만 사진을 받는다.
+         * Y 수용 · I 이송 · C 정문출소. 비우면 상태로 거르지 않는다(출소자 포함 전체)
+         */
+        @DefaultValue({"Y", "I", "C"}) java.util.List<String> activeStatusCodes,
         /**
          * 매핑과 함께 {@code TB_SRC_INMATE_BS.PHOTO_REF} 도 갱신할지. 기본 끔 — 정형 수집기가 같은 테이블을 다시 쓰면
          * 순서에 따라 값이 뒤섞인다(그래서 매핑 테이블을 따로 둔다). 필요하면 {@code POST /api/v1/image/photo-ref/sync} 로 일괄 반영한다

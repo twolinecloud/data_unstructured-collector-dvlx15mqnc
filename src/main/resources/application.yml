@@ -391,8 +391,11 @@ image:
   image-se-cd: ${IMAGE_SE_CD:1}
   output-dir: ${IMAGE_OUTPUT_DIR:}          # 사진 저장소. 비우면 {ROOT_DIR}/image
   workers: ${IMAGE_WORKERS:4}
-  page-size: 500
-  max-per-run: ${IMAGE_MAX_PER_RUN:2000}
+  # 청크 크기 — CORR_NO 커서로 이 수만큼씩 0건이 나올 때까지 끝까지 돈다(총수 상한 아님 · 옛 IMAGE_MAX_PER_RUN 도 받는다)
+  chunk-size: ${IMAGE_CHUNK_SIZE:${IMAGE_MAX_PER_RUN:2000}}
+  # 수집 대상 수용상태 — 수용자기본 TB_IRIM_PRBS_BS.ACMD_STTUS_CD(Y 수용 · I 이송 · C 정문출소). 비우면 거르지 않음
+  #   ⚠ 정형 수집기 '현재 수용자'(현원)는 Y,I 다 — C 를 넣어 정의가 다르다(정문출소 당일 사진까지 받으려고)
+  active-status-codes: ${IMAGE_ACTIVE_STATUS_CODES:Y,I,C}
   update-photo-ref: ${IMAGE_UPDATE_PHOTO_REF:false}   # 매핑과 함께 TB_SRC_INMATE_BS.PHOTO_REF 도 갱신(기본 끔 — 정형 수집기와 순서 꼬임)
   # Admin DB — 매핑 테이블 kcais.TB_SRC_INMATE_PHOTO. 기본은 로컬 H2(테이블 자동 생성).
   #   개발계·운영 PostgreSQL 은 DDL(db/admin/V1__tb_src_inmate_photo.sql)을 관리자가 먼저 적용한다.

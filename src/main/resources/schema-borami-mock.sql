@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS TB_SMSM_CMFI_BS;
 DROP TABLE IF EXISTS TB_IMPH_UCDR_DS;
 DROP TABLE IF EXISTS ASYSCONTENTELEMENT;
 DROP TABLE IF EXISTS TB_IRIM_BSIF_DS;
+DROP TABLE IF EXISTS TB_IRIM_PRBS_BS;
 
 -- ── 특이수용자상세 (전체 18컬럼 중 조회에 쓰는 것) ──────────────────────────
 CREATE TABLE TB_IMSC_PTPR_DT (
@@ -154,4 +155,17 @@ CREATE TABLE TB_IRIM_BSIF_DS (
     MDFCN_DT           TIMESTAMP,
     MDFCN_USR_ID       VARCHAR(40),
     CONSTRAINT PK_TB_IRIM_BSIF_DS PRIMARY KEY (CORR_NO, IMAGE_SN)
+);
+
+-- ── 수용자기본 (이미지 수집은 수용상태만 읽는다) — 실제 보라미 ir.TB_IRIM_PRBS_BS ─────────────
+--   교정번호 1:1. 수용상태 C 정문출소 / I 이송 / N 출소 / Y 수용(정형 수집기 structure.json). 사진 수집은
+--   image.active-status-codes(기본 Y,I,C)인 수용자만 집는다. 합성 데이터(SIMIMG · DMYIMG)는 이 표에 넣지 않는다.
+CREATE TABLE TB_IRIM_PRBS_BS (
+    CORR_NO            VARCHAR(18)   NOT NULL,   -- 교정번호
+    CORR_INSTT_CD      VARCHAR(7),               -- 교정기관코드
+    ACMD_STTUS_CD      VARCHAR(1),               -- 수용상태코드
+    PRSR_SCPT_CD       VARCHAR(4),               -- 수용자신분코드
+    CRT_DT             TIMESTAMP,
+    MDFCN_DT           TIMESTAMP,
+    CONSTRAINT PK_TB_IRIM_PRBS_BS PRIMARY KEY (CORR_NO)
 );

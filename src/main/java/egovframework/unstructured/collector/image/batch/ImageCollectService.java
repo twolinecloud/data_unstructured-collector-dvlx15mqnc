@@ -128,7 +128,7 @@ public class ImageCollectService {
     public record ImageRunRequest(
             @Schema(description = "이 수용자들만(비우면 전체)", example = "[\"2023000001\"]") List<String> corrNos,
             @Schema(description = "이 접두의 수용자만 — 시뮬레이션(SIMIMG)", example = "") String corrNoPrefix,
-            @Schema(description = "최대 수용자 수(비우면 image.max-per-run)", example = "100") Integer limit,
+            @Schema(description = "최대 수용자 수(비우면 전체 — image.chunk-size 씩 끝까지)", example = "100") Integer limit,
             @Schema(description = "워커 수(비우면 image.workers)", example = "4") Integer workers,
             @Schema(description = "변경 없는 건도 다시 받는다", example = "false") Boolean force,
             @Schema(description = "건당 가상 처리 지연(ms) — 성능 시험용. 실제로 기다린다", example = "0") Long virtualLatencyMs,
@@ -293,52 +293,75 @@ public class ImageCollectService {
                 virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "",
                 inject.isEmpty() ? "" : " · 의도적 실패 주입 " + inject.size() + "건");
 
-        // ── 1 · 최신 이미지 조회 ──────────────────────────────────────────
-        List<ImageTarget> targets;
-        try {
-            long s = ImageMetrics.start();
-            List<ImageTarget> latest = source.findLatest(
-                    new ImageSourceService.Selection(req.corrNos(), req.corrNoPrefix(), req.limit()));
-            m.add(ImageStage.QUERY, s);
-            // ── 2·3 · 문서ID · FILEKEY 추출 ─────────────────────────────────────
-            s = ImageMetrics.start();
-            targets = source.attachFileKeys(latest);
-            m.add(ImageStage.FILEKEY, s);
-        } catch (RuntimeException e) {
-            // 원천 조회에서 죽었다 — 열어 둔 T2 COLLECT · T1 을 실패로 닫고 던진다(RUNNING 으로 남기지 않는다)
-            String err = LogCollectorClient.FileProcReq.errStackOf(StepType.COLLECT,
-                    e.getClass().getSimpleName() + ": " + shorten(rootMessage(e)));
-            steps.failCollect(err);
-            logCollector.finishBatch(execId, "FAIL", (int) ((System.currentTimeMillis() - t0) / 1000), 0L, 0L, 0L, err);
-            throw e;
-        }
-        total = targets.size();
-        log.info("[Image] 대상 {}명 — FILEKEY 확보 {}명 · {}", targets.size(),
-                targets.stream().filter(t -> t.fileKey() != null).count(), source.tables());
-
-        // 이미 매핑된 사진 — 변경 없는 건은 다시 받지 않는다(매핑 조회 실패는 전건 다시 받기로)
-        Map<String, InmatePhotoRepository.Mapped> mapped;
-        try {
-            mapped = repo.findMapped(targets.stream().map(ImageTarget::corrNo).toList());
-        } catch (Exception e) {
-            log.warn("[Image] 기존 매핑 조회 실패 — 전건 새로 받는다 ({})", e.getMessage());
-            mapped = Map.of();
-        }
-
-        // ── 건마다 — 워커 N개 ──────────────────────────────────────────────
-        List<ImageOutcome> outcomes = new ArrayList<>(targets.size());
+        // ── 1 · 최신 이미지 조회 — CORR_NO 커서로 청크(image.chunk-size)씩, 0건이 나올 때까지 끝까지 ─────────────
+        //   청크마다 조회 → 2·3 문서ID · FILEKEY → 기존 매핑 → 워커 N개 처리. 메모리에는 결과만 쌓인다(대상 전부를 먼저 올리지 않는다)
+        int chunkSize = Math.max(1, props.chunkSize());
+        ImageSourceService.Cursor cursor = source.open(
+                new ImageSourceService.Selection(req.corrNos(), req.corrNoPrefix(), req.limit()), chunkSize);
+        List<ImageTarget> targets = new ArrayList<>();
+        List<ImageOutcome> outcomes = new ArrayList<>();
         boolean canceled = false;
-        if (!targets.isEmpty()) {
-            Map<String, InmatePhotoRepository.Mapped> known = mapped;
-            AtomicInteger seq = new AtomicInteger();
-            ExecutorService pool = Executors.newFixedThreadPool(Math.min(workers, targets.size()), r -> {
-                Thread th = new Thread(r, "image-worker-" + seq.incrementAndGet());
-                th.setDaemon(true);
-                return th;
-            });
-            List<Future<ImageOutcome>> futures = new ArrayList<>(targets.size());
-            try {
-                for (ImageTarget t : targets) {
+        String queryError = null;
+        long withKey = 0;
+        ExecutorService pool = null;
+        AtomicInteger seq = new AtomicInteger();
+        try {
+            while (!cancelRequested) {
+                List<ImageTarget> chunk;
+                try {
+                    long s = ImageMetrics.start();
+                    List<ImageTarget> latest = cursor.next();
+                    m.add(ImageStage.QUERY, s);
+                    if (latest.isEmpty()) {
+                        log.info("[Image] 청크 {} — 조회 0건 · 조회 끝(누적 대상 {}명 · 처리 {}건)", cursor.chunks() + 1,
+                                targets.size(), outcomes.size());
+                        break;
+                    }
+                    // ── 2·3 · 문서ID · FILEKEY 추출 ─────────────────────────────────────
+                    s = ImageMetrics.start();
+                    chunk = source.attachFileKeys(latest);
+                    m.add(ImageStage.FILEKEY, s);
+                } catch (RuntimeException e) {
+                    if (targets.isEmpty()) {
+                        // 첫 청크 조회에서 죽었다 — 열어 둔 T2 COLLECT · T1 을 실패로 닫고 던진다(RUNNING 으로 남기지 않는다)
+                        String err = LogCollectorClient.FileProcReq.errStackOf(StepType.COLLECT,
+                                e.getClass().getSimpleName() + ": " + shorten(rootMessage(e)));
+                        steps.failCollect(err);
+                        logCollector.finishBatch(execId, "FAIL", (int) ((System.currentTimeMillis() - t0) / 1000), 0L, 0L, 0L, err);
+                        throw e;
+                    }
+                    // 중간 청크 조회에서 죽었다 — 여기까지 처리한 건은 이력에 남기고, 배치는 성공으로 닫지 않는다
+                    queryError = LogCollectorClient.FileProcReq.errStackOf(StepType.COLLECT,
+                            "청크 " + (cursor.chunks() + 1) + " 조회 실패(마지막 교정번호 " + cursor.lastCorrNo() + ") — "
+                                    + e.getClass().getSimpleName() + ": " + shorten(rootMessage(e)));
+                    log.error("[Image] 청크 {} 조회 실패 — 남은 대상은 다음 실행에서 · 마지막 교정번호 {} ({})", cursor.chunks() + 1,
+                            cursor.lastCorrNo(), e.toString());
+                    break;
+                }
+                total += chunk.size();
+                long keyed = chunk.stream().filter(t -> t.fileKey() != null).count();
+                withKey += keyed;
+
+                // 이미 매핑된 사진 — 변경 없는 건은 다시 받지 않는다(매핑 조회 실패는 이 청크 전건 다시 받기로)
+                Map<String, InmatePhotoRepository.Mapped> known;
+                try {
+                    known = repo.findMapped(chunk.stream().map(ImageTarget::corrNo).toList());
+                } catch (Exception e) {
+                    log.warn("[Image] 기존 매핑 조회 실패 — 이 청크 전건 새로 받는다 ({})", e.getMessage());
+                    known = Map.of();
+                }
+
+                // ── 건마다 — 워커 N개(풀은 실행 동안 하나) ───────────────────────────────
+                if (pool == null) {
+                    pool = Executors.newFixedThreadPool(Math.min(workers, chunk.size()), r -> {
+                        Thread th = new Thread(r, "image-worker-" + seq.incrementAndGet());
+                        th.setDaemon(true);
+                        return th;
+                    });
+                }
+                Map<String, InmatePhotoRepository.Mapped> mappedNow = known;
+                List<Future<ImageOutcome>> futures = new ArrayList<>(chunk.size());
+                for (ImageTarget t : chunk) {
                     futures.add(pool.submit(() -> {
                         if (cancelRequested) {
                             return count(ImageOutcome.skipped(t, CANCELED));
@@ -346,7 +369,7 @@ public class ImageCollectService {
                         active.incrementAndGet();
                         current = t.shortId();
                         try {
-                            return count(processOne(t, known.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo()),
+                            return count(processOne(t, mappedNow.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo()),
                                     steps));
                         } catch (Throwable e) {
                             // processOne 은 예외를 밖으로 던지지 않는다 — 그래도 새면 이 건만 실패로 두고 다음 건을 계속한다
@@ -358,14 +381,27 @@ public class ImageCollectService {
                         }
                     }));
                 }
-            } finally {
-                pool.shutdown();
-            }
-            for (int i = 0; i < futures.size(); i++) {
-                outcomes.add(await(futures.get(i), targets.get(i)));
+                List<ImageOutcome> chunkOut = new ArrayList<>(chunk.size());
+                for (int i = 0; i < futures.size(); i++) {
+                    chunkOut.add(await(futures.get(i), chunk.get(i)));
+                }
+                targets.addAll(chunk);
+                outcomes.addAll(chunkOut);
+                log.info("[Image] 청크 {} — 조회 {}명(FILEKEY {}) · 성공 {} · 실패 {} · 건너뜀 {} | 누적 대상 {}명 · 성공 {} · 실패 {} · 건너뜀 {} · 커서 {}",
+                        cursor.chunks(), chunk.size(), keyed,
+                        chunkOut.stream().filter(ImageOutcome::isSuccess).count(),
+                        chunkOut.stream().filter(ImageOutcome::isFail).count(),
+                        chunkOut.stream().filter(o -> "SKIPPED".equals(o.status())).count(),
+                        outcomes.size(), success.get(), fail.get(), skipped.get(), cursor.lastCorrNo());
             }
             canceled = cancelRequested;
+        } finally {
+            if (pool != null) {
+                pool.shutdown();
+            }
         }
+        log.info("[Image] 대상 {}명({}청크 · 청크 크기 {}) — FILEKEY 확보 {}명 · {}", targets.size(), cursor.chunks(), chunkSize,
+                withKey, source.tables());
 
         long ok = outcomes.stream().filter(ImageOutcome::isSuccess).count();
         long ng = outcomes.stream().filter(o -> "FAIL".equals(o.status())).count();
@@ -383,7 +419,7 @@ public class ImageCollectService {
             }
         }
         // ── 처리 이력 — T2 마감(3단계 건수) · T4(처리한 사진 1장 = 1행) · T1 마감 ─────────────────────
-        writeLogs(steps, targets, outcomes, canceled, t0, m, reopen);
+        writeLogs(steps, targets, outcomes, canceled, queryError, t0, m, reopen);
 
         long elapsed = System.currentTimeMillis() - t0;
         log.info("[Image] 종료{} — execId={} · 대상 {} · 성공 {}(신규 {} · 갱신 {} · 옛 사진 {}) · 실패 {}{} · 건너뜀 {} · {}ms",
@@ -414,7 +450,8 @@ public class ImageCollectService {
      * err 는 그 단계에서 실패한 건, SEND 의 out 이 성공 건수다. T1 대상 = 조회한 사진 수(건너뜀 포함), 성공 · 실패 = T4 와 같다
      * (정합성 T1.SUCCESS_CNT == Σ T4 SUCCESS).</p>
      */
-    private void writeLogs(StepLog steps, List<ImageTarget> targets, List<ImageOutcome> outcomes, boolean canceled, long t0,
+    private void writeLogs(StepLog steps, List<ImageTarget> targets, List<ImageOutcome> outcomes, boolean canceled,
+                           String queryError, long t0,
                            ImageMetrics m, Reopen reopen) {
         long processed = outcomes.stream().filter(o -> !"SKIPPED".equals(o.status())).count();
         Map<StepType, Long> failAt = new java.util.EnumMap<>(StepType.class);
@@ -428,7 +465,7 @@ public class ImageCollectService {
         long collectErr = failAt.getOrDefault(StepType.COLLECT, 0L);
         long analyzeErr = failAt.getOrDefault(StepType.ANALYZE, 0L);
         long sendErr = failAt.getOrDefault(StepType.STORE, 0L);
-        String topErr = topErrStack(outcomes);
+        String topErr = queryError != null ? queryError : topErrStack(outcomes);
         steps.finishAll(processed, collectErr, processed - collectErr, analyzeErr, processed - collectErr - analyzeErr, sendErr,
                 ok, topErr, System.currentTimeMillis() - t0, m);
 
@@ -446,6 +483,10 @@ public class ImageCollectService {
         logCollector.createFileProcs(execId, rows);
 
         String sts = canceled ? "CANCELED" : ng == 0 ? "SUCCESS" : ok > 0 ? "PARTIAL" : "FAIL";
+        if (queryError != null && !canceled) {
+            // 중간 청크 조회 실패 — 남은 대상을 못 봤으니 성공으로 닫지 않는다
+            sts = ok > 0 ? "PARTIAL" : "FAIL";
+        }
         // T1 대상 건수 — 이미 최신 사진이 매핑돼 건너뛴 건('변경 없음' · '더 최신 사진')은 대상이 아니다(성공률이 깎이지 않게).
         //   중단으로 건너뛴 건은 대상에 남긴다. 음성(VoiceCollectService)과 같은 규칙이다.
         long upToDate = outcomes.stream()
@@ -463,7 +504,7 @@ public class ImageCollectService {
             }
         }
         logCollector.finishBatch(execId, sts, (int) ((System.currentTimeMillis() - t0) / 1000),
-                target, ok, ng, ng == 0 ? null : topErr);
+                target, ok, ng, ng == 0 && queryError == null ? null : topErr);
     }
 
     /**

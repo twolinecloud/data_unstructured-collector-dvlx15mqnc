@@ -82,6 +82,14 @@ public class BoramiTableNames {
         return qualify(realSchema(schema().irim()), "TB_IRIM_BSIF_DS");
     }
 
+    /**
+     * 수용자기본 — 실제 {@code ir.TB_IRIM_PRBS_BS}(이미지 내역과 같은 {@code ir} 스키마 · 정형 수집기 {@code OracleSourceDialect} 도
+     * 테이블명 {@code TB_} 뒤 두 글자로 {@code IR.TB_IRIM_PRBS_BS} 로 한정한다). 이미지 수집은 수용상태({@code ACMD_STTUS_CD})만 읽는다
+     */
+    public String irimPrbsBs() {
+        return qualify(realSchema(schema().irim()), "TB_IRIM_PRBS_BS");
+    }
+
     /** 사용자통화내역 — 특이수용자와 같은 {@code im} 스키마에 있다 */
     public String imphUcdrDs() {
         return qualify(realSchema(schema().imsc()), "TB_IMPH_UCDR_DS");
@@ -116,8 +124,8 @@ public class BoramiTableNames {
 
     /** 현재 조립된 테이블명 전체(진단·기동 로그용). */
     public String describe() {
-        return "특이수용자=%s, 녹취=%s, 공통파일=%s, 통화내역=%s, XVARM=%s, 이미지=%s (xvarm=%s · %s)".formatted(
-                imscPtprDt(), rerdTfinDs(), smsmCmfiBs(), imphUcdrDs(), asysContentElement(), irimBsifDs(),
+        return "특이수용자=%s, 녹취=%s, 공통파일=%s, 통화내역=%s, XVARM=%s, 이미지=%s, 수용자기본=%s (xvarm=%s · %s)".formatted(
+                imscPtprDt(), rerdTfinDs(), smsmCmfiBs(), imphUcdrDs(), asysContentElement(), irimBsifDs(), irimPrbsBs(),
                 modeState.xvarm(), db.label());
     }
 }

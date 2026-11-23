@@ -32,7 +32,7 @@ import java.util.Map;
  * 배치가 그 건을 'FILEKEY 추출' 실패로 남긴다(조용히 빠뜨리지 않는다).</p>
  *
  * <p>SQL 은 Oracle 12c+ · PostgreSQL · H2 에서 같은 문장이 돌게 쓴다({@code ROW_NUMBER() OVER} ·
- * {@code OFFSET … ROWS FETCH NEXT … ROWS ONLY}). 조회만 하고 트랜잭션을 열지 않는다 — 문장마다 커넥션을 빌렸다 곧 돌려준다.</p>
+ * {@code OFFSET 0 ROWS FETCH NEXT … ROWS ONLY} · {@code CORR_NO} 키셋 커서). 조회만 하고 트랜잭션을 열지 않는다 — 문장마다 커넥션을 빌렸다 곧 돌려준다.</p>
  */
 @Log4j2
 @Service
@@ -50,7 +50,7 @@ public class ImageSourceService {
      *
      * @param corrNos      이 수용자들만(비우면 전체)
      * @param corrNoPrefix 이 접두의 수용자만 — 시뮬레이션 데이터({@code SIMIMG…}). 비우면 실제 수집이라 SIM 행을 뺀다
-     * @param limit        최대 수용자 수(비우면 {@code image.max-per-run})
+     * @param limit        이번 실행의 최대 수용자 수 — 비우면(또는 0 이하) 상한 없이 끝까지. 청크 크기와 다르다
      */
     public record Selection(List<String> corrNos, String corrNoPrefix, Integer limit) {
 
@@ -59,29 +59,131 @@ public class ImageSourceService {
         }
     }
 
-    /** 1단계 — 수용자별 최신 사진. 수용자 순. */
-    public List<ImageTarget> findLatest(Selection sel) {
-        int max = sel.limit() != null && sel.limit() > 0 ? sel.limit() : props.maxPerRun();
-        int page = Math.max(1, Math.min(props.pageSize(), max));
-        List<ImageTarget> out = new ArrayList<>();
-        if (sel.corrNos() != null && !sel.corrNos().isEmpty()) {
-            for (int i = 0; i < sel.corrNos().size() && out.size() < max; i += 500) {
-                List<String> chunk = sel.corrNos().subList(i, Math.min(sel.corrNos().size(), i + 500));
-                out.addAll(queryLatest(chunk, sel.corrNoPrefix(), 0, max - out.size()));
+    /** IN 목록 한 묶음 — Oracle IN 1,000개 제한보다 작게. */
+    static final int IN_BATCH = 500;
+
+    /**
+     * 수용상태로 거르지 않는 합성 데이터 접두 — 6번 탭 SIM({@code SIMIMG}) · 대시보드 더미({@code DMYIMG}). 둘 다 수용자기본
+     * ({@code TB_IRIM_PRBS_BS})에는 <b>일부러 쓰지 않는다</b>(정형 수집기가 그 표를 읽는다 · {@code DummyDataService}). 운영에는 없다.
+     */
+    static final List<String> SYNTHETIC_PREFIXES = java.util.Arrays.stream(egovframework.unstructured.collector.mock.DummyTarget.values())
+            .map(egovframework.unstructured.collector.mock.DummyTarget::imagePrefix).distinct().toList();
+
+    /**
+     * 1단계 — 수용자별 최신 사진을 청크로 읽는 커서. {@link Cursor#next()} 가 0건을 돌려줄 때까지 부른다.
+     *
+     * @param chunkSize 한 번에 읽을 수용자 수({@code image.chunk-size})
+     */
+    public Cursor open(Selection sel, int chunkSize) {
+        return new Cursor(sel, Math.max(1, chunkSize));
+    }
+
+    /**
+     * {@code CORR_NO} 키셋 커서 — {@code CORR_NO > 마지막 교정번호} 오름차순으로 청크 크기만큼씩.
+     *
+     * <p><b>커서가 {@code CORR_NO} 하나로 충분한 이유</b>: 원장 {@code TB_IRIM_BSIF_DS} 는 PK 가 {@code (CORR_NO, IMAGE_SN)} 이라
+     * 한 수용자에 사진이 여러 장 있다. 그러나 조회는 {@code ROW_NUMBER() OVER (PARTITION BY CORR_NO ORDER BY IMAGE_SN DESC) = 1} 로
+     * <b>수용자당 최신 1행</b>만 남긴 뒤 정렬·자르기를 한다 — 결과에서 {@code CORR_NO} 는 유일하다. 커서 조건은 안쪽(파티션 전)에 걸지만
+     * 파티션 키가 같은 {@code CORR_NO} 라 수용자 단위로 통째로 빠지거나 남는다(한 수용자의 사진이 청크 경계에서 갈리지 않는다).
+     * 수집 대상은 수용자당 최신 사진 1장이라 '나머지 사진'은 원래 받지 않는다.</p>
+     *
+     * <p>{@code corrNos} 를 준 수동 실행은 목록을 {@value #IN_BATCH} 개씩 차례로 묻는다(목록이 유한하다 — 목록을 다 돌면 0건).</p>
+     */
+    public final class Cursor {
+
+        private final Selection sel;
+        private final int chunkSize;
+        private final List<String> corrNos;
+        private final Integer cap;
+        private String lastCorrNo;
+        private int listPos;
+        private int chunks;
+        private int taken;
+        private boolean exhausted;
+        private boolean recorded;
+
+        private Cursor(Selection sel, int chunkSize) {
+            this.sel = sel;
+            this.chunkSize = chunkSize;
+            this.corrNos = sel.corrNos() == null || sel.corrNos().isEmpty() ? null
+                    : sel.corrNos().stream().filter(java.util.Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty())
+                    .distinct().toList();
+            this.cap = sel.limit() != null && sel.limit() > 0 ? sel.limit() : null;
+        }
+
+        /** 다음 청크. 0건이면 끝(그 뒤로도 계속 0건). */
+        public List<ImageTarget> next() {
+            if (exhausted) {
+                return List.of();
+            }
+            int want = cap == null ? chunkSize : Math.min(chunkSize, cap - taken);
+            if (want <= 0) {
+                exhausted = true;
+                return List.of();
+            }
+            List<ImageTarget> rows = corrNos != null ? nextFromList(want) : nextByKey(want);
+            if (rows.isEmpty()) {
+                exhausted = true;
+                return rows;
+            }
+            chunks++;
+            taken += rows.size();
+            return rows;
+        }
+
+        private List<ImageTarget> nextByKey(int want) {
+            List<ImageTarget> rows = queryLatest(null, sel.corrNoPrefix(), lastCorrNo, want, !recorded);
+            recorded = true;
+            if (!rows.isEmpty()) {
+                String last = rows.get(rows.size() - 1).corrNo();
+                // 커서가 앞으로 가지 않으면(정렬·비교 규칙이 어긋난 DB) 같은 청크를 끝없이 돌게 된다 — 멈추고 알린다
+                if (last == null || last.equals(lastCorrNo)
+                        || rows.stream().map(ImageTarget::corrNo).distinct().count() != rows.size()) {
+                    throw new IllegalStateException("사진 조회 커서가 진행하지 않는다 — 마지막 교정번호 " + lastCorrNo + " → " + last);
+                }
+                lastCorrNo = last;
+            }
+            return rows;
+        }
+
+        private List<ImageTarget> nextFromList(int want) {
+            List<ImageTarget> out = new ArrayList<>();
+            while (out.isEmpty() && listPos < corrNos.size()) {
+                List<String> batch = corrNos.subList(listPos, Math.min(corrNos.size(), listPos + Math.min(IN_BATCH, want)));
+                listPos += batch.size();
+                out.addAll(queryLatest(batch, sel.corrNoPrefix(), null, batch.size(), !recorded));
+                recorded = true;
             }
             return out;
         }
-        for (int offset = 0; out.size() < max; offset += page) {
-            List<ImageTarget> rows = queryLatest(null, sel.corrNoPrefix(), offset, Math.min(page, max - out.size()));
-            out.addAll(rows);
-            if (rows.size() < page) {
-                break;
-            }
+
+        /** 지금까지 읽은 청크 수(0건 청크 제외). */
+        public int chunks() {
+            return chunks;
         }
-        return out;
+
+        /** 지금까지 읽은 수용자 수. */
+        public int taken() {
+            return taken;
+        }
+
+        /** 마지막으로 읽은 교정번호(키셋 커서) — {@code corrNos} 실행이면 비어 있다. */
+        public String lastCorrNo() {
+            return lastCorrNo;
+        }
     }
 
-    private List<ImageTarget> queryLatest(List<String> corrNos, String prefix, int offset, int limit) {
+    /** 수용상태 필터 값 — 공백 제거 · 빈 값 제외. 비면 거르지 않는다. */
+    List<String> activeStatusCodes() {
+        List<String> codes = props.activeStatusCodes() == null ? List.of() : props.activeStatusCodes();
+        return codes.stream().filter(java.util.Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty()).distinct().toList();
+    }
+
+    private static boolean isSynthetic(String prefix) {
+        return prefix != null && SYNTHETIC_PREFIXES.stream().anyMatch(s -> prefix.trim().startsWith(s));
+    }
+
+    private List<ImageTarget> queryLatest(List<String> corrNos, String prefix, String afterCorrNo, int limit, boolean record) {
         StringBuilder sql = new StringBuilder()
                 .append("SELECT CORR_NO, IMAGE_SN, IMAGE_CMMN_FILE_ID FROM (")
                 .append(" SELECT B.CORR_NO, B.IMAGE_SN, B.IMAGE_CMMN_FILE_ID,")
@@ -89,23 +191,50 @@ public class ImageSourceService {
                 .append("   FROM ").append(tables.irimBsifDs()).append(" B")
                 .append("  WHERE B.IMAGE_SE_CD = :seCd");
         MapSqlParameterSource p = new MapSqlParameterSource("seCd", props.imageSeCd());
-        if (prefix != null && !prefix.isBlank()) {
+        boolean prefixed = prefix != null && !prefix.isBlank();
+        if (prefixed) {
             sql.append(" AND B.CORR_NO LIKE :prefix");
-            p.addValue("prefix", prefix + "%");
+            p.addValue("prefix", prefix.trim() + "%");
         } else {
             // 실제 수집 — 6번 탭이 재실행(멱등성) 검증을 위해 남겨 둔 SIM 행을 집어가지 않는다
             sql.append(" AND B.CORR_NO NOT LIKE :simPrefix");
             p.addValue("simPrefix", ImageSimulationService.PREFIX + "%");
         }
+        if (afterCorrNo != null) {
+            // 키셋 커서 — 파티션 키와 같은 CORR_NO 라 수용자 단위로 갈린다(위 Cursor 설명)
+            sql.append(" AND B.CORR_NO > :lastCorrNo");
+            p.addValue("lastCorrNo", afterCorrNo);
+        }
         if (corrNos != null) {
             sql.append(" AND B.CORR_NO IN (:corrNos)");
             p.addValue("corrNos", corrNos);
         }
-        sql.append(") T WHERE RN = 1 ORDER BY CORR_NO OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY");
-        p.addValue("offset", offset).addValue("limit", Math.max(1, limit));
+        // 현재 수용자만 — 수용자기본(CORR_NO 1:1)의 수용상태. JOIN 대신 EXISTS: 수용자기본에 같은 CORR_NO 가 여럿이어도 사진 행이
+        //   불어나지 않는다(커서 유일성 유지). 합성 데이터(SIM·DMY)는 수용자기본에 없으므로 거르지 않는다
+        List<String> codes = activeStatusCodes();
+        if (!codes.isEmpty() && !(prefixed && isSynthetic(prefix))) {
+            String exists = "EXISTS (SELECT 1 FROM " + tables.irimPrbsBs() + " P"
+                    + " WHERE P.CORR_NO = B.CORR_NO AND P.ACMD_STTUS_CD IN (:acmdSttusCds))";
+            p.addValue("acmdSttusCds", codes);
+            if (prefixed) {
+                sql.append(" AND ").append(exists);
+            } else {
+                StringBuilder exempt = new StringBuilder();
+                for (int i = 0; i < SYNTHETIC_PREFIXES.size(); i++) {
+                    if (SYNTHETIC_PREFIXES.get(i).equals(ImageSimulationService.PREFIX)) {
+                        continue;   // SIM 은 위에서 이미 뺐다
+                    }
+                    exempt.append("B.CORR_NO LIKE :synthetic").append(i).append(" OR ");
+                    p.addValue("synthetic" + i, SYNTHETIC_PREFIXES.get(i) + "%");
+                }
+                sql.append(" AND (").append(exempt).append(exists).append(")");
+            }
+        }
+        sql.append(") T WHERE RN = 1 ORDER BY CORR_NO OFFSET 0 ROWS FETCH NEXT :limit ROWS ONLY");
+        p.addValue("limit", Math.max(1, limit));
         List<ImageTarget> rows = new NamedParameterJdbcTemplate(jdbc).query(sql.toString(), p, (rs, i) ->
                 ImageTarget.latest(rs.getString("CORR_NO"), rs.getInt("IMAGE_SN"), rs.getString("IMAGE_CMMN_FILE_ID")));
-        if (offset == 0) {
+        if (record) {
             // ① 실행 기록 — 첫 페이지만(값을 채운 SQL · 결과 표본)
             List<Map<String, Object>> out = new ArrayList<>();
             for (ImageTarget t : rows) {
@@ -200,6 +329,7 @@ public class ImageSourceService {
 
     /** 조회에 쓰는 테이블(화면·로그용). */
     public Map<String, String> tables() {
-        return Map.of("image", tables.irimBsifDs(), "cmfi", tables.smsmCmfiBs(), "xvarm", tables.asysContentElement());
+        return Map.of("image", tables.irimBsifDs(), "cmfi", tables.smsmCmfiBs(), "xvarm", tables.asysContentElement(),
+                "inmate", tables.irimPrbsBs());
     }
 }

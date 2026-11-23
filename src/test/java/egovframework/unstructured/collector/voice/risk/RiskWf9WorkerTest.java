@@ -53,7 +53,7 @@ class RiskWf9WorkerTest {
     }
 
     private static RiskWf9Pipeline.Outcome ok() {
-        return new RiskWf9Pipeline.Outcome(1, 0, 1, 0, 2, 10, true);
+        return new RiskWf9Pipeline.Outcome(1, 0, 1, 0, 2, 10);
     }
 
     private void put(String recFileId) {

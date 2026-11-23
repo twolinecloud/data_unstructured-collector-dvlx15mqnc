@@ -200,7 +200,6 @@ public class CloudSendSimService {
             Step send = sendStep(d);
             r.put("send", send == null ? null : send.sts());
             r.put("held", held != null && held.contains(id));
-            r.put("purged", b != null && "SUCCESS".equals(b.path("purge_sts_cd").asText("")));
             r.put("exists", b != null && b.hasNonNull("exec_id"));
             rows.add(r);
         }

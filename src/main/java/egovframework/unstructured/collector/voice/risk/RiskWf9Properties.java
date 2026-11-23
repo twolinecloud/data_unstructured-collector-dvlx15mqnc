@@ -11,8 +11,7 @@ import java.util.List;
  * <p>배치는 복호화 직후 음성 사본을 스풀에 넣기만 하고 다음 단계로 간다. 작업자 하나가 음성 배치가 돌지 않을 때
  * 스풀을 비운다: 제논 {@code audio/process} → 커넥터 {@code POST /api/v1/deid/speech-results}(비식별 · 잔존 검사)
  * → 제논 채팅 WF9(SSE) → {@code {findings, reviews}} → 로그 컬렉터 {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}.
- * T1~T5 는 건드리지 않는다(D7) — 단 하나, 제논 실호출(REST)이 정상 응답(200 OK)하면 그 배치 T1 의 폐기 상태
- * ({@code PURGE_STS_CD} · {@code PURGE_DTM})만 폐기 완료로 적는다. 제논 엔드포인트가 비저장이라 폐기 신호가 오지 않기 때문이다(PL 합의 2026-11-20).</p>
+ * T1~T5 는 건드리지 않는다(D7 · 2026-11-23 부터 T1 폐기 상태도 적지 않는다).</p>
  *
  * <p><b>계정은 레포에 적지 않는다</b> — {@code GENON_PORTAL_USER_ID} · {@code GENON_PORTAL_PASSWORD}(Secret)로만 받는다.
  * 음성 키는 기존 {@code GENON_STT_API_KEY} 를 그대로 쓴다(STT 와 같은 '동시 1건' 차례).</p>

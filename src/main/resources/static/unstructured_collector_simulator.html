@@ -4173,7 +4173,7 @@ function csRender(rows) {
   }
   const body = rows.map((r, i) => {
     // 만든 직후(asRequested 가 있음)에 다르면 '요청과 다름', 그 뒤(클라우드 전송 · 전송중 풀기)에 바뀐 건 어떻게 바뀌었는지
-    const after = r.send === 'SUCCESS' || r.purged ? '전송 끝(목록에서 빠짐)'
+    const after = r.send === 'SUCCESS' ? '전송 끝(목록에서 빠짐)'
         : r.exists === false ? '이력 없음(지워짐)'
         : r.send === r.state ? ''
         : r.asRequested === false ? '<span class="text-warning-emphasis">요청과 다름</span>'

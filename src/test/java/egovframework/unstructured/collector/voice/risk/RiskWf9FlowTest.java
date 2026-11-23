@@ -68,12 +68,11 @@ class RiskWf9FlowTest {
     private final List<JsonNode> chatBodies = new CopyOnWriteArrayList<>();
     private final List<String> putPaths = new CopyOnWriteArrayList<>();
     private final List<JsonNode> putBodies = new CopyOnWriteArrayList<>();
-    private final List<String> purgePaths = new CopyOnWriteArrayList<>();
-    private final List<JsonNode> purgeBodies = new CopyOnWriteArrayList<>();
+    /** 로그 컬렉터 배치(T1) 경로로 온 요청 — WF9 는 T1 을 건드리지 않으므로 늘 비어 있어야 한다. */
+    private final List<String> batchPaths = new CopyOnWriteArrayList<>();
     private final AtomicInteger logins = new AtomicInteger();
     private volatile int deidStatus = 200;
     private volatile int putStatus = 200;
-    private volatile int purgeStatus = 200;
     /** 가짜 제논 · WF9 가 2026-11-20 실응답(고정 자료)을 돌려준다. */
     private volatile boolean realShape;
 
@@ -105,14 +104,10 @@ class RiskWf9FlowTest {
             json(ex, 200, "{\"success\":true,\"code\":0,\"result\":{\"recFileId\":\"" + REC + "\",\"deleted\":0,\"inserted\":"
                     + putBodies.get(putBodies.size() - 1).path("signals").size() + "}}");
         });
-        // T1 폐기 상태(POST /batches/{execId}/ppp-callback) — 로그 컬렉터 실응답처럼 성공은 result null · 배치 없으면 404
+        // 배치(T1) 경로 — 예전엔 제논 정상 응답 뒤 T1 폐기 상태(ppp-callback)를 여기로 적었다. 이제 오면 안 된다(2026-11-23)
         server.createContext("/logc/api/v1/logs/batches/", ex -> {
-            purgePaths.add(ex.getRequestMethod() + " " + ex.getRequestURI().getPath());
-            purgeBodies.add(OM.readTree(ex.getRequestBody().readAllBytes()));
-            if (purgeStatus != 200) {
-                json(ex, purgeStatus, "{\"success\":false,\"code\":404,\"message\":\"배치 실행 이력 없음\"}");
-                return;
-            }
+            batchPaths.add(ex.getRequestMethod() + " " + ex.getRequestURI().getPath());
+            ex.getRequestBody().readAllBytes();
             json(ex, 200, "{\"success\":true,\"code\":0,\"result\":null}");
         });
         server.start();
@@ -267,14 +262,9 @@ class RiskWf9FlowTest {
         }
     }
 
-    /** T1 폐기 완료 — 그 배치로 times 번 · 폐기 상태 SUCCESS · 폐기 일시 KST 초까지 · PPP 처리 상태는 보내지 않음. */
-    private void assertPurgeMarked(String execId, int times) {
-        assertThat(purgePaths).hasSize(times).containsOnly("POST /logc/api/v1/logs/batches/" + execId + "/ppp-callback");
-        for (JsonNode b : purgeBodies) {
-            assertThat(b.path("purgeStsCd").asText()).isEqualTo(LogCollectorClient.PURGE_SUCCESS);
-            assertThat(b.path("purgeDtm").asText()).matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}");
-            assertThat(b.path("pppProcStsCd").isNull() || b.path("pppProcStsCd").isMissingNode()).isTrue();
-        }
+    /** WF9 는 T1 을 건드리지 않는다 — 제논 실호출이 정상 응답해도 폐기 상태(ppp-callback)를 적지 않는다(2026-11-23). */
+    private void assertNoT1Write() {
+        assertThat(batchPaths).as("로그 컬렉터 배치(T1) 경로 호출 없음").isEmpty();
     }
 
     // ------------------------------------------------------------------ 시험
@@ -331,8 +321,8 @@ class RiskWf9FlowTest {
         assertThat(s.get(1).path("riskClassCd").isNull()).isTrue();
         assertThat(s.get(1).path("signalSn").isNull()).as("순번은 로그 컬렉터가 매긴다").isTrue();
 
-        // T1 폐기 — 제논 실호출 정상 응답(전처리 · WF9)마다 바로 폐기 완료(비저장이라 폐기 신호가 오지 않는다 · PL 합의 11-20)
-        assertPurgeMarked("20261116UNS001", 2);
+        // 제논 실호출 정상 응답(전처리 · WF9)이어도 T1 은 그대로(예전엔 폐기 완료를 적었다 · 2026-11-23 제거)
+        assertNoT1Write();
     }
 
     @Test
@@ -383,11 +373,11 @@ class RiskWf9FlowTest {
         for (JsonNode one : s) {
             assertThat(one.path("signalSn").isNull()).isTrue();
         }
-        assertPurgeMarked("20261120UNS001", 2);
+        assertNoT1Write();
     }
 
     @Test
-    @DisplayName("커넥터 422(잔존) → 제논 WF9 · 주요사항 적재를 부르지 않고 바로 포기 · 사본 삭제 · 이미 전처리로 보낸 음성 몫의 폐기 완료는 적힘")
+    @DisplayName("커넥터 422(잔존) → 제논 WF9 · 주요사항 적재를 부르지 않고 바로 포기 · 사본 삭제")
     void residualStopsBeforeGenonChat() throws Exception {
         deidStatus = 422;
         spool.offer("E1", meet(REC), audio, false);
@@ -398,7 +388,7 @@ class RiskWf9FlowTest {
         assertThat(chatBodies).isEmpty();
         assertThat(putBodies).isEmpty();
         assertThat(spool.list()).isEmpty();
-        assertPurgeMarked("E1", 1);
+        assertNoT1Write();
     }
 
     @Test
@@ -417,7 +407,7 @@ class RiskWf9FlowTest {
         assertThat(worker.drain().gaveUp()).isEqualTo(1);
         assertThat(spool.list()).isEmpty();
         assertThat(genonBodies).as("다시 하면 ①부터 — 사전을 디스크에 두지 않는다").hasSize(2);
-        assertThat(purgePaths).as("적재 실패와 무관 — 제논 실호출 정상 응답마다(2회 × 전처리 · WF9)").hasSize(4);
+        assertNoT1Write();
     }
 
     @Test
@@ -430,12 +420,12 @@ class RiskWf9FlowTest {
         assertThat(chatBodies).isEmpty();
         assertThat(logins.get()).isZero();
         assertThat(putBodies.get(0).path("signals")).isEmpty();
-        assertPurgeMarked("E1", 1);   // 제논 실호출은 전처리 한 번뿐
+        assertNoT1Write();
     }
 
     @Test
-    @DisplayName("제논 전처리 · 포털 둘 다 MOCK — 제논에 보낸 것이 없으니 T1 폐기 상태를 적지 않는다")
-    void allMockLeavesPurgeAlone() throws Exception {
+    @DisplayName("제논 전처리 · 포털 둘 다 MOCK — 제논 호출 없이 그 녹음의 행만 지운다 · T1 은 그대로")
+    void allMockStoresWithoutGenon() throws Exception {
         build(RiskWf9Properties.PortalMode.MOCK, false, GenonSttProperties.Mode.MOCK);
         spool.offer("E1", meet(REC), audio, false);
         Wf9Spool.Entry e = spool.list().get(0);
@@ -445,26 +435,24 @@ class RiskWf9FlowTest {
         assertThat(genonBodies).isEmpty();
         assertThat(chatBodies).isEmpty();
         assertThat(putPaths).containsExactly("PUT /logc/api/v1/logs/contact-risk-signals/" + REC);
-        assertThat(purgePaths).isEmpty();
-        assertThat(o.purgeMarked()).isFalse();
+        assertThat(o.inserted()).isZero();
+        assertNoT1Write();
     }
 
     @Test
-    @DisplayName("purgeMarked — 로그 컬렉터가 받으면 true · 못 적어도(404 배치 없음) false 일 뿐 주요사항은 그대로 적재(작업 계속)")
-    void purgeFailureDoesNotBlockStore() throws Exception {
+    @DisplayName("제논 실호출(전처리 · WF9) 정상 응답을 두 번 받아도 T1 폐기 상태를 적지 않는다 — 주요사항만 두 번 교체")
+    void restSuccessNeverWritesT1() throws Exception {
         spool.offer("E1", meet(REC), audio, false);
         Wf9Spool.Entry e = spool.list().get(0);
         Path copy = e.dir().resolve(e.job().audioFile());
 
-        RiskWf9Pipeline.Outcome ok = pipeline.run(e.job(), copy);
-        assertThat(ok.purgeMarked()).isTrue();
-        assertPurgeMarked("E1", 2);
-
-        purgeStatus = 404;
-        RiskWf9Pipeline.Outcome failed = pipeline.run(e.job(), copy);
-        assertThat(failed.purgeMarked()).isFalse();
-        assertThat(failed.inserted()).isEqualTo(2);
-        assertThat(purgePaths).hasSize(4);
+        RiskWf9Pipeline.Outcome first = pipeline.run(e.job(), copy);
+        RiskWf9Pipeline.Outcome again = pipeline.run(e.job(), copy);
+        assertThat(first.inserted()).isEqualTo(2);
+        assertThat(again.inserted()).isEqualTo(2);
+        assertThat(genonBodies).hasSize(2);
+        assertThat(chatBodies).hasSize(2);
         assertThat(putPaths).hasSize(2);
+        assertNoT1Write();
     }
 }

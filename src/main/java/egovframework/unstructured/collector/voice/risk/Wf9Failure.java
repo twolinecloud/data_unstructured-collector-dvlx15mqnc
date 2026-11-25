@@ -16,7 +16,9 @@ public class Wf9Failure extends RuntimeException {
         PROCESS,
         /** 커넥터 비식별 {@code /api/v1/deid/speech-results}. */
         DEID,
-        /** 제논 채팅 WF9(로그인 · SSE). */
+        /** WF9 에 보내기 전 입력 규격 검사({@link Wf9InputGuard}) — 위반이면 보내지 않는다. */
+        INPUT,
+        /** 제논 WF9(Code Serving 직접 호출 · SSE). */
         PORTAL,
         /** WF9 응답에서 {@code {findings, reviews}} 를 읽지 못함. */
         PARSE,

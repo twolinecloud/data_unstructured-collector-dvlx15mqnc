@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 
 /**
- * WF9 작업 한 건 — ① 제논 전처리 → ② 커넥터 비식별 → ③ 제논 WF9 → ④ 파싱 · 행 변환 → ⑤ 로그 컬렉터 통째 교체.
+ * WF9 작업 한 건 — ① 제논 전처리 → ② 커넥터 비식별 → ③ 입력 규격 검사 → ④ 제논 WF9(Code Serving) → ⑤ 파싱 · 행 변환 → ⑥ 로그 컬렉터 통째 교체.
  *
  * <p>음성 · 전사 · 가린 문서 · 사전 · WF9 답 · 되돌린 내용은 <b>이 호출의 메모리에만</b> 있다(로그 · 디스크에 남기지 않는다).
  * 다시 하면 ①부터 다시 한다 — 사전을 디스크에 두지 않기 위해서다(D6).</p>
@@ -70,7 +70,16 @@ public class RiskWf9Pipeline {
         // ② 커넥터 비식별 — 잔존이 있으면 422 로 끊긴다(제논에 보내지 않는다)
         SpeechResultsDeidClient.Result masked = deid.deidentify(job.recFileId(), job.execId(), processed);
 
-        // ③ 제논 WF9
+        // ③ 입력 규격 검사 — 위반이면 외부망으로 보내지 않고 포기 · 빠진 값은 가이드 v4 6 · 7장 기본값으로 채운다(경로 · 필드 이름만 로그)
+        Wf9InputGuard.Report guard = Wf9InputGuard.check(masked.document());
+        if (!guard.filled().isEmpty()) {
+            log.info("[WF9] {} — 입력 빈 값 채움 {}", job.shortId(), guard.filled());
+        }
+        if (!guard.warnings().isEmpty()) {
+            log.warn("[WF9] {} — 입력 경고 {}(보내기는 한다)", job.shortId(), guard.warnings());
+        }
+
+        // ④ 제논 WF9(Code Serving)
         String message;
         try {
             message = om.writeValueAsString(masked.document());
@@ -79,7 +88,7 @@ public class RiskWf9Pipeline {
         }
         String answer = portal.wf9(message);   // HTTP 200 + SSE end 일 때만 돌아온다(그 밖은 Wf9Failure)
 
-        // ④ {findings, reviews} → 행(내용만 되돌린다 · 위험 분류는 받은 값 그대로 — 코드표로는 로그 컬렉터가 맞춘다)
+        // ⑤ {findings, reviews} → 행(내용만 되돌린다 · 위험 분류는 받은 값 그대로 — 코드표로는 로그 컬렉터가 맞춘다)
         Wf9Signals.Parsed parsed = Wf9Signals.parse(om, answer);
         Wf9Signals.Rows rows = Wf9Signals.toRows(parsed, masked.mapping(), props.contentFields(), props.riskClassFields());
         if (rows.offSpec() > 0) {
@@ -89,7 +98,7 @@ public class RiskWf9Pipeline {
                     rows.offSpecFields());
         }
 
-        // ⑤ 로그 컬렉터 — 녹음 단위 통째 교체(0건이면 지우기만)
+        // ⑥ 로그 컬렉터 — 녹음 단위 통째 교체(0건이면 지우기만)
         int inserted;
         try {
             inserted = logCollector.replaceContactRiskSignals(job.recFileId(), new LogCollectorClient.ContactRiskReplaceReq(

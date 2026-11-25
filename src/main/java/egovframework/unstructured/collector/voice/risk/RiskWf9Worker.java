@@ -79,8 +79,11 @@ public class RiskWf9Worker {
             return;
         }
         String why = blocker.get();
-        log.info("[WF9] 켜짐 — 포털 {} · 앞 {}초 분석 · 재시도 {}회 · 기한 {}시간 · {}", props.portalMode(),
+        log.info("[WF9] 켜짐 — WF9 {}{} · 앞 {}초 분석 · 재시도 {}회 · 기한 {}시간 · {}", props.portalMode(),
+                props.portalMode() == RiskWf9Properties.PortalMode.REST
+                        ? "(" + props.servingRunUrl() + " · AuthKey " + (props.hasAuthKey() ? "있음" : "없음") + ")" : "",
                 props.analyzeMaxSec(), props.maxRetries(), props.maxAgeHours(), why == null ? "준비됨" : "멈춤: " + why);
+        warnKeyExpiry();
         exec = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "wf9-worker");
             t.setDaemon(true);
@@ -88,6 +91,24 @@ public class RiskWf9Worker {
         });
         exec.scheduleWithFixedDelay(this::tick, Math.max(0, props.initialDelaySec()), Math.max(1, props.pollSec()),
                 TimeUnit.SECONDS);
+    }
+
+    /** AuthKey 만료(가이드 v4 1쪽 — 2026-12-11 23:59:59 KST 까지) — 14일 안이면 경고 · 지났으면 오류 로그. 키 값은 보지 않는다. */
+    void warnKeyExpiry() {
+        if (props.portalMode() != RiskWf9Properties.PortalMode.REST) {
+            return;
+        }
+        Long left = props.authKeyDaysLeft(java.time.LocalDate.now(clock.withZone(Wf9Job.KST)));
+        if (left == null) {
+            if (!props.authKeyExpiresOn().isEmpty()) {
+                log.warn("[WF9] AuthKey 만료일 형식이 yyyy-MM-dd 가 아니다(GENON_WF9_AUTH_KEY_EXPIRES_ON)");
+            }
+        } else if (left < 0) {
+            log.error("[WF9] AuthKey 만료일 {} 이 지났다 — 401 이 나면 제논에 새 키를 받아 Secret 교체(GENON_WF9_AUTH_KEY)",
+                    props.authKeyExpiresOn());
+        } else if (left <= 14) {
+            log.warn("[WF9] AuthKey 만료 {}일 남음({}) — 제논에 새 키 요청", left, props.authKeyExpiresOn());
+        }
     }
 
     @PreDestroy

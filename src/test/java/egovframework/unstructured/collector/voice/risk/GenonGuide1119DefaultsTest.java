@@ -46,7 +46,7 @@ class GenonGuide1119DefaultsTest {
     }
 
     @Test
-    @DisplayName("WF9 — /chat 시한 300초 이상 · 분석 길이 1800초(운영 상한 30분) · 위험 분류 첫 후보 risk_type · 접촉 구분 type 은 후보 아님")
+    @DisplayName("WF9 — Code Serving 709/10721/run · AuthKey 없음 · 시한 300초 이상 · 분석 길이 1800초(운영 상한 30분) · 위험 분류 첫 후보 risk_type · 접촉 구분 type 은 후보 아님")
     void wf9Defaults() throws IOException {
         for (RiskWf9Properties w : List.of(code("voice.risk-wf9", RiskWf9Properties.class), yml("voice.risk-wf9", RiskWf9Properties.class))) {
             assertThat(w.portalTimeoutSec()).as("SSE end 까지 전체").isGreaterThanOrEqualTo(300);
@@ -58,7 +58,11 @@ class GenonGuide1119DefaultsTest {
             assertThat(w.deidTimeoutSec()).as("커넥터가 AI-R 을 600초까지 기다린다").isGreaterThan(600);
             assertThat(w.enabled()).as("외부망 · Secret 결정 전까지 꺼 둔다").isFalse();
             assertThat(w.portalMode()).isEqualTo(RiskWf9Properties.PortalMode.MOCK);
-            assertThat(w.hasPortalAccount()).as("계정은 레포에 없다").isFalse();
+            assertThat(w.hasAuthKey()).as("AuthKey 는 레포에 없다").isFalse();
+            // 2026-11-25 Code Serving 직접 호출(가이드 v4 · 제논 메일 11-25)
+            assertThat(w.servingRunUrl()).isEqualTo("https://genos.genon.ai/api/gateway/code_serving/709/10721/run");
+            assertThat(w.servingPathValid()).isTrue();
+            assertThat(w.authKeyExpiresOn()).as("가이드 v4 1쪽 — 23:59:59 KST 까지").isEqualTo("2026-12-11");
         }
         // 목록 기본값 — 코드(@DefaultValue)도 쪼갠 목록이어야 한다(예전엔 쉼표 문자열 하나 → 원소 하나짜리 목록이었다)
         RiskWf9Properties c = code("voice.risk-wf9", RiskWf9Properties.class);

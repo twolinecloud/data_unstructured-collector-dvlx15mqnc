@@ -4,17 +4,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 접견·전화 위험 신호(제논 WF9) — 1116 통합설계 과제 3.
  *
  * <p>배치는 복호화 직후 음성 사본을 스풀에 넣기만 하고 다음 단계로 간다. 작업자 하나가 음성 배치가 돌지 않을 때
  * 스풀을 비운다: 제논 {@code audio/process} → 커넥터 {@code POST /api/v1/deid/speech-results}(비식별 · 잔존 검사)
- * → 제논 채팅 WF9(SSE) → {@code {findings, reviews}} → 로그 컬렉터 {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}.
- * T1~T5 는 건드리지 않는다(D7 · 2026-11-23 부터 T1 폐기 상태도 적지 않는다).</p>
+ * → 제논 WF9(Code Serving 직접 호출 · SSE) → {@code {findings, reviews}} → 로그 컬렉터
+ * {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}. T1~T5 는 건드리지 않는다(D7 · 2026-11-23 부터 T1 폐기 상태도 적지 않는다).</p>
  *
- * <p><b>계정은 레포에 적지 않는다</b> — {@code GENON_PORTAL_USER_ID} · {@code GENON_PORTAL_PASSWORD}(Secret)로만 받는다.
- * 음성 키는 기존 {@code GENON_STT_API_KEY} 를 그대로 쓴다(STT 와 같은 '동시 1건' 차례).</p>
+ * <p><b>2026-11-25 호출 방식 전환</b>(대시보드 AI API 연동 가이드 v4 · 제논 메일 11-25) — genportal 로그인({@code /auth/login})
+ * → {@code /chat} 을 버리고 서빙별 AuthKey 로 {@code POST {servingBaseUrl}/{servingId}/{servingRev}/run} 을 바로 부른다.
+ * 요청 본문({@code {endpoint, message, file_ids: []}})과 SSE 응답 처리는 그대로다.</p>
+ *
+ * <p><b>AuthKey 는 레포에 적지 않는다</b> — 배포 Secret → 환경 변수 {@code GENON_WF9_AUTH_KEY} 로만 받는다.
+ * 음성 전처리 키는 기존 {@code GENON_STT_API_KEY} 를 그대로 쓴다(STT 와 같은 '동시 1건' 차례).</p>
  *
  * @param enabled             켜기(기본 false — 개발계 외부망 · Secret 결정 전까지 끈 채로 배포)
  * @param spoolDir            스풀 위치. 비우면 복호화 작업 폴더 옆 {@code {ROOT}/xvram/wf9-spool}(같은 PVC · 권한)
@@ -31,11 +36,14 @@ import java.util.List;
  * @param initialDelaySec     기동 뒤 첫 순회까지(초)
  * @param deidPath            커넥터 비식별 경로({@code agent-connector.base-url} 뒤)
  * @param deidTimeoutSec      커넥터 응답 상한 — 커넥터가 AI-R 을 최대 600초 기다리므로 그보다 길게
- * @param portalMode          MOCK(네트워크 없음 · 가이드 예시 빈 결과) · REST(실호출)
- * @param portalBaseUrl       genportal 주소 — {@code /auth/login} · {@code /chat} 이 붙는다
- * @param portalUserId        제논 공통 계정 ID — 환경변수로만
- * @param portalPassword      제논 공통 계정 비밀번호 — 환경변수로만
- * @param portalEndpoint      WF9 endpoint
+ * @param portalMode          MOCK(네트워크 없음 · 가이드 예시 빈 결과) · REST(Code Serving 실호출)
+ * @param servingBaseUrl      Code Serving 게이트웨이 주소 — 뒤에 {@code /{servingId}/{servingRev}/run} 이 붙는다
+ * @param servingId           접견·전화 분석 서빙 ID(가이드 v4 1쪽 표 · 숫자만)
+ * @param servingRev          그 서빙의 리비전(숫자만) — 제논이 리비전을 올리면 이 값만 바꾼다
+ * @param authKey             서빙별 AuthKey — 환경 변수로만({@code Authorization: Bearer …})
+ * @param authKeyExpiresOn    AuthKey 만료일(yyyy-MM-dd · KST · 가이드 v4 1쪽 "2026-12-11 23:59:59 KST 까지 유효") — 기동 로그에 남기고
+ *                            14일 안이거나 지났으면 경고한다(값이 아니므로 비밀 아님). 비우면 보지 않는다
+ * @param portalEndpoint      요청 본문의 {@code endpoint}(WF9)
  * @param portalConnectTimeoutSec 연결 상한
  * @param portalTimeoutSec    WF9 응답(SSE end 까지 전체 · 감시 스레드) 상한 300초 — 실측 3건 검출 10.8초 · 20분 전처리 결과 2.5초
  * @param contentFields       항목에서 화면 '내용'(SIGNAL_CN)으로 쓸 필드 — 앞에 둔 것부터. <b>첫 이름이 항목 규격</b>({@code content} —
@@ -62,9 +70,11 @@ public record RiskWf9Properties(
         @DefaultValue("/api/v1/deid/speech-results") String deidPath,
         @DefaultValue("660") int deidTimeoutSec,
         @DefaultValue("MOCK") PortalMode portalMode,
-        @DefaultValue("https://genos.genon.ai/api/genportal") String portalBaseUrl,
-        @DefaultValue("") String portalUserId,
-        @DefaultValue("") String portalPassword,
+        @DefaultValue("https://genos.genon.ai/api/gateway/code_serving") String servingBaseUrl,
+        @DefaultValue("709") String servingId,
+        @DefaultValue("10721") String servingRev,
+        @DefaultValue("") String authKey,
+        @DefaultValue("2026-12-11") String authKeyExpiresOn,
         @DefaultValue("pt6i_10rw_jsd9") String portalEndpoint,
         @DefaultValue("10") int portalConnectTimeoutSec,
         @DefaultValue("300") int portalTimeoutSec,
@@ -81,26 +91,59 @@ public record RiskWf9Properties(
     /** MOCK — 네트워크 없이 가이드의 최종 응답 예시({@code {"findings":[],"reviews":[]}})를 돌려준다 · REST — 실제로 부른다. */
     public enum PortalMode { MOCK, REST }
 
+    /** 서빙 ID · 리비전 — 숫자만(경로에 그대로 붙으므로 {@code /} · {@code ..} 따위가 끼지 않게). */
+    private static final Pattern DIGITS = Pattern.compile("[0-9]{1,12}");
+
     public RiskWf9Properties {
         spoolDir = spoolDir == null ? "" : spoolDir.strip();
-        portalUserId = portalUserId == null ? "" : portalUserId.strip();
-        portalPassword = portalPassword == null ? "" : portalPassword;
         portalMode = portalMode == null ? PortalMode.MOCK : portalMode;
+        servingBaseUrl = servingBaseUrl == null ? "" : servingBaseUrl.strip().replaceAll("/+$", "");
+        servingId = servingId == null ? "" : servingId.strip();
+        servingRev = servingRev == null ? "" : servingRev.strip();
+        authKey = authKey == null ? "" : authKey.strip();
+        authKeyExpiresOn = authKeyExpiresOn == null ? "" : authKeyExpiresOn.strip();
+        portalEndpoint = portalEndpoint == null ? "" : portalEndpoint.strip();
         contentFields = clean(contentFields);
         riskClassFields = clean(riskClassFields);
     }
 
-    /** 포털 계정이 채워졌는가 — 값은 돌려주지 않는다. */
-    public boolean hasPortalAccount() {
-        return !portalUserId.isEmpty() && !portalPassword.isEmpty();
+    /** AuthKey 가 채워졌는가 — 값은 돌려주지 않는다. */
+    public boolean hasAuthKey() {
+        return !authKey.isEmpty();
     }
 
-    /** 계정 · 비밀번호를 싣지 않는다(설정을 통째로 찍는 로그에 새지 않게). */
+    /**
+     * AuthKey 만료까지 남은 날(만료일 당일 0 · 지났으면 음수). 만료일이 비었거나 날짜가 아니면 null.
+     *
+     * @param today KST 오늘
+     */
+    public Long authKeyDaysLeft(java.time.LocalDate today) {
+        if (authKeyExpiresOn.isEmpty()) {
+            return null;
+        }
+        try {
+            return java.time.temporal.ChronoUnit.DAYS.between(today, java.time.LocalDate.parse(authKeyExpiresOn));
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /** 서빙 ID · 리비전이 숫자인가. */
+    public boolean servingPathValid() {
+        return DIGITS.matcher(servingId).matches() && DIGITS.matcher(servingRev).matches();
+    }
+
+    /** 부를 주소 — {@code {servingBaseUrl}/{servingId}/{servingRev}/run}. 키가 들어가지 않으므로 로그에 남겨도 된다. */
+    public String servingRunUrl() {
+        return servingBaseUrl + "/" + servingId + "/" + servingRev + "/run";
+    }
+
+    /** AuthKey 를 싣지 않는다(설정을 통째로 찍는 로그에 새지 않게). */
     @Override
     public String toString() {
         return "RiskWf9Properties[enabled=" + enabled + ", spoolDir=" + spoolDir + ", portalMode=" + portalMode
-                + ", portalBaseUrl=" + portalBaseUrl + ", portalEndpoint=" + portalEndpoint
-                + ", portalAccount=" + (hasPortalAccount() ? "있음" : "없음") + "]";
+                + ", serving=" + servingRunUrl() + ", portalEndpoint=" + portalEndpoint
+                + ", authKey=" + (hasAuthKey() ? "있음" : "없음") + "]";
     }
 
     private static List<String> clean(List<String> in) {

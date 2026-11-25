@@ -103,6 +103,8 @@ public class VoiceCollectService {
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
     /** 접견·전화 위험 신호(제논 WF9) 스풀 — 복호화 직후 사본만 넣는다. 꺼져 있으면(기본) 아무 일도 하지 않는다. */
     private final egovframework.unstructured.collector.voice.risk.Wf9Spool wf9Spool;
+    /** 운영 선별 테스트 조건(환경 변수 SOURCE_TEST_*) — 비어 있으면 기존 기준 */
+    private final egovframework.unstructured.collector.common.config.SourceTestFilter testFilter;
 
     /**
      * 건을 동시에 처리할 워커 수 — <b>운영 기본은 1(순차)</b>.
@@ -227,6 +229,30 @@ public class VoiceCollectService {
     public VoiceBatchResult run(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
                                 ResumeMode resume, String fromExecId, Workers workers,
                                 java.util.function.BiConsumer<String, Boolean> onExecId, Reopened reopened) {
+        return runInWindow(testWindow(window, reopened), kinds, triggerBy, testRun, resume, fromExecId, workers, onExecId, reopened);
+    }
+
+    /**
+     * 운영 선별 테스트 기간({@code SOURCE_TEST_FROM/TO})이 있으면 시간창을 그것으로 바꾼다 — T1 구간 기록도 바뀐 창으로 남는다.
+     *
+     * <p><b>다시 연 배치(재처리 reopen)는 바꾸지 않는다</b> — 원배치 구간 안의 자기 건을 다시 하는 것이라 창을 옮기면 자기 건을 놓친다.
+     * 기관 · 교정번호 조건은 SQL 에서 늘 붙는다.</p>
+     */
+    private BatchWindow testWindow(BatchWindow window, Reopened reopened) {
+        if (reopened != null || !testFilter.hasPeriod()) {
+            if (reopened != null && testFilter.hasPeriod()) {
+                log.warn("[운영 테스트 조건] 다시 연 배치 {} — 기간 조건은 적용하지 않고 원배치 구간 {} 그대로", reopened.execId(), window);
+            }
+            return window;
+        }
+        BatchWindow w = testFilter.apply(window);
+        log.warn("[운영 테스트 조건] 시간창 교체 — 기본 {} → 테스트 {}", window, w);
+        return w;
+    }
+
+    private VoiceBatchResult runInWindow(BatchWindow window, List<VoiceKind> kinds, String triggerBy, boolean testRun,
+                                         ResumeMode resume, String fromExecId, Workers workers,
+                                         java.util.function.BiConsumer<String, Boolean> onExecId, Reopened reopened) {
         long startedAt = System.currentTimeMillis();
         Workers w = workers == null ? Workers.sequential() : workers;
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
@@ -906,7 +932,8 @@ public class VoiceCollectService {
      * 위와 같되, 실행 종류에 맞춰 센다 — 시험 실행이면 대시보드 더미({@code DMY-…})를, 실제 실행이면 시뮬레이터 데이터
      * ({@code SIM-…})를 뺀다. 그 실행이 실제로 집는 것과 같게({@link #scopeForRun}).
      */
-    public Map<String, Object> pending(BatchWindow window, List<VoiceKind> kinds, boolean testRun) {
+    public Map<String, Object> pending(BatchWindow requested, List<VoiceKind> kinds, boolean testRun) {
+        BatchWindow window = testFilter.apply(requested);   // 실행이 실제로 볼 창과 같게(운영 테스트 기간)
         List<VoiceKind> targets = (kinds == null || kinds.isEmpty())
                 ? List.of(VoiceKind.MEET, VoiceKind.PHONE) : kinds;
         List<VoiceTarget> found = scopeForRun(findTargets(window, targets, true), testRun);
@@ -952,8 +979,14 @@ public class VoiceCollectService {
     }
 
     private List<VoiceTarget> findTargets(BatchWindow window, List<VoiceKind> kinds, boolean quiet) {
-        int limit = props.batch().maxFilesPerRun();
+        // 운영 테스트 조건 값이 틀렸으면 조회하지 않는다 — 기본 기준으로 돌아가 전체를 처리하는 일이 없게(배치는 FAIL 로 닫힌다)
+        testFilter.requireValid();
+        int limit = testFilter.limitOr(props.batch().maxFilesPerRun());
         List<String> codes = props.batch().speclMngSeCd();
+        if (!quiet && testFilter.active()) {
+            log.warn("[운영 테스트 조건] 음성 최종 조회 조건 — 창 {} · 특별관리 {} · {} · 1회 상한 {}건 (기본 상한 {}건)",
+                    window, codes, testFilter.describe(), limit, props.batch().maxFilesPerRun());
+        }
         java.util.function.Predicate<VoiceTarget> done = idempotency.snapshot();
         List<VoiceTarget> all = new ArrayList<>();
         if (kinds.contains(VoiceKind.MEET)) {

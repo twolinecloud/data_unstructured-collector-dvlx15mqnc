@@ -30,6 +30,7 @@ public class JdbcBoramiSourceClient implements BoramiSourceClient {
     private final BoramiVoiceMapper mapper;
     private final BoramiTableNames tables;
     private final VoiceProperties props;
+    private final egovframework.unstructured.collector.common.config.SourceTestFilter testFilter;
 
     @Override
     public List<VoiceTarget> findMeetTargets(BatchWindow window, List<String> speclCodes, int limit) {
@@ -139,7 +140,9 @@ public class JdbcBoramiSourceClient implements BoramiSourceClient {
                 window.to(),
                 speclCodes,
                 limit,
-                Math.max(0, offset));
+                Math.max(0, offset),
+                testFilter.insttCds(),
+                testFilter.corrNos());
     }
 
     @Override

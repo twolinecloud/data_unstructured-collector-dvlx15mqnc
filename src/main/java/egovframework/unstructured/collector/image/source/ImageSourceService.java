@@ -44,6 +44,8 @@ public class ImageSourceService {
     private final VoiceProperties voiceProps;
     private final ImageProperties props;
     private final ImageTrace trace;
+    /** 운영 선별 테스트 조건(환경 변수 SOURCE_TEST_*) — 비어 있으면 기존 기준 */
+    private final egovframework.unstructured.collector.common.config.SourceTestFilter testFilter;
 
     /**
      * 조회 조건.
@@ -75,7 +77,49 @@ public class ImageSourceService {
      * @param chunkSize 한 번에 읽을 수용자 수({@code image.chunk-size})
      */
     public Cursor open(Selection sel, int chunkSize) {
-        return new Cursor(sel, Math.max(1, chunkSize));
+        Selection eff = applyTestFilter(sel);
+        Cursor c = new Cursor(eff, Math.max(1, chunkSize));
+        if (!testFilter.corrNos().isEmpty() && c.corrNos == null) {
+            c.exhausted = true;   // 교정번호 교집합이 비었다 — '목록 없음(=전체)' 으로 넘어가지 않게 0건으로 끝낸다
+        }
+        return c;
+    }
+
+    /**
+     * 운영 선별 테스트 조건을 조회 조건에 겹친다. 조건이 없으면 받은 그대로.
+     *
+     * <ul>
+     *   <li>교정번호 — 요청 목록이 없으면 테스트 목록, 있으면 둘의 교집합(비면 0건)</li>
+     *   <li>상한 — 요청 상한과 테스트 상한 중 작은 쪽</li>
+     *   <li>기관코드 — SQL 에서 수용자기본({@code CORR_INSTT_CD})으로 건다({@link #queryLatest})</li>
+     *   <li>기간 — <b>사진에는 적용하지 않는다</b>(사진 테이블 변경일시 기준 미확정 · 전산과 협의 ③). 그래서 기간만 주면
+     *       현재 수용자 전원을 훑게 되므로 조회를 막는다 — 사진도 선별하려면 기관 · 교정번호 · 상한 중 하나를 함께</li>
+     * </ul>
+     */
+    Selection applyTestFilter(Selection sel) {
+        testFilter.requireValid();
+        if (!testFilter.active()) {
+            return sel;
+        }
+        if (!testFilter.narrowsWithoutPeriod()) {
+            throw new IllegalStateException("운영 테스트 조건이 기간(SOURCE_TEST_FROM/TO)뿐이다 — 사진은 기간 조건이 없어 전원 조회가 된다. "
+                    + "사진도 선별하려면 SOURCE_TEST_CORR_NO · SOURCE_TEST_INSTT_CD · SOURCE_TEST_MAX_ROWS 중 하나를 함께 지정");
+        }
+        List<String> corr = sel.corrNos();
+        List<String> test = testFilter.corrNos();
+        if (!test.isEmpty()) {
+            corr = corr == null || corr.isEmpty() ? test : corr.stream().filter(test::contains).toList();
+        }
+        Integer limit = sel.limit() != null && sel.limit() > 0 ? sel.limit() : null;
+        Integer max = testFilter.maxRows();
+        if (max != null) {
+            limit = limit == null ? max : Math.min(limit, max);
+        }
+        Selection out = new Selection(corr, sel.corrNoPrefix(), limit);
+        log.warn("[운영 테스트 조건] 사진 최종 조회 조건 — {} · 교정번호 {} · 상한 {} (요청: 교정번호 {} · 상한 {}) · 기간 조건은 사진에 미적용",
+                testFilter.describe(), corr == null ? "전체" : corr.size() + "명", limit == null ? "없음" : limit + "명",
+                sel.corrNos() == null ? "전체" : sel.corrNos().size() + "명", sel.limit());
+        return out;
     }
 
     /**
@@ -229,6 +273,13 @@ public class ImageSourceService {
                 }
                 sql.append(" AND (").append(exempt).append(exists).append(")");
             }
+        }
+        List<String> testInstt = testFilter.insttCds();
+        if (!testInstt.isEmpty()) {
+            // 운영 테스트 조건 — 교정기관코드. 사진 표에는 기관 컬럼이 없어 수용자기본으로 건다(합성 데이터는 수용자기본에 없어 빠진다)
+            sql.append(" AND EXISTS (SELECT 1 FROM ").append(tables.irimPrbsBs()).append(" PI")
+                    .append(" WHERE PI.CORR_NO = B.CORR_NO AND PI.CORR_INSTT_CD IN (:testInsttCds))");
+            p.addValue("testInsttCds", testInstt);
         }
         sql.append(") T WHERE RN = 1 ORDER BY CORR_NO OFFSET 0 ROWS FETCH NEXT :limit ROWS ONLY");
         p.addValue("limit", Math.max(1, limit));

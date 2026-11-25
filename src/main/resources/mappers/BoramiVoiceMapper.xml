@@ -39,6 +39,27 @@
     </resultMap>
 
     <!--
+      운영 선별 테스트 조건(환경 변수 SOURCE_TEST_INSTT_CD · SOURCE_TEST_CORR_NO — SourceTestFilter).
+      비어 있으면 아무 조건도 붙지 않는다(기존 기준). 값은 전부 #{} 바인딩 — 컬럼명·SQL 조각은 받지 않는다.
+    -->
+    <sql id="testFilterR">
+        <if test="p.insttCds != null and p.insttCds.size() > 0">
+          AND R.CORR_INSTT_CD IN <foreach item="v" collection="p.insttCds" open="(" separator="," close=")">#{v}</foreach>
+        </if>
+        <if test="p.corrNos != null and p.corrNos.size() > 0">
+          AND R.CORR_NO IN <foreach item="v" collection="p.corrNos" open="(" separator="," close=")">#{v}</foreach>
+        </if>
+    </sql>
+    <sql id="testFilterU">
+        <if test="p.insttCds != null and p.insttCds.size() > 0">
+          AND U.CORR_INSTT_CD IN <foreach item="v" collection="p.insttCds" open="(" separator="," close=")">#{v}</foreach>
+        </if>
+        <if test="p.corrNos != null and p.corrNos.size() > 0">
+          AND U.CORR_NO IN <foreach item="v" collection="p.corrNos" open="(" separator="," close=")">#{v}</foreach>
+        </if>
+    </sql>
+
+    <!--
       접견 녹음 4단 조인.
         ① ${p.tImsc}  특이수용자상세 : SPECL_MNG_SE_CD 로 대상 선별
         ② ${p.tRerd}  녹취파일내역   : CORR_NO 로 녹취 건 → TBLT_VTR_FILE_ID
@@ -78,6 +99,7 @@
           AND R.DEL_YN = #{p.flagNotDeleted}
           AND R.RECRD_FILE_DEL_YN = #{p.flagNotDeleted}
           AND R.TBLT_VTR_FILE_ID IS NOT NULL
+        <include refid="testFilterR"/>
         ORDER BY R.CRT_DT, R.TARE_FILE_NO
         OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
     </select>
@@ -111,6 +133,7 @@
           AND U.TELP_PCALL_RECRD_YN = #{p.flagRecordedYes}
           AND U.DEL_DT IS NULL
           AND U.TELP_RECRD_FILE_ID IS NOT NULL
+        <include refid="testFilterU"/>
         ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
         OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
     </select>
@@ -139,6 +162,7 @@
           AND U.TELP_PCALL_RECRD_YN = #{p.flagRecordedYes}
           AND U.DEL_DT IS NULL
           AND U.TELP_RECRD_FILE_ID IS NOT NULL
+        <include refid="testFilterU"/>
         ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
         OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
     </select>

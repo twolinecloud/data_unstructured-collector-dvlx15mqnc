@@ -17,7 +17,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** WF9 시험 공용 — 설정 빌더 · 움직이는 시계 · 가상 대상 · 가짜 서버 응답. 계정 · 키는 모두 시험용 가짜 값이다. */
+/** WF9 시험 공용 — 설정 빌더 · 움직이는 시계 · 가상 대상 · 가짜 서버 응답. AuthKey · 키는 모두 시험용 가짜 값이다. */
 final class Wf9TestSupport {
 
     static final ObjectMapper OM = new ObjectMapper().findAndRegisterModules()
@@ -41,9 +41,11 @@ final class Wf9TestSupport {
         String deidPath = "/api/v1/deid/speech-results";
         int deidTimeoutSec = 10;
         RiskWf9Properties.PortalMode portalMode = RiskWf9Properties.PortalMode.REST;
-        String portalBaseUrl = "http://127.0.0.1:1";
-        String portalUserId = "wf9-test-user";
-        String portalPassword = "wf9-test-pass";
+        String servingBaseUrl = "http://127.0.0.1:1/api/gateway/code_serving";
+        String servingId = "709";
+        String servingRev = "10721";
+        String authKey = "wf9-test-key";
+        String authKeyExpiresOn = "2026-12-11";
         String portalEndpoint = "pt6i_10rw_jsd9";
         int portalTimeoutSec = 10;
         List<String> contentFields = List.of("content", "description", "summary", "text");
@@ -51,8 +53,8 @@ final class Wf9TestSupport {
 
         RiskWf9Properties build() {
             return new RiskWf9Properties(enabled, spoolDir, skipTestRuns, maxPending, maxSpoolMb, analyzeMaxSec, maxRetries,
-                    retryBaseSec, maxAgeHours, dailyLimit, 30, 60, deidPath, deidTimeoutSec, portalMode, portalBaseUrl,
-                    portalUserId, portalPassword, portalEndpoint, 2, portalTimeoutSec, contentFields, riskClassFields);
+                    retryBaseSec, maxAgeHours, dailyLimit, 30, 60, deidPath, deidTimeoutSec, portalMode, servingBaseUrl,
+                    servingId, servingRev, authKey, authKeyExpiresOn, portalEndpoint, 2, portalTimeoutSec, contentFields, riskClassFields);
         }
     }
 

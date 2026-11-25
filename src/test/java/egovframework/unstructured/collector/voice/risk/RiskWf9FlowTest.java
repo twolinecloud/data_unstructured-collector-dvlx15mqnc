@@ -32,7 +32,6 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,7 +45,7 @@ import static org.mockito.Mockito.mock;
 
 /**
  * 끝까지 — 스풀 → 실제 {@link GenonSttClient}(REST · 가짜 제논 audio/process) → 실제 커넥터 클라이언트(가짜 커넥터)
- * → 실제 포털 클라이언트(가짜 로그인 · chat SSE) → 실제 {@link LogCollectorClient}(가짜 로그 컬렉터 PUT).
+ * → 입력 규격 검사 → 실제 WF9 클라이언트(가짜 Code Serving SSE) → 실제 {@link LogCollectorClient}(가짜 로그 컬렉터 PUT).
  * 외부망은 부르지 않는다. 음원은 합성 음, 이름 · 번호 · 교정번호는 지어낸 값이다.
  */
 class RiskWf9FlowTest {
@@ -70,9 +69,13 @@ class RiskWf9FlowTest {
     private final List<JsonNode> putBodies = new CopyOnWriteArrayList<>();
     /** 로그 컬렉터 배치(T1) 경로로 온 요청 — WF9 는 T1 을 건드리지 않으므로 늘 비어 있어야 한다. */
     private final List<String> batchPaths = new CopyOnWriteArrayList<>();
-    private final AtomicInteger logins = new AtomicInteger();
+    private final List<String> chatAuth = new CopyOnWriteArrayList<>();
     private volatile int deidStatus = 200;
     private volatile int putStatus = 200;
+    /** 가짜 Code Serving 의 HTTP 상태 — 200 이 아니면 오류 본문만. */
+    private volatile int chatStatus = 200;
+    /** 가짜 커넥터가 speech_results 의 contact_id 를 다른 값으로 바꿔 돌려준다(입력 규격 위반 재현). */
+    private volatile boolean breakContactId;
     /** 가짜 제논 · WF9 가 2026-11-20 실응답(고정 자료)을 돌려준다. */
     private volatile boolean realShape;
 
@@ -89,11 +92,7 @@ class RiskWf9FlowTest {
         server.setExecutor(pool);
         server.createContext("/genon/audio/process", this::genonProcess);
         server.createContext("/connector/api/v1/deid/speech-results", this::connector);
-        server.createContext("/api/genportal/auth/login", ex -> {
-            ex.getRequestBody().readAllBytes();
-            json(ex, 200, "{\"code\":0,\"data\":{\"access_token\":\"tok-" + logins.incrementAndGet() + "\"}}");
-        });
-        server.createContext("/api/genportal/chat", this::chat);
+        server.createContext("/api/gateway/code_serving/709/10721/run", this::chat);
         server.createContext("/logc/api/v1/logs/contact-risk-signals/", ex -> {
             putPaths.add(ex.getRequestMethod() + " " + ex.getRequestURI().getPath());
             putBodies.add(OM.readTree(ex.getRequestBody().readAllBytes()));
@@ -137,7 +136,7 @@ class RiskWf9FlowTest {
     private void build(RiskWf9Properties.PortalMode portalMode, boolean defaultFields, GenonSttProperties.Mode genonMode) {
         Wf9TestSupport.Props p = new Wf9TestSupport.Props();
         p.portalMode = portalMode;
-        p.portalBaseUrl = base + "/api/genportal";
+        p.servingBaseUrl = base + "/api/gateway/code_serving";
         if (defaultFields) {
             RiskWf9Properties d = new Binder(new MapConfigurationPropertySource(Map.of()))
                     .bindOrCreate("voice.risk-wf9", RiskWf9Properties.class);
@@ -210,6 +209,9 @@ class RiskWf9FlowTest {
         r.put("recFileId", req.path("recFileId").asText());
         r.put("execId", req.path("execId").asText());
         r.set("document", OM.readTree(masked));
+        if (breakContactId) {
+            ((ObjectNode) r.path("document").path("input").path("speech_results").path(0)).put("contact_id", "C-other");
+        }
         r.putObject("mapping").put("[NAME_1]", NAME).put("[PHONE_1]", PHONE);
         r.putArray("tokensByLength").add("[PHONE_1]").add("[NAME_1]");
         r.putObject("stats").put("tokens", 2);
@@ -218,7 +220,12 @@ class RiskWf9FlowTest {
 
     /** 가짜 WF9 — 울타리 친 JSON 을 토큰 셋으로 나눠 흘린다. */
     private void chat(HttpExchange ex) throws IOException {
+        chatAuth.add(ex.getRequestHeaders().getFirst("Authorization") + " | " + ex.getRequestHeaders().getFirst("Accept"));
         chatBodies.add(OM.readTree(ex.getRequestBody().readAllBytes()));
+        if (chatStatus != 200) {
+            json(ex, chatStatus, "{\"detail\":\"홍길동 인증 실패\",\"code\":\"invalid_token\"}");
+            return;
+        }
         if (realShape) {
             // 2026-11-20 실응답(가상 위험 대화 → 자살 · 도주 · 부정물품 수수) — token 일부 뒤 result.text 로 답 전체
             String real = resource("/genon/wf9_findings_20261120.json");
@@ -293,7 +300,8 @@ class RiskWf9FlowTest {
         assertThat(d.path("execId").asText()).isEqualTo("20261116UNS001");
         assertThat(d.path("document").path("function").asText()).isEqualTo("contact_risk_analysis");
 
-        // ③ WF9 — 가린 문서의 JSON 문자열만
+        // ④ WF9(Code Serving) — 서빙별 AuthKey · SSE · 가린 문서의 JSON 문자열만
+        assertThat(chatAuth.get(0)).isEqualTo("Bearer wf9-test-key | text/event-stream");
         JsonNode c = chatBodies.get(0);
         assertThat(c.path("endpoint").asText()).isEqualTo("pt6i_10rw_jsd9");
         String message = c.path("message").asText();
@@ -392,6 +400,34 @@ class RiskWf9FlowTest {
     }
 
     @Test
+    @DisplayName("입력 규격 위반(speech_results.contact_id 가 contact_records 와 다름) → 제논 WF9 · 적재 없이 바로 포기 · 메시지는 경로 · 규칙만")
+    void inputViolationStopsBeforeGenonChat() throws Exception {
+        breakContactId = true;
+        spool.offer("E1", meet(REC), audio, false);
+
+        RiskWf9Worker.Report r = worker.drain();
+
+        assertThat(r.gaveUp()).isEqualTo(1);
+        assertThat(chatBodies).as("외부망으로 보내지 않는다").isEmpty();
+        assertThat(putBodies).isEmpty();
+        assertThat(spool.list()).isEmpty();
+        assertNoT1Write();
+    }
+
+    @Test
+    @DisplayName("Code Serving 401(AuthKey) → 다시 하기(사본 남김) · 메시지에 무엇을 볼지만 · 키 값 없음")
+    void authRejectedRetries() throws Exception {
+        chatStatus = 401;
+        spool.offer("E1", meet(REC), audio, false);
+
+        assertThat(worker.drain().retried()).isEqualTo(1);
+        Wf9Job j = spool.list().get(0).job();
+        assertThat(j.lastError()).startsWith("[PORTAL] 제논 WF9 HTTP 401").contains("GENON_WF9_AUTH_KEY")
+                .doesNotContain("wf9-test-key");
+        assertThat(putBodies).isEmpty();
+    }
+
+    @Test
     @DisplayName("로그 컬렉터 503 → 다시 하기(사본 남김) · 400 → 바로 포기")
     void storeFailures() throws Exception {
         putStatus = 503;
@@ -418,7 +454,7 @@ class RiskWf9FlowTest {
 
         assertThat(worker.drain().succeeded()).isEqualTo(1);
         assertThat(chatBodies).isEmpty();
-        assertThat(logins.get()).isZero();
+        assertThat(chatAuth).isEmpty();
         assertThat(putBodies.get(0).path("signals")).isEmpty();
         assertNoT1Write();
     }

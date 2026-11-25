@@ -59,7 +59,8 @@ class ImageSourceCursorTest {
 
     private ImageSourceService service() {
         ImageProperties props = new ImageProperties("1", "", 4, 2000, statusCodes, false, null, "IMAGE_COLLECT");
-        return new ImageSourceService(jdbc, tables, mock(VoiceProperties.class), props, mock(ImageTrace.class));
+        return new ImageSourceService(jdbc, tables, mock(VoiceProperties.class), props, mock(ImageTrace.class),
+                egovframework.unstructured.collector.common.config.SourceTestFilter.none());
     }
 
     /** 수용자 n명 — 각자 사진 1장(순번 1) · 수용상태는 status(i). status 가 null 이면 수용자기본 행이 없다. */

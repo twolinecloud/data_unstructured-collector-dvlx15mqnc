@@ -77,6 +77,7 @@ public class VoiceBatchController {
     private final egovframework.unstructured.collector.common.config.BoramiTableNames tables;
     private final egovframework.unstructured.collector.common.config.DeployEnvPreset deployEnv;
     private final egovframework.unstructured.collector.voice.batch.VerificationService verification;
+    private final egovframework.unstructured.collector.common.config.SourceTestFilter testFilter;
 
     /**
      * [바로 실행]이 기본으로 되짚어 보는 기간(일). 이 기간 안의 <b>미처리 건 전부</b>를 처리한다.
@@ -443,6 +444,8 @@ public class VoiceBatchController {
         batch.put("maxFilesPerRun", props.batch().maxFilesPerRun());
         batch.put("speclMngSeCd", props.batch().speclMngSeCd());
         batch.put("retainSourceFile", props.batch().retainSourceFile());
+        // 운영 선별 테스트 조건(SOURCE_TEST_*) — OFF / ACTIVE / INVALID 와 최종 조건
+        batch.put("sourceTest", testFilter.snapshot());
 
         // 디렉터리 — 런타임 상태(시뮬레이터에서 바꾼 값)와 기동 설정값, 프리셋을 함께 내려준다.
         //   receiveMeet/receivePhone: 브로커·ESB 가 떨구는 곳 · work: 복호화 산출물·멱등 표식

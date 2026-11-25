@@ -24,6 +24,9 @@ import java.util.List;
  * @param to               시간창 종료(미포함)
  * @param speclCodes       특별관리구분코드 목록
  * @param limit            상한
+ * @param offset           건너뛸 행 수
+ * @param insttCds         운영 테스트 조건 — 교정기관코드(비면 거르지 않음 · {@code SourceTestFilter})
+ * @param corrNos          운영 테스트 조건 — 교정번호(비면 거르지 않음)
  */
 public record BoramiQueryParams(
         String tImsc,
@@ -39,6 +42,8 @@ public record BoramiQueryParams(
         LocalDateTime to,
         List<String> speclCodes,
         int limit,
-        int offset
+        int offset,
+        List<String> insttCds,
+        List<String> corrNos
 ) {
 }

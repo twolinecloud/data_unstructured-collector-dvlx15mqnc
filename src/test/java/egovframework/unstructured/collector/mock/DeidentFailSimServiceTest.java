@@ -146,6 +146,20 @@ class DeidentFailSimServiceTest {
         assertThat(out).containsEntry("execId", "D1").containsEntry("deidentFail", 2L).containsEntry("asRequested", true)
                 .doesNotContainKey("warning");
         assertThat(Files.readString(root.resolve(DeidentFailSimService.FILE))).contains("D1");
+        assertThat(w.getValue().execTypeCd()).as("기본은 수동 — 확인 필요에 '긴급 재처리 …'").isEqualTo("MANUAL");
+        assertThat(out).containsEntry("execTypeCd", "MANUAL");
+    }
+
+    @Test
+    @DisplayName("스케줄 실행(scheduled=true) — 같은 10분 창 · T1 실행 유형 SCHEDULED(확인 필요에 '배치 부분 성공') · TRIGGER_BY 는 그대로")
+    void scheduledRun() {
+        Map<String, Object> out = service.run(new DeidentFailSimService.Request(3, 2, true, 0, true));
+
+        ArgumentCaptor<BatchWindow> w = ArgumentCaptor.forClass(BatchWindow.class);
+        verify(voice).run(w.capture(), anyList(), eq(DeidentFailSimService.TRIGGER_BY), eq(false));
+        assertThat(w.getValue().execTypeCd()).isEqualTo("SCHEDULED");
+        assertThat(java.time.Duration.between(w.getValue().from(), w.getValue().to()).toMinutes()).isEqualTo(10);
+        assertThat(out).containsEntry("execTypeCd", "SCHEDULED").containsEntry("execId", "D1");
     }
 
     @Test

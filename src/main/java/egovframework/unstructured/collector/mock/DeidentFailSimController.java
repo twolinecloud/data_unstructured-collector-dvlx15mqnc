@@ -34,6 +34,8 @@ public class DeidentFailSimController {
                     본문(모두 선택) `{"count":3, "deidentFail":2, "cleanup":true, "residual":0}` — 비우면 이 기본값. 총 건수 1~10 · 실패 + 잔존 1~총 건수.
                     `residual`(잔존 주입 · 격리)을 주면 `deidentFail` 기본은 0 — 표식 없는 건 N건의 MOCK 전사에 가상 번호를 한글로 읽은 줄을 넣어
                     커넥터가 잔존으로 격리하게 한다(T5 FAIL · RECONCILE · T4 `[RECONCILE] [DEIDENT]` · 전송 제외 · 재처리해도 다시 격리). 비식별 MOCK 이면 409.
+                    `scheduled`(기본 false)를 true 로 주면 T1 실행 유형을 SCHEDULED 로 남긴다 — 어드민 '확인 필요' 에 "긴급 재처리 부분 성공" 대신
+                    정기 배치처럼 "배치 부분 성공"(전부 실패면 "배치 실패")으로 뜬다. 그날 비정형 '정기 실행 누락' 알림은 이 배치 때문에 뜨지 않는다.
 
                     1. **정리**(`cleanup`, 기본 true) — 이 API 가 이전에 만든 배치만 지운다(커넥터 보류 장부에 남은 건 먼저 보내 마감)
                     2. **생성** — 접견 더미(DMY) 원본을 지금 직전 10분 구간에 만들고 그 구간만 **실제 배치**(test=false · EXEC_ID UNS)로 돈다.

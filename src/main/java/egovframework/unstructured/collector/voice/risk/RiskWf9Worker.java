@@ -205,9 +205,9 @@ public class RiskWf9Worker {
         try {
             RiskWf9Pipeline.Outcome o = runner.run(job, e.dir().resolve(job.audioFile()));
             spool.delete(e);
-            log.info("[WF9] 완료 — {} · 발견 {} · 검토 {} · 적재 {}행{} · 토큰 {} · {}ms · 음성 사본 지움", job.shortId(),
+            log.info("[WF9] 완료 — {} · 발견 {} · 검토 {} · 적재 {}행{} · 토큰 {} · {}ms{} · 음성 사본 지움", job.shortId(),
                     o.findings(), o.reviews(), o.inserted(), o.skipped() > 0 ? " · 빈 내용 " + o.skipped() + "개 뺌" : "",
-                    o.tokens(), o.elapsedMs());
+                    o.tokens(), o.elapsedMs(), o.purgeMarked() ? " · T1 폐기 완료" : "");
             return 1;
         } catch (Wf9Failure f) {
             if (stopping) {

@@ -69,6 +69,9 @@
       ※ 삭제 플래그가 셋이다(녹취 DEL_YN · 녹음파일 RECRD_FILE_DEL_YN · 공통파일 DEL_YN).
          하나라도 놓치면 이미 지워진 파일을 XVARM 에 요청하게 된다.
       ※ ③④ 테이블은 2026-09-12 기준 borami-db 에 없다. 실연동 전까지 접견은 MOCK 을 쓴다.
+      ※ ① 은 JOIN 이 아니라 EXISTS 다(2026-11-27). 특이수용자상세 PK 가 (CORR_NO, 상세순번)이라 한 사람이 지정을
+         둘 이상(예: 마약 1 + 엄격 3) 받으면 JOIN 은 녹취 1건을 그 수만큼 돌려준다. 그러면 같은 녹취를 STT · 전송 · T4 에
+         두 번 남기고, 워커가 여럿이면 두 건이 같은 수신 파일을 두고 부딪혀 둘 다 실패했다. 이 표는 '대상인가'만 본다.
     -->
     <select id="selectMeetTargets" resultMap="voiceTargetMap">
         SELECT
@@ -84,11 +87,6 @@
             , CAST(NULL AS VARCHAR(1))    AS SOURCE_STT_PATH
             , R.CRT_DT                    AS OCCURRED_AT
         FROM ${p.tRerd} R
-        INNER JOIN ${p.tImsc} P
-                ON P.CORR_NO = R.CORR_NO
-               AND P.PTCR_PRSR_RMV_YMD IS NULL
-               AND P.SPECL_MNG_SE_CD IN
-                   <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>
         INNER JOIN ${p.tSmsm} F
                 ON F.CMMN_FILE_ID = R.TBLT_VTR_FILE_ID
                AND F.DEL_YN = #{p.flagNotDeleted}
@@ -99,6 +97,11 @@
           AND R.DEL_YN = #{p.flagNotDeleted}
           AND R.RECRD_FILE_DEL_YN = #{p.flagNotDeleted}
           AND R.TBLT_VTR_FILE_ID IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${p.tImsc} P
+                       WHERE P.CORR_NO = R.CORR_NO
+                         AND P.PTCR_PRSR_RMV_YMD IS NULL
+                         AND P.SPECL_MNG_SE_CD IN
+                             <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>)
         <include refid="testFilterR"/>
         ORDER BY R.CRT_DT, R.TARE_FILE_NO
         OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY
@@ -108,6 +111,7 @@
       전화 녹음 — 특이수용자 조인 방식(정공법).
       ※ TELP_PCALL_RECRD_YN 이 '녹음됨' 값인 건만 파일이 존재한다.
       ※ 2026-09-12 borami-db 에서는 이 컬럼이 전부 'N' 이고 TELP_RECRD_FILE_ID 도 전부 NULL 이었다.
+      ※ 특이수용자는 접견과 같은 이유로 EXISTS 다(2026-11-27) — 지정이 둘인 사람의 통화가 두 번 나오지 않게.
     -->
     <select id="selectPhoneTargets" resultMap="voiceTargetMap">
         SELECT
@@ -123,16 +127,16 @@
             , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH
             , U.CRT_DT                    AS OCCURRED_AT
         FROM ${p.tImph} U
-        INNER JOIN ${p.tImsc} P
-                ON P.CORR_NO = U.CORR_NO
-               AND P.PTCR_PRSR_RMV_YMD IS NULL
-               AND P.SPECL_MNG_SE_CD IN
-                   <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>
         WHERE U.CRT_DT &gt;= #{p.from}
           AND U.CRT_DT &lt;  #{p.to}
           AND U.TELP_PCALL_RECRD_YN = #{p.flagRecordedYes}
           AND U.DEL_DT IS NULL
           AND U.TELP_RECRD_FILE_ID IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${p.tImsc} P
+                       WHERE P.CORR_NO = U.CORR_NO
+                         AND P.PTCR_PRSR_RMV_YMD IS NULL
+                         AND P.SPECL_MNG_SE_CD IN
+                             <foreach item="cd" collection="p.speclCodes" open="(" separator="," close=")">#{cd}</foreach>)
         <include refid="testFilterU"/>
         ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
         OFFSET #{p.offset} ROWS FETCH NEXT #{p.limit} ROWS ONLY

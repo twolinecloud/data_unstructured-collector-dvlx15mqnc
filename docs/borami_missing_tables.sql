@@ -97,11 +97,12 @@ SELECT 'xvarm.asyscontentelement', COUNT(*) FROM xvarm.asyscontentelement;
 -- 접견 4단 조인 (수집기 selectMeetTargets 와 같은 구조)
 SELECT R.TARE_FILE_NO, R.CORR_NO, F.DOC_ID, X.FILEKEY, F.CMMN_FILE_ENC_YN, R.TARE_FILE_NM, R.CRT_DT
 FROM re.tb_rerd_tfin_ds R
-INNER JOIN im.tb_imsc_ptpr_dt P ON P.CORR_NO = R.CORR_NO AND P.PTCR_PRSR_RMV_YMD IS NULL
-                                AND P.SPECL_MNG_SE_CD IN ('0','1','2','3','5')
 INNER JOIN sm.tb_smsm_cmfi_bs   F ON F.CMMN_FILE_ID = R.TBLT_VTR_FILE_ID AND F.DEL_YN = 'N'
 LEFT  JOIN xvarm.asyscontentelement X ON X.ELEMENTID = F.DOC_ID
 WHERE R.DEL_YN = 'N' AND R.RECRD_FILE_DEL_YN = 'N' AND R.TBLT_VTR_FILE_ID IS NOT NULL
+  AND EXISTS (SELECT 1 FROM im.tb_imsc_ptpr_dt P          -- 특이수용자는 EXISTS(2026-11-27) — 지정이 둘인 사람도 녹취 1건
+               WHERE P.CORR_NO = R.CORR_NO AND P.PTCR_PRSR_RMV_YMD IS NULL
+                 AND P.SPECL_MNG_SE_CD IN ('0','1','2','3','5'))
 ORDER BY R.CRT_DT, R.TARE_FILE_NO;
 
 -- ─────────────────────────────────────────────────────────────────────────────

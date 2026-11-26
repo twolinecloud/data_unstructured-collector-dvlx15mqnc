@@ -19,9 +19,10 @@
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- ── [접견(MEET) 조회] 4단 조인 — selectMeetTargets ──────────────────────────
---   ① 녹취파일내역 R  →  ② 특이수용자 P (CORR_NO, 해제 안 됨, 대상 코드)
+--   ① 녹취파일내역 R  →  ② 특이수용자 P (CORR_NO, 해제 안 됨, 대상 코드 — EXISTS)
 --   →  ③ 공통파일기본 F (CMMN_FILE_ID = R.TBLT_VTR_FILE_ID, 삭제 안 됨)
 --   →  ④ XVARM X (ELEMENTID = F.DOC_ID)  — FILEKEY 로 브로커에 추출을 지시한다
+--   ※ ② 는 JOIN 이 아니라 EXISTS 다(2026-11-27) — 한 사람이 지정을 둘 이상 받으면 JOIN 은 녹취를 그 수만큼 돌려준다
 SELECT
       'MEET'                      AS KIND
     , R.CORR_NO                   AS CORR_NO
@@ -35,10 +36,6 @@ SELECT
     , CAST(NULL AS VARCHAR(1))    AS SOURCE_STT_PATH
     , R.CRT_DT                    AS OCCURRED_AT
 FROM re.tb_rerd_tfin_ds R
-INNER JOIN im.tb_imsc_ptpr_dt P
-        ON P.CORR_NO = R.CORR_NO
-       AND P.PTCR_PRSR_RMV_YMD IS NULL                         -- 해제된 특이수용자 제외
-       AND P.SPECL_MNG_SE_CD IN ('0', '1', '2', '3', '5')      -- 조직·마약·관심·엄격·일일중점
 INNER JOIN sm.tb_smsm_cmfi_bs F
         ON F.CMMN_FILE_ID = R.TBLT_VTR_FILE_ID
        AND F.DEL_YN = 'N'                                      -- 공통파일 삭제 안 됨
@@ -49,6 +46,10 @@ WHERE R.CRT_DT >= TIMESTAMP '2026-09-15 00:00:00'              -- #{p.from}  (�
   AND R.DEL_YN = 'N'                                           -- 녹취 삭제 안 됨
   AND R.RECRD_FILE_DEL_YN = 'N'                                -- 녹음파일 삭제 안 됨
   AND R.TBLT_VTR_FILE_ID IS NOT NULL
+  AND EXISTS (SELECT 1 FROM im.tb_imsc_ptpr_dt P
+               WHERE P.CORR_NO = R.CORR_NO
+                 AND P.PTCR_PRSR_RMV_YMD IS NULL               -- 해제된 특이수용자 제외
+                 AND P.SPECL_MNG_SE_CD IN ('0', '1', '2', '3', '5'))   -- 조직·마약·관심·엄격·일일중점
 ORDER BY R.CRT_DT, R.TARE_FILE_NO
 FETCH FIRST 2000 ROWS ONLY;                                    -- #{p.limit}
 
@@ -68,15 +69,15 @@ SELECT
     , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH       -- 값이 있으면 보라미 기존 STT 재사용(Q1)
     , U.CRT_DT                    AS OCCURRED_AT
 FROM im.tb_imph_ucdr_ds U
-INNER JOIN im.tb_imsc_ptpr_dt P
-        ON P.CORR_NO = U.CORR_NO
-       AND P.PTCR_PRSR_RMV_YMD IS NULL
-       AND P.SPECL_MNG_SE_CD IN ('0', '1', '2', '3', '5')
 WHERE U.CRT_DT >= TIMESTAMP '2026-09-15 00:00:00'              -- #{p.from}
   AND U.CRT_DT <  TIMESTAMP '2026-09-16 00:00:00'              -- #{p.to}
   AND U.TELP_PCALL_RECRD_YN = 'Y'                              -- 녹음된 통화만 (실DB 관측: 전부 'N')
   AND U.DEL_DT IS NULL
   AND U.TELP_RECRD_FILE_ID IS NOT NULL                         -- (실DB 관측: 전부 NULL → 0건이 정상)
+  AND EXISTS (SELECT 1 FROM im.tb_imsc_ptpr_dt P               -- 특이수용자 — 접견과 같은 이유로 EXISTS
+               WHERE P.CORR_NO = U.CORR_NO
+                 AND P.PTCR_PRSR_RMV_YMD IS NULL
+                 AND P.SPECL_MNG_SE_CD IN ('0', '1', '2', '3', '5'))
 ORDER BY U.CRT_DT, U.VRFC_ESTL_ID
 FETCH FIRST 2000 ROWS ONLY;
 

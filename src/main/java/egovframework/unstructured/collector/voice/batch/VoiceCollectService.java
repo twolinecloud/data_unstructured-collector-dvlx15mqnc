@@ -1043,10 +1043,17 @@ public class VoiceCollectService {
      * <p>첫 페이지는 그대로 싣는다 — 이미 처리된 건은 '건너뜀' 으로 보고되는 종전 동작이다.
      * 다음 페이지부터는 처리할 건만 싣는다 — 수만 건을 '건너뜀' 으로 늘어놓을 이유가 없고,
      * 건너뛴 건은 T4 에 남지도 않는다.</p>
+     *
+     * <p><b>같은 키는 한 번만 싣는다</b>(2026-11-27): 원천 조회가 같은 건을 두 번 돌려주면(특이수용자 지정이 둘인 사람 ·
+     * 원천 뷰의 중복 등) 같은 녹취가 한 실행 안에서 두 번 처리된다. 멱등 표식은 배치 끝 전송 수락 뒤에야 남아
+     * 둘 다 '미처리' 로 통과하기 때문이다 — 순차면 STT · 전송 · T4 가 두 번, 동시면 두 건이 같은 수신 파일을 두고
+     * 부딪혀 둘 다 실패했다. SQL 은 EXISTS 로 고쳤고, 이것은 원천이 바뀌어도 막는 두 번째 둑이다.</p>
      */
     private List<VoiceTarget> scan(String track, PageFetcher f, int limit,
                                    java.util.function.Predicate<VoiceTarget> done) {
         List<VoiceTarget> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        int duplicated = 0;
         int offset = 0;
         int pages = 0;
         int pending = 0;
@@ -1054,6 +1061,10 @@ public class VoiceCollectService {
             List<VoiceTarget> page = f.fetch(limit, offset);
             pages++;
             for (VoiceTarget t : page) {
+                if (!seen.add(t.idempotencyKey())) {
+                    duplicated++;
+                    continue;
+                }
                 boolean processed = done.test(t);
                 if (pages == 1 || !processed) {
                     out.add(t);
@@ -1073,6 +1084,9 @@ public class VoiceCollectService {
         }
         if (pages > 1) {
             log.info("[Batch] {} — 처리 끝난 건을 넘겨 {}페이지까지 훑었다(미처리 {}건)", track, pages, pending);
+        }
+        if (duplicated > 0) {
+            log.warn("[Batch] {} 조회가 같은 건을 {}번 더 돌려줘 한 번만 싣는다 — 원천 조회 조인을 확인할 것", track, duplicated);
         }
         return out;
     }

@@ -676,6 +676,11 @@ public class LogCollectorClient {
     public record FileProcReq(String recFileId, String filePath, String fileNm, String inmatePid,
                               Long fileSize, String procStsCd, String errStack, String stepTypeCd) {
 
+        /** 코드를 달고 온 사유 — {@code [예외이름: ][C12코드] 상세}. */
+        private static final java.util.regex.Pattern TAGGED_REASON = java.util.regex.Pattern.compile(
+                "^((?:[\\w.$]+: )?)\\[(CONNECTION|TIMEOUT|DATA|SYSTEM|RECONCILE)]\\s*(.*)$",
+                java.util.regex.Pattern.DOTALL);
+
         /** 단계 없이 — 종전 시그니처. */
         public FileProcReq(String recFileId, String filePath, String fileNm, String inmatePid,
                            Long fileSize, String procStsCd, String errStack) {
@@ -701,11 +706,20 @@ public class LogCollectorClient {
          * 나머지(빈 STT·복호화 실패·경로 불일치 등)는 {@code DATA}. 컬렉터는 앞의 코드를 그대로 쓰고,
          * 없으면 본문에서 추론하다가 {@code [ERR]} 로 떨어뜨리므로 여기서 붙여 보내는 편이 정확하다.
          *
+         * <p><b>사유가 이미 코드를 달고 오면 그 코드를 쓴다(2026-11-26).</b> 음성 비식별 격리는 커넥터가 잔존 개인정보를 찾아
+         * 보내지 않은 것이라 낱말 추론으로는 DATA 가 된다 — 예외 문구 앞에 {@code [RECONCILE]} 을 달고 오면
+         * ({@code "DeidentException: [RECONCILE] 비식별 후 잔존 …"}) 그것을 맨 앞으로 올린다 →
+         * {@code "[RECONCILE] DeidentException: 비식별 후 잔존 …"}. 꼬리표는 예외 이름 바로 뒤나 맨 앞에 있을 때만 본다.</p>
+         *
          * @return 사유가 없으면 null — 성공 건에 빈 문자열을 남기지 않는다
          */
         public static String errStackOf(String reason) {
             if (reason == null || reason.isBlank()) {
                 return null;
+            }
+            java.util.regex.Matcher tagged = TAGGED_REASON.matcher(reason.strip());
+            if (tagged.matches()) {
+                return "[" + tagged.group(2) + "] " + tagged.group(1) + tagged.group(3);
             }
             String r = reason.toLowerCase();
             String code = r.contains("타임아웃") || r.contains("timeout") || r.contains("timed out") ? "TIMEOUT"

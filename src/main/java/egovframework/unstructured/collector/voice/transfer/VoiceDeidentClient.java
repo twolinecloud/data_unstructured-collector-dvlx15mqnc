@@ -37,6 +37,11 @@ import java.util.regex.Pattern;
  *       T5 만 남긴다</li>
  *   <li>전송 모드가 MOCK 이면 커넥터를 부르지 않고 여기서 주민번호 · 전화번호 숫자만 가린다(시뮬레이터 화면용 — 밖으로 나가는 것 없음)</li>
  * </ul>
+ *
+ * <p><b>격리 응답(2026-11-26)</b>: 커넥터가 가린 글에서 개인정보가 남은 것을 찾으면 {@code isolated=true} · {@code text=null} 로 돌려준다
+ * (T5 는 커넥터가 FAIL · RECONCILE 로 남긴다). 여기서는 {@code [RECONCILE]} 꼬리표를 단 {@link DeidentException} 으로 바꾼다 —
+ * 호출자가 그 건을 DEIDENT 실패로 남기고 보내지 않으며, T4 · T2 사유의 오류 구분이 '정합성'(C12 RECONCILE)이 된다
+ * ({@code LogCollectorClient.FileProcReq#errStackOf}). 문구에는 건수 · 유형만 싣는다.</p>
  */
 @Log4j2
 @Component
@@ -58,6 +63,8 @@ public class VoiceDeidentClient {
 
     private static final Pattern RRN = Pattern.compile("\\d{6}-?[1-4]\\d{6}");
     private static final Pattern PHONE = Pattern.compile("01[016789]-?\\d{3,4}-?\\d{4}");
+    /** 잔존 유형 낱말 — 커넥터가 주는 값이지만 사유 문구(T4)에 그대로 들어가므로 모양을 거른다. */
+    private static final Pattern RESIDUAL_TYPE = Pattern.compile("[A-Z][A-Z_]{1,19}");
 
     private final AgentConnectorClient connector;
     private final AgentConnectorProperties props;
@@ -98,7 +105,7 @@ public class VoiceDeidentClient {
     /**
      * 한 건 비식별.
      *
-     * @throws DeidentException 커넥터 오류 · 빈 응답 · 주소 미설정 — 호출자는 원문을 보내지 않는다
+     * @throws DeidentException 커넥터 오류 · 빈 응답 · 주소 미설정 · 격리(잔존 개인정보) — 호출자는 원문을 보내지 않는다
      */
     public Result deident(String execId, VoiceTarget target, String inmatePid, SttResult stt) {
         List<String> segs = stt.hasSegments()
@@ -133,6 +140,20 @@ public class VoiceDeidentClient {
                     ? "HTTP " + hs.getStatusCode().value() : e.getClass().getSimpleName();
             throw new DeidentException("에이전트 커넥터 비식별 호출 실패 — " + why, e);
         }
+        return readResponse(r, mask);
+    }
+
+    /**
+     * 커넥터 응답을 결과로 — 격리면 {@code [RECONCILE]} 예외, 본문이 없으면 '비어 있음' 예외.
+     *
+     * <p>격리 검사를 본문 검사보다 먼저 한다. 둘 다 본문이 없지만 사유가 다르다 — 화면 [실패 로그]가 '응답이 비어 있음'
+     * 이 아니라 잔존 격리로 읽혀야 담당자가 무엇을 볼지 안다.</p>
+     */
+    public static Result readResponse(JsonNode r, boolean mask) {
+        if (r != null && r.path("isolated").asBoolean(false)) {
+            throw new DeidentException("[RECONCILE] 비식별 후 잔존 개인정보 " + r.path("residualCount").asInt(0)
+                    + "건(" + joinTypes(r.path("residualTypes")) + ") — 격리 · 전송 제외");
+        }
         if (r == null || !r.hasNonNull("text")) {
             throw new DeidentException("에이전트 커넥터 비식별 응답이 비어 있음");
         }
@@ -146,6 +167,20 @@ public class VoiceDeidentClient {
         return new Result(r.get("text").asText(), masked, r.path("mode").asText(mask ? "DEIDENT" : "BYPASS"),
                 r.hasNonNull("sendId") ? r.get("sendId").asLong() : null,
                 r.hasNonNull("piiItemCnt") ? r.get("piiItemCnt").asInt() : null);
+    }
+
+    /** 잔존 유형을 쉼표로 — 유형 모양(대문자 · 밑줄)만, 최대 6개. 없으면 '유형 미상'. */
+    private static String joinTypes(JsonNode types) {
+        List<String> out = new ArrayList<>();
+        if (types != null && types.isArray()) {
+            for (JsonNode t : types) {
+                String s = t.asText("");
+                if (RESIDUAL_TYPE.matcher(s).matches() && !out.contains(s) && out.size() < 6) {
+                    out.add(s);
+                }
+            }
+        }
+        return out.isEmpty() ? "유형 미상" : String.join(",", out);
     }
 
     /** MOCK — 주민번호 · 전화번호 숫자만 별표로(길이 유지). 외부 호출 없음. */

@@ -138,6 +138,60 @@ class VoiceDeidentClientTest {
     }
 
     @Test
+    @DisplayName("격리 응답(isolated · text=null) — [RECONCILE] 예외 · 문구는 건수 · 유형만(값 없음) · 원문을 보내지 않는다")
+    void isolatedResponseThrowsReconcile() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v1/pipeline/deident/voice", ex -> {
+            ex.getRequestBody().readAllBytes();
+            byte[] resp = ("{\"isolated\":true,\"text\":null,\"segments\":null,\"deidentStsCd\":\"FAIL\","
+                    + "\"displayStatus\":\"DEIDENT_ISOLATED\",\"errTypeCd\":\"RECONCILE\",\"residualCount\":1,"
+                    + "\"residualTypes\":[\"PHONE\"],\"sendId\":12345}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(resp);
+            }
+        });
+        server.start();
+        try {
+            VoiceDeidentClient c = client(props(AgentConnectorProperties.Mode.REST,
+                    "http://127.0.0.1:" + server.getAddress().getPort()), true);
+            assertThatThrownBy(() -> c.deident("E", target(), "VP", new SttResult(RAW, "MOCK", 1, false)))
+                    .isInstanceOf(VoiceDeidentClient.DeidentException.class)
+                    .hasMessage("[RECONCILE] 비식별 후 잔존 개인정보 1건(PHONE) — 격리 · 전송 제외")
+                    .hasMessageNotContaining("010-1234-5678")
+                    .hasMessageNotContaining("홍길동");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("응답 해석 — 격리 문구에는 유형 모양만(중복 없이 · 최대 6) · 유형이 없으면 '유형 미상' · 격리가 아니고 본문도 없으면 종전 '비어 있음'")
+    void readResponseEdges() throws Exception {
+        assertThatThrownBy(() -> VoiceDeidentClient.readResponse(om.readTree(
+                "{\"isolated\":true,\"residualCount\":2,\"residualTypes\":[\"PHONE\",\"010-1234-5678\",\"PHONE\",\"rrn\",\"RRN\"]}"),
+                true))
+                .isInstanceOf(VoiceDeidentClient.DeidentException.class)
+                .hasMessage("[RECONCILE] 비식별 후 잔존 개인정보 2건(PHONE,RRN) — 격리 · 전송 제외");
+        assertThatThrownBy(() -> VoiceDeidentClient.readResponse(om.readTree("{\"isolated\":true}"), true))
+                .hasMessage("[RECONCILE] 비식별 후 잔존 개인정보 0건(유형 미상) — 격리 · 전송 제외");
+        assertThatThrownBy(() -> VoiceDeidentClient.readResponse(om.readTree("{\"isolated\":false,\"text\":null}"), true))
+                .isInstanceOf(VoiceDeidentClient.DeidentException.class)
+                .hasMessage("에이전트 커넥터 비식별 응답이 비어 있음");
+        assertThatThrownBy(() -> VoiceDeidentClient.readResponse(null, true))
+                .hasMessage("에이전트 커넥터 비식별 응답이 비어 있음");
+
+        VoiceDeidentClient.Result ok = VoiceDeidentClient.readResponse(om.readTree(
+                "{\"isolated\":false,\"text\":\"저 ***이고\",\"mode\":\"DEIDENT\",\"sendId\":3,\"piiItemCnt\":1,"
+                        + "\"errTypeCd\":null,\"residualCount\":null,\"residualTypes\":null}"), true);
+        assertThat(ok.text()).isEqualTo("저 ***이고");
+        assertThat(ok.sendId()).isEqualTo(3L);
+        assertThat(ok.piiItemCnt()).isEqualTo(1);
+        assertThat(ok.segments()).isNull();
+    }
+
+    @Test
     @DisplayName("꺼짐 — 단계 표기 OFF")
     void disabled() {
         AgentConnectorProperties p = props(AgentConnectorProperties.Mode.REST, "http://x");

@@ -1229,7 +1229,7 @@ public class VoiceCollectService {
             if (plain != null) {
                 readyAudio = plain.path();
                 // WF9(접견·전화 위험 신호) — 음성 사본만 스풀에 넣고 바로 다음 단계로. 예외를 던지지 않는다(배치 결과에 영향 없음).
-                //   T1~T5 는 건드리지 않는다(1116 과제 3 · D7).
+                //   T1~T5 는 건드리지 않는다(1116 과제 3 · D7 — 예외: 제논 실호출 정상 응답 뒤 이 배치 T1 폐기 상태만 폐기 완료로 · PL 합의 11-20).
                 //   꺼져 있으면(기본) 아무 일도 하지 않는다
                 wf9Spool.offer(ctx.execId, target, plain.path(), ctx.testRun);
             }

@@ -12,7 +12,9 @@ import java.util.regex.Pattern;
  * <p>배치는 복호화 직후 음성 사본을 스풀에 넣기만 하고 다음 단계로 간다. 작업자 하나가 음성 배치가 돌지 않을 때
  * 스풀을 비운다: 제논 {@code audio/process} → 커넥터 {@code POST /api/v1/deid/speech-results}(비식별 · 잔존 검사)
  * → 제논 WF9(Code Serving 직접 호출 · SSE) → {@code {findings, reviews}} → 로그 컬렉터
- * {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}. T1~T5 는 건드리지 않는다(D7 · 2026-11-23 부터 T1 폐기 상태도 적지 않는다).</p>
+ * {@code PUT /api/v1/logs/contact-risk-signals/{recFileId}}. T1~T5 는 건드리지 않는다(D7) — 단 하나, 제논 실호출(REST)이 정상 응답하면
+ * 그 배치 T1 의 폐기 상태({@code PURGE_STS_CD} · {@code PURGE_DTM})만 폐기 완료로 적는다. 제논 엔드포인트가 비저장이라 폐기 신호가
+ * 오지 않기 때문이다(PL 합의 2026-11-20 · 11-23 제거 뒤 11-26 복원).</p>
  *
  * <p><b>2026-11-25 호출 방식 전환</b>(대시보드 AI API 연동 가이드 v4 · 제논 메일 11-25) — genportal 로그인({@code /auth/login})
  * → {@code /chat} 을 버리고 서빙별 AuthKey 로 {@code POST {servingBaseUrl}/{servingId}/{servingRev}/run} 을 바로 부른다.

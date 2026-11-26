@@ -586,6 +586,31 @@ public class LogCollectorClient {
         }
     }
 
+    // ── T1 폐기 상태 — 제논 비저장 엔드포인트(WF9) ───────────────────────────────
+
+    /** T1 폐기 상태 코드(C04) — 폐기 완료. */
+    public static final String PURGE_SUCCESS = "SUCCESS";
+
+    /**
+     * T1 폐기 상태를 쓴다 — {@code POST /api/v1/logs/batches/{execId}/purge-status}(T1 {@code PURGE_STS_CD} · {@code PURGE_DTM} 만 ·
+     * {@code EXEC_STS_CD} 는 그대로).
+     *
+     * <p>WF9 가 부르는 제논 엔드포인트는 받은 것을 저장하지 않는다 — 정상 응답을 받으면 제논 쪽에 남는 것이 없으므로 폐기 신호(콜백)를
+     * 기다리지 않고 바로 폐기 완료로 적는다(PL 합의 2026-11-20 · 2026-11-26 복원). 실패해도 예외를 던지지 않는다 — 폐기 상태 기록이
+     * 결과 적재를 막지 않는다.</p>
+     *
+     * @return 반영됐는지. 미연동 · 통신 실패 · 배치 없음(404) · 컬럼 없음(500)이면 false
+     */
+    public boolean updatePurge(String execId, String purgeStsCd, LocalDateTime purgeDtm) {
+        if (!isEnabled() || !StringUtils.hasText(execId)) {
+            return false;
+        }
+        String u = url("/api/v1/logs/batches/"
+                + org.springframework.web.util.UriUtils.encodePathSegment(execId.strip(), java.nio.charset.StandardCharsets.UTF_8)
+                + "/purge-status");
+        return exchange(HttpMethod.POST, u, new PurgeStatusReq(purgeStsCd, purgeDtm)) != null;
+    }
+
     /** 로그 컬렉터가 요청을 거절함(400) — 다시 보내도 같다. */
     public static class RejectedException extends RuntimeException {
         public RejectedException(String message, Throwable cause) {
@@ -650,6 +675,14 @@ public class LogCollectorClient {
 
     public record StepFinishReq(String stepStsCd, LocalDateTime endDtm, Integer elapsedSec,
                                 Long inCnt, Long outCnt, Long errCnt, String errStack) {}
+
+    /**
+     * T1 폐기 상태 — 로그 컬렉터 {@code LogDto.PurgeStatusReq} 와 필드명이 같아야 한다.
+     *
+     * @param purgeStsCd C04 — {@link #PURGE_SUCCESS}
+     * @param purgeDtm   폐기 일시(KST · 초까지). null 이면 로그 컬렉터가 서버 시각으로 적는다
+     */
+    public record PurgeStatusReq(String purgeStsCd, LocalDateTime purgeDtm) {}
 
     /**
      * T4 적재 요청 1건 — 컬렉터 {@code LogDto.FileProcReq} 와 필드명이 같아야 한다.

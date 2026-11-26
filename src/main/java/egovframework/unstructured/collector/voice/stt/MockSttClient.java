@@ -37,6 +37,8 @@ public class MockSttClient implements SttClient {
     private final egovframework.unstructured.collector.voice.perf.PerfStageMeter meter;
     /** 더미 키 표식(AF) 장애 — 이 건의 STT 를 한 번만 실패시킨다. 운영 프로필에서는 아무 일도 하지 않는다. */
     private final egovframework.unstructured.collector.mock.ScenarioFaults scenarioFaults;
+    /** 잔존 주입(시뮬레이터) — 표시된 키의 전사에 가상 번호를 한글로 읽은 줄을 덧붙인다. 표식이 꺼진 환경(운영)에서는 보지 않는다. */
+    private final egovframework.unstructured.collector.mock.ResidualInjection residualInjection;
 
     /** 가상 지연을 이 간격으로 잘라 자면서 중단 요청을 본다. */
     private static final long PAUSE_SLICE_MS = 200L;
@@ -81,6 +83,11 @@ public class MockSttClient implements SttClient {
         // 구간을 쓰는 쪽(산출물 transcript)을 Mock 으로도 검증할 수 있다.
         List<String> lines = new ArrayList<>(script.strip().lines()
                 .map(String::strip).filter(l -> !l.isEmpty()).toList());
+        // 잔존 주입(시뮬레이터 · 2026-11-26) — 커넥터 잔존 재검증이 이 건을 격리하는지 개발계에서 끝까지 보려고.
+        if (scenarioFaults.isActive() && residualInjection.isMarked(file.target().idempotencyKey())) {
+            lines.add(egovframework.unstructured.collector.mock.ResidualInjection.LINE);
+            log.info("[STT:MOCK] 잔존 주입 줄 추가 — {}", file.target().shortId());
+        }
         // 건마다 구분되도록 식별자를 덧붙인다 — 로그에서 어느 건의 텍스트인지 추적할 수 있다.
         lines.add("(테스트 데이터 / " + file.target().shortId() + ")");
 

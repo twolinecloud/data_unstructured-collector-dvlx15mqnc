@@ -84,7 +84,46 @@ class DeidentFailSimServiceTest {
         E2eDummyService e2e = new E2eDummyService(dummy, voice, logc, holds, runner, mock(BatchProgress.class),
                 mock(ImageCollectService.class), null, dirs, OM);
         service = new DeidentFailSimService(dummy, e2e, voice, verification, logc, holds, runner, mock(BatchProgress.class),
-                mock(ImageCollectService.class), faults, deident, ScenarioFaults.activeForTest(), dirs, OM);
+                mock(ImageCollectService.class), faults, deident, ScenarioFaults.activeForTest(), dirs, OM, residual);
+    }
+
+    private final ResidualInjection residual = new ResidualInjection();
+
+    @Test
+    @DisplayName("잔존 주입 — residual 만 주면 DF 0 · 표식 없는 키 앞에서부터 표시 · 기대 실패 = DF + 잔존 · 정리하면 표시가 비워진다")
+    void residualMarksUnflaggedKeys() {
+        when(deident.mode()).thenReturn("DEIDENT");
+        when(verification.t4Steps(anyString())).thenReturn(Map.of("byStep", Map.of("DEIDENT", Map.of("FAIL", 1L))));
+
+        Map<String, Object> out = service.run(new DeidentFailSimService.Request(3, null, true, 1));
+
+        ArgumentCaptor<DummyDataService.GenerateRequest> g = ArgumentCaptor.forClass(DummyDataService.GenerateRequest.class);
+        verify(dummy).generate(g.capture(), any(), any());
+        assertThat(g.getValue().failures()).isEmpty();
+        assertThat(out).containsEntry("residualKeys", List.of("DMY-MEET-20261105-0003"))
+                .containsEntry("requestedResidual", 1).containsEntry("requestedDeidentFail", 0)
+                .containsEntry("asRequested", true).doesNotContainKey("warning");
+        assertThat(residual.isMarked("DMY-MEET-20261105-0003")).isTrue();
+        assertThat(residual.isMarked("DMY-MEET-20261105-DF-0001")).isFalse();
+
+        service.run(new DeidentFailSimService.Request(3, 2, true, 0));
+        assertThat(residual.marked()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("잔존 주입 거절 — 비식별 MOCK(커넥터 비경유)이면 409 · DF + 잔존이 총 건수를 넘거나 음수면 400")
+    void residualRejects() {
+        when(deident.mode()).thenReturn("MOCK");
+        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(3, 0, true, 1)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("MOCK");
+        assertThatThrownBy(() -> DeidentFailSimService.validate(3, 2, 2)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> DeidentFailSimService.validate(3, -1, 2)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> DeidentFailSimService.validate(3, 0, 0)).isInstanceOf(IllegalArgumentException.class);
+        DeidentFailSimService.validate(3, 0, 3);
+        DeidentFailSimService.validate(3, 1, 2);
+        assertThat(DeidentFailSimService.pickResidual(List.of("DMY-MEET-20261126-DF-0001", "DMY-MEET-20261126-0002", "DMY-MEET-20261126-0003"), 5))
+                .containsExactly("DMY-MEET-20261126-0002", "DMY-MEET-20261126-0003");
+        verify(voice, never()).run(any(), anyList(), anyString(), anyBoolean());
     }
 
     @Test
@@ -134,10 +173,10 @@ class DeidentFailSimServiceTest {
     @Test
     @DisplayName("거절 — 건수 범위 400 · 단계별 장애가 걸려 있거나 비식별이 꺼져 있으면 만들지 않는다 · 다른 배치가 돌면 409")
     void rejects() {
-        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(0, 1, true))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(11, 1, true))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(3, 4, true))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(3, 0, true))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(0, 1, true, null))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(11, 1, true, null))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(3, 4, true, null))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.run(new DeidentFailSimService.Request(3, 0, true, null))).isInstanceOf(IllegalArgumentException.class);
 
         faults.set(StageFaultState.Stage.ANALYZE, StageFaultState.Mode.ALL, null);
         assertThatThrownBy(() -> service.run(null)).isInstanceOf(IllegalStateException.class).hasMessageContaining("단계별 장애");

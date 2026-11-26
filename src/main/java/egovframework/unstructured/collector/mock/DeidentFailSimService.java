@@ -43,6 +43,9 @@ import java.util.Set;
  *       어드민 목록은 T4 를 T5 비식별 결과로 덮어 보여주는데 실패 건은 T5 가 없어 T4 의 FAIL 이 그대로 뜬다</li>
  *   <li>표식은 한 번만 실패한다 — 어드민 [긴급 재처리]가 같은 배치를 다시 열면 보존된 전사로 비식별부터 다시 해 성공한다</li>
  *   <li>정리(기본): 이 API 가 이전에 만든 배치를 지운다(커넥터 장부에 남은 건 먼저 보내 마감). 다른 배치는 건드리지 않는다</li>
+ *   <li><b>잔존 주입</b>({@code residual} · 2026-11-26): 표식 없는 건 중 앞에서부터 N건의 MOCK 전사에 가상 번호를 한글로 읽은 줄을 넣는다
+ *       ({@link ResidualInjection}). 커넥터가 비식별 뒤 잔존으로 보고 격리한다 — T5 FAIL · RECONCILE · T4 {@code [RECONCILE] [DEIDENT]} · 전송 제외.
+ *       DF 와 달리 재처리해도 다시 격리된다. 비식별이 MOCK 이면 커넥터를 안 거쳐 격리가 안 되므로 거절한다</li>
  * </ul>
  */
 @Log4j2
@@ -58,8 +61,8 @@ public class DeidentFailSimService {
     static final int DEFAULT_COUNT = 3;
     static final int DEFAULT_FAIL = 2;
 
-    /** 요청 — 총 건수 · 그중 비식별 실패 건수 · 이전 묶음 정리 여부. */
-    public record Request(Integer count, Integer deidentFail, Boolean cleanup) {}
+    /** 요청 — 총 건수 · 그중 비식별 실패(DF) 건수 · 이전 묶음 정리 여부 · 잔존 주입(격리) 건수. */
+    public record Request(Integer count, Integer deidentFail, Boolean cleanup, Integer residual) {}
 
     private final DummyDataService dummy;
     private final E2eDummyService e2e;
@@ -75,16 +78,18 @@ public class DeidentFailSimService {
     private final ScenarioFaults scenarioFaults;
     private final VoiceDirState dirs;
     private final ObjectMapper objectMapper;
+    private final ResidualInjection residualInjection;
 
     public synchronized Map<String, Object> run(Request req) {
         int count = req == null || req.count() == null ? DEFAULT_COUNT : req.count();
-        int fail = req == null || req.deidentFail() == null ? Math.min(DEFAULT_FAIL, count) : req.deidentFail();
+        int residual = req == null || req.residual() == null ? 0 : req.residual();
+        int fail = req == null || req.deidentFail() == null ? (residual > 0 ? 0 : Math.min(DEFAULT_FAIL, count)) : req.deidentFail();
         boolean cleanup = req == null || req.cleanup() == null || req.cleanup();
-        validate(count, fail);
+        validate(count, fail, residual);
         if (runner.isRunning() || voiceProgress.isRunning() || image.isRunning()) {
             throw new E2eDummyService.BusyException(E2eDummyService.MSG_BUSY);
         }
-        precheck();
+        precheck(residual);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cleanup", cleanup ? cleanup() : Map.of("skipped", true));
@@ -92,41 +97,81 @@ public class DeidentFailSimService {
         LocalDateTime now = LocalDateTime.now().withNano(0).withSecond(0);
         LocalDateTime[] w = e2e.freeWindow(now.minusMinutes(1), null);
         Map<String, Object> g = dummy.generate(new DummyDataService.GenerateRequest(DummyTarget.DASHBOARD, List.of(DummyDataType.MEET),
-                w[0].toLocalDate(), count, Map.of(FailureScenario.DEIDENT_FAIL, fail), true, null), w[0], w[1]);
+                w[0].toLocalDate(), count, fail > 0 ? Map.of(FailureScenario.DEIDENT_FAIL, fail) : Map.of(), true, null), w[0], w[1]);
+        Object keys = g.get("types") instanceof Map<?, ?> t && t.get("MEET") instanceof Map<?, ?> m ? m.get("keys") : List.of();
+        List<String> residualKeys = pickResidual(keys, residual);
+        if (!residualKeys.isEmpty()) {
+            residualInjection.mark(residualKeys);
+        }
         VoiceBatchResult v = voice.run(BatchWindow.manual(w[0], w[1]), List.of(VoiceKind.MEET), TRIGGER_BY, false);
         save(v.execId());
 
         long deidentFail = deidentFailCount(verification.t4Steps(v.execId()));
+        int expected = fail + residual;
         out.put("execId", v.execId());
         out.put("window", Map.of("from", w[0].toString(), "to", w[1].toString()));
-        out.put("keys", g.get("types") instanceof Map<?, ?> t && t.get("MEET") instanceof Map<?, ?> m ? m.get("keys") : List.of());
+        out.put("keys", keys);
         out.put("t1", v.execStsCd());
         out.put("counts", Map.of("target", v.targetCnt(), "success", v.successCnt(), "fail", v.failCnt(), "skipped", v.skippedCnt()));
         out.put("requestedDeidentFail", fail);
+        out.put("requestedResidual", residual);
+        out.put("residualKeys", residualKeys);
         out.put("deidentFail", deidentFail);
-        out.put("asRequested", deidentFail == fail);
-        out.put("next", List.of(
+        out.put("asRequested", deidentFail == expected);
+        List<String> next = new ArrayList<>(List.of(
                 "관리 화면 배치 수행 이력 — 맨 위 " + v.execId() + " 상세",
-                "단계별 처리 타임라인 '비식별화' 카드 → '실패 상태만 보기'(기본 체크)에 " + fail + "건",
-                "같은 배치 [긴급 재처리] → 표식은 한 번만 실패하므로 비식별부터 다시 해 성공"));
-        if (deidentFail != fail) {
-            out.put("warning", "비식별 실패가 " + fail + "건이어야 하는데 " + deidentFail + "건입니다 — 수집 · 분석 단계 장애(브로커 주소 등)가 걸려 있는지 보십시오");
+                "단계별 처리 타임라인 '비식별화' 카드 → '실패 상태만 보기'(기본 체크)에 " + expected + "건"));
+        if (fail > 0) {
+            next.add("같은 배치 [긴급 재처리] → 표식(DF)은 한 번만 실패하므로 비식별부터 다시 해 성공");
         }
-        log.info("[DeidentFailSim] {} {} ~ {} · T1 {} · 비식별 실패 {}/{}", v.execId(), w[0], w[1], v.execStsCd(), deidentFail, fail);
+        if (residual > 0) {
+            next.add("잔존 주입 건은 T4 [RECONCILE] [DEIDENT] · T5 FAIL/RECONCILE(residual_pii_log) · 전송 제외 — 재처리해도 다시 격리");
+        }
+        out.put("next", next);
+        if (deidentFail != expected) {
+            out.put("warning", "비식별 실패가 " + expected + "건이어야 하는데 " + deidentFail + "건입니다 — 수집 · 분석 단계 장애(브로커 주소 등)"
+                    + (residual > 0 ? " · 커넥터 잔존 모드(DEID_VOICE_RESIDUAL_MODE=ISOLATE)" : "") + "를 보십시오");
+        }
+        log.info("[DeidentFailSim] {} {} ~ {} · T1 {} · 비식별 실패 {}/{} (DF {} · 잔존 {})", v.execId(), w[0], w[1], v.execStsCd(),
+                deidentFail, expected, fail, residual);
         return out;
     }
 
     static void validate(int count, int fail) {
+        validate(count, fail, 0);
+    }
+
+    static void validate(int count, int fail, int residual) {
         if (count < 1 || count > MAX_COUNT) {
             throw new IllegalArgumentException("총 건수는 1~" + MAX_COUNT + " 입니다: " + count);
         }
-        if (fail < 1 || fail > count) {
-            throw new IllegalArgumentException("비식별 실패 건수는 1~총 건수(" + count + ") 입니다: " + fail);
+        if (fail < 0 || residual < 0) {
+            throw new IllegalArgumentException("비식별 실패 · 잔존 건수는 0 이상입니다: " + fail + " · " + residual);
+        }
+        if (fail + residual < 1 || fail + residual > count) {
+            throw new IllegalArgumentException("비식별 실패 + 잔존 건수는 1~총 건수(" + count + ") 입니다: " + (fail + residual));
         }
     }
 
+    /** 잔존을 넣을 키 — 표식(CF · AF · SF · DF) 없는 건 중 앞에서부터. 표식 건은 그 단계에서 먼저 떨어져 잔존 검사까지 가지 않는다. */
+    static List<String> pickResidual(Object keys, int residual) {
+        List<String> out = new ArrayList<>();
+        if (residual <= 0 || !(keys instanceof List<?> ks)) {
+            return out;
+        }
+        for (Object k : ks) {
+            if (out.size() >= residual) {
+                break;
+            }
+            if (k instanceof String s && FailureScenario.ofKey(s).isEmpty()) {
+                out.add(s);
+            }
+        }
+        return out;
+    }
+
     /** 표식이 실제로 실패하게 될 환경인지 — 아니면 '실패 없는 배치' 만 쌓인다. */
-    private void precheck() {
+    private void precheck(int residual) {
         if (!logCollector.isEnabled()) {
             throw new IllegalStateException("로그 컬렉터 미연동 — 이력을 남길 수 없어 배치를 만들지 않습니다");
         }
@@ -138,6 +183,9 @@ public class DeidentFailSimService {
         }
         if (stageFault.anyOn()) {
             throw new IllegalStateException("3번 탭 단계별 장애가 걸려 있습니다 — 앞 단계에서 먼저 떨어져 비식별까지 가지 않습니다. [전체 해제] 후 다시 하십시오");
+        }
+        if (residual > 0 && "MOCK".equals(voiceDeident.mode())) {
+            throw new IllegalStateException("비식별이 MOCK 입니다(커넥터를 거치지 않음) — 잔존 격리를 만들 수 없습니다");
         }
     }
 
@@ -154,6 +202,7 @@ public class DeidentFailSimService {
     /** 이 API 가 이전에 만든 배치만 지운다 — 장부에 남은 건 먼저 보내 마감하고, 못 보낸 건 지우지 않는다. */
     Map<String, Object> cleanup() {
         Map<String, Object> out = new LinkedHashMap<>();
+        out.put("residualMarksCleared", residualInjection.clear());
         List<String> targets = new ArrayList<>(load());
         out.put("previous", List.copyOf(targets));
         Set<String> held = holds.holds();

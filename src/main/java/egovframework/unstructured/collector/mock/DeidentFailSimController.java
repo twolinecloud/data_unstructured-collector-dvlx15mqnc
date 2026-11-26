@@ -31,7 +31,9 @@ public class DeidentFailSimController {
 
     @Operation(summary = "비식별 실패 배치 만들기 — 접견 더미 중 일부에 비식별 표식을 박아 실제 배치로 돌린다",
             description = """
-                    본문(모두 선택) `{"count":3, "deidentFail":2, "cleanup":true}` — 비우면 이 기본값. 총 건수 1~10 · 실패 1~총 건수.
+                    본문(모두 선택) `{"count":3, "deidentFail":2, "cleanup":true, "residual":0}` — 비우면 이 기본값. 총 건수 1~10 · 실패 + 잔존 1~총 건수.
+                    `residual`(잔존 주입 · 격리)을 주면 `deidentFail` 기본은 0 — 표식 없는 건 N건의 MOCK 전사에 가상 번호를 한글로 읽은 줄을 넣어
+                    커넥터가 잔존으로 격리하게 한다(T5 FAIL · RECONCILE · T4 `[RECONCILE] [DEIDENT]` · 전송 제외 · 재처리해도 다시 격리). 비식별 MOCK 이면 409.
 
                     1. **정리**(`cleanup`, 기본 true) — 이 API 가 이전에 만든 배치만 지운다(커넥터 보류 장부에 남은 건 먼저 보내 마감)
                     2. **생성** — 접견 더미(DMY) 원본을 지금 직전 10분 구간에 만들고 그 구간만 **실제 배치**(test=false · EXEC_ID UNS)로 돈다.

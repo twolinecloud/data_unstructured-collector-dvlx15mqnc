@@ -61,8 +61,17 @@ public class DeidentFailSimService {
     static final int DEFAULT_COUNT = 3;
     static final int DEFAULT_FAIL = 2;
 
-    /** 요청 — 총 건수 · 그중 비식별 실패(DF) 건수 · 이전 묶음 정리 여부 · 잔존 주입(격리) 건수. */
-    public record Request(Integer count, Integer deidentFail, Boolean cleanup, Integer residual) {}
+    /**
+     * 요청 — 총 건수 · 그중 비식별 실패(DF) 건수 · 이전 묶음 정리 여부 · 잔존 주입(격리) 건수 · 스케줄 실행으로 남길지.
+     *
+     * @param scheduled true 면 T1 실행 유형을 SCHEDULED 로 남긴다 — 어드민 '확인 필요' 가 "긴급 재처리 …" 가 아니라
+     *                  정기 배치처럼 "배치 부분 성공 / 배치 실패" 로 띄운다. 비우면 MANUAL(지금까지와 같음)
+     */
+    public record Request(Integer count, Integer deidentFail, Boolean cleanup, Integer residual, Boolean scheduled) {
+        public Request(Integer count, Integer deidentFail, Boolean cleanup, Integer residual) {
+            this(count, deidentFail, cleanup, residual, null);
+        }
+    }
 
     private final DummyDataService dummy;
     private final E2eDummyService e2e;
@@ -85,6 +94,7 @@ public class DeidentFailSimService {
         int residual = req == null || req.residual() == null ? 0 : req.residual();
         int fail = req == null || req.deidentFail() == null ? (residual > 0 ? 0 : Math.min(DEFAULT_FAIL, count)) : req.deidentFail();
         boolean cleanup = req == null || req.cleanup() == null || req.cleanup();
+        boolean scheduled = req != null && Boolean.TRUE.equals(req.scheduled());
         validate(count, fail, residual);
         if (runner.isRunning() || voiceProgress.isRunning() || image.isRunning()) {
             throw new E2eDummyService.BusyException(E2eDummyService.MSG_BUSY);
@@ -103,7 +113,9 @@ public class DeidentFailSimService {
         if (!residualKeys.isEmpty()) {
             residualInjection.mark(residualKeys);
         }
-        VoiceBatchResult v = voice.run(BatchWindow.manual(w[0], w[1]), List.of(VoiceKind.MEET), TRIGGER_BY, false);
+        // 스케줄 실행 — 창은 같고 표지만 PERIODIC(→ EXEC_TYPE_CD SCHEDULED). 누가 눌렀는지는 TRIGGER_BY 가 그대로 들고 있다
+        BatchWindow window = scheduled ? new BatchWindow(w[0], w[1], "PERIODIC") : BatchWindow.manual(w[0], w[1]);
+        VoiceBatchResult v = voice.run(window, List.of(VoiceKind.MEET), TRIGGER_BY, false);
         save(v.execId());
 
         long deidentFail = deidentFailCount(verification.t4Steps(v.execId()));
@@ -112,6 +124,7 @@ public class DeidentFailSimService {
         out.put("window", Map.of("from", w[0].toString(), "to", w[1].toString()));
         out.put("keys", keys);
         out.put("t1", v.execStsCd());
+        out.put("execTypeCd", window.execTypeCd());
         out.put("counts", Map.of("target", v.targetCnt(), "success", v.successCnt(), "fail", v.failCnt(), "skipped", v.skippedCnt()));
         out.put("requestedDeidentFail", fail);
         out.put("requestedResidual", residual);

@@ -52,6 +52,29 @@ class FileProcReqTest {
     }
 
     @Test
+    @DisplayName("사유가 C12 코드를 달고 오면 그 코드를 맨 앞으로 — 음성 격리 [RECONCILE] · 단계 표시 · T1 오류 구분도 RECONCILE")
+    void taggedReasonKeepsItsCode() {
+        String reason = "DeidentException: [RECONCILE] 비식별 후 잔존 개인정보 1건(PHONE) — 격리 · 전송 제외";
+
+        assertThat(LogCollectorClient.FileProcReq.errStackOf(reason))
+                .isEqualTo("[RECONCILE] DeidentException: 비식별 후 잔존 개인정보 1건(PHONE) — 격리 · 전송 제외");
+        assertThat(LogCollectorClient.FileProcReq.errStackOf(
+                egovframework.unstructured.collector.common.model.StepType.DEIDENT, reason))
+                .isEqualTo("[RECONCILE] [DEIDENT] DeidentException: 비식별 후 잔존 개인정보 1건(PHONE) — 격리 · 전송 제외");
+        assertThat(LogCollectorClient.errTypeOf(LogCollectorClient.FileProcReq.errStackOf(reason))).isEqualTo("RECONCILE");
+        assertThat(LogCollectorClient.FileProcReq.errStackOf("[TIMEOUT] 응답 없음")).isEqualTo("[TIMEOUT] 응답 없음");
+
+        // 꼬리표가 맨 앞(예외 이름 바로 뒤)이 아니거나 C12 가 아니면 종전대로 낱말로 고른다
+        assertThat(LogCollectorClient.FileProcReq.errStackOf(
+                "IllegalStateException: 에이전트 커넥터 비식별 HTTP 500 (MOCK) [더미 시나리오 DEIDENT_FAIL · 1회]"))
+                .startsWith("[DATA] IllegalStateException: ");
+        assertThat(LogCollectorClient.FileProcReq.errStackOf("DeidentException: [HTTP-500] 실패"))
+                .isEqualTo("[DATA] DeidentException: [HTTP-500] 실패");
+        assertThat(LogCollectorClient.FileProcReq.errStackOf("DeidentException: 에이전트 커넥터 비식별 응답이 비어 있음"))
+                .isEqualTo("[DATA] DeidentException: 에이전트 커넥터 비식별 응답이 비어 있음");
+    }
+
+    @Test
     @DisplayName("컬렉터 응답 ids 는 문자열(FILE_PROC_ID) 이다 — 숫자로 읽으면 0 이 된다")
     void idsAreStrings() throws Exception {
         JsonNode result = mapper.readTree("{\"count\":2,\"ids\":[\"20260915TST004001\",\"20260915TST004002\"]}");

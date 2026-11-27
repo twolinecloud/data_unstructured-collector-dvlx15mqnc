@@ -446,7 +446,10 @@ public class DummyDataService {
         int seq0 = nextSeq(sql, tables.irimBsifDs(), "CORR_NO", DummyKeys.imageCorrHead(t, d), null);
         checkSeq(seq0, order.size());
         Path dir = imageSim.originalDir();
-        String encYn = enc != null ? props.source().flag().encrypted() : "N";
+        // 사진 평문 정책(image.decrypt=SKIP · 기본) — 음성(접견·전화)이 암호화돼도 사진은 평문 · 메타 'N' · 이름 .jpg.
+        //   예전 동작(ENC_YN)에 복호화 REAL 일 때만 음성과 같은 키로 암호화한다
+        MediaDecryptor ienc = store.photosEncrypted() ? enc : null;
+        String encYn = ienc != null ? props.source().flag().encrypted() : "N";
         List<Object[]> images = new ArrayList<>();
         List<Object[]> cmfi = new ArrayList<>();
         List<Object[]> xvarm = new ArrayList<>();
@@ -462,12 +465,12 @@ public class DummyDataService {
                 images.add(new Object[] {corr, sn, sn == 3 ? "2" : "1", fid, crt, t.usr(), crt, t.usr()});
                 if (sn <= 2) {
                     String doc = DummyKeys.imageDocId(t, d, seq, sn);
-                    Path file = dir.resolve(corr + "_" + sn + ".jpg.enc");
+                    Path file = dir.resolve(corr + "_" + sn + (ienc != null ? ".jpg.enc" : ".jpg"));
                     cmfi.add(new Object[] {fid, doc, corr + "_" + sn + ".jpg", "01", "A", crt, "Y", encYn, flagNotDeleted(),
                             crt, t.usr(), crt, t.usr()});
                     xvarm.add(new Object[] {doc, slash(file)});
                     if (sn == 2) {
-                        jobs.add(new FileJob(DummyDataType.IMAGE, () -> writeFile(file, SampleImage.jpeg(corr), enc)));
+                        jobs.add(new FileJob(DummyDataType.IMAGE, () -> writeFile(file, SampleImage.jpeg(corr), ienc)));
                     }
                 }
             }

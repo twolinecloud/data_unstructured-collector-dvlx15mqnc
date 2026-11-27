@@ -58,7 +58,7 @@ class ImageSourceCursorTest {
     }
 
     private ImageSourceService service() {
-        ImageProperties props = new ImageProperties("1", "", 4, 2000, statusCodes, false, null, "IMAGE_COLLECT");
+        ImageProperties props = new ImageProperties("1", "", 4, 2000, statusCodes, false, null, "IMAGE_COLLECT", ImageProperties.Decrypt.SKIP);
         return new ImageSourceService(jdbc, tables, mock(VoiceProperties.class), props, mock(ImageTrace.class),
                 egovframework.unstructured.collector.common.config.SourceTestFilter.none());
     }

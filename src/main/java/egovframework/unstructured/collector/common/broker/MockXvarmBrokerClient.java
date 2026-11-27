@@ -6,6 +6,7 @@ import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.model.VoiceTarget;
 import egovframework.unstructured.collector.common.sync.EsbFileNamingPolicy;
 import egovframework.unstructured.collector.common.util.SilentWav;
+import egovframework.unstructured.collector.image.config.ImageProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,7 @@ public class MockXvarmBrokerClient implements XvarmBrokerClient {
     private final EsbFileNamingPolicy namingPolicy;
     private final MockDatasetState dataset;
     private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
+    private final ImageProperties imageProps;
 
     @Override
     public ExtractResult extract(VoiceTarget target) {
@@ -68,8 +70,9 @@ public class MockXvarmBrokerClient implements XvarmBrokerClient {
     }
 
     /**
-     * 파일 단건 — XVARM 원본 스토리지에 {@code fileKey} 경로의 파일이 있으면 그것을 그대로(암호화된 채) 옮긴다.
-     * 시뮬레이션 데이터 생성이 그 경로에 암호화된 더미 이미지를 써 둔다. 없으면 더미 이미지를 만들어 떨군다.
+     * 파일 단건 — XVARM 원본 스토리지에 {@code fileKey} 경로의 파일이 있으면 그것을 받은 그대로 옮긴다.
+     * 시뮬레이션 데이터 생성이 그 경로에 더미 사진을 써 둔다(사진 평문 정책 {@code image.decrypt=SKIP} 이면 평문).
+     * 없으면 더미 사진을 만들어 떨군다 — 예전 동작({@code image.decrypt=ENC_YN})에 복호화 REAL 이면 암호화해서.
      */
     @Override
     public ExtractResult extractFile(FileRequest req) {
@@ -80,7 +83,8 @@ public class MockXvarmBrokerClient implements XvarmBrokerClient {
             Files.createDirectories(dir);
             Path src = sourceOf(req.fileKey());
             byte[] body = src != null ? Files.readAllBytes(src)
-                    : maybeEncrypt(egovframework.unstructured.collector.common.util.SampleImage.jpeg(req.requestId()), true);
+                    : maybeEncrypt(egovframework.unstructured.collector.common.util.SampleImage.jpeg(req.requestId()),
+                            imageProps.decrypt() == ImageProperties.Decrypt.ENC_YN);
             Files.write(file, body, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             log.info("[Broker:MOCK] 파일 추출 — {} ({} bytes{})", file.getFileName(), body.length,
                     src != null ? ", XVARM 원본 복사" : ", 더미 이미지");

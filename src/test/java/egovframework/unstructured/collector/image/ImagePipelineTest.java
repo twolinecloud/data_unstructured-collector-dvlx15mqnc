@@ -2,6 +2,7 @@ package egovframework.unstructured.collector.image;
 
 import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.SourcePoolPeak;
+import egovframework.unstructured.collector.common.decrypt.MediaDecryptor;
 import egovframework.unstructured.collector.image.batch.ImageCollectService;
 import egovframework.unstructured.collector.image.config.AdminDb;
 import egovframework.unstructured.collector.image.controller.ImagePhotoFileController;
@@ -37,9 +38,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 수용자 이미지 파이프라인 — 보라미 조회 3단계 → 브로커 수신 → 복호화(접견과 같은 RVS 키) → 저장 → Admin DB 매핑.
+ * 수용자 이미지 파이프라인 — 보라미 조회 3단계 → 브로커 수신 → 이미지 확인(사진 평문 정책 · 복호화 안 함) → 저장 → Admin DB 매핑.
  *
- * <p>로컬 H2(보라미 · Admin) · 브로커 MOCK · 복호화 REAL(테스트 키). SIM 데이터는 수용자마다 사진 2장(순번 1·2)과
+ * <p>로컬 H2(보라미 · Admin) · 브로커 MOCK · 복호화 REAL(테스트 키) — 음성 복호화가 REAL 이어도 사진은 평문이다
+ * ({@code image.decrypt=SKIP} 기본 · 예전 동작은 {@code ImagePipelineEncYnTest}). SIM 데이터는 수용자마다 사진 2장(순번 1·2)과
  * 사진 아닌 이미지 1장(구분 '2', 순번 3)이라 <b>순번 2</b>가 골라져야 맞다.</p>
  *
  * <p><b>Admin DB 는 여기서 H2 로 못 박는다</b> — Jenkins 빌드는 dev 프로파일이 켜진 채 테스트를 돌려
@@ -113,7 +115,7 @@ class ImagePipelineTest {
     }
 
     @Test
-    @DisplayName("3명 — 최신 사진(순번 2)을 받아 복호화해 저장하고, 매핑 3행 · 원문과 같은 이미지")
+    @DisplayName("3명 — 최신 사진(순번 2)을 받아 그대로 저장하고, 매핑 3행 · 원문과 같은 이미지")
     void collectsLatestPhotoPerInmate() throws Exception {
         sim.seed(3);
 
@@ -129,21 +131,58 @@ class ImagePipelineTest {
             assertThat(Files.isRegularFile(Path.of((String) m.get("photo_path")))).isTrue();
             assertThat(m.get("file_ext")).isEqualTo("jpg");
         });
-        // 복호화가 정확했다 — 저장된 사진이 시딩한 원문과 같고, 실제로 이미지로 읽힌다
+        // 받은 그대로 저장했다 — 저장된 사진이 시딩한 원문과 같고, 실제로 이미지로 읽힌다
         Map<String, String> paths = rows.stream().collect(Collectors.toMap(m -> (String) m.get("corr_no"), m -> (String) m.get("photo_path")));
         assertThat(sim.verifyPlain(paths)).hasSize(3).containsOnlyKeys(paths.keySet()).doesNotContainValue(false);
         assertThat(ImageIO.read(Path.of(paths.values().iterator().next()).toFile())).isNotNull();
-        // 단계 — 건마다 복호화·저장·매핑이 한 번씩, FILEKEY 는 청크마다 한 번(3명 = 청크 1개),
+        // 단계 — 건마다 이미지 확인(복호화 단계)·저장·매핑이 한 번씩, FILEKEY 는 청크마다 한 번(3명 = 청크 1개),
         //   조회는 청크 1개 + 끝을 확인하는 0건 조회 1번 = 2번(청크 크기 기본 2,000 · 0건이 나올 때까지 돈다)
         Map<String, Number> counts = r.stages().stream().collect(Collectors.toMap(s -> (String) s.get("key"), s -> (Number) s.get("count")));
         assertThat(counts.get(ImageStage.DECRYPT.name()).intValue()).isEqualTo(3);
         assertThat(counts.get(ImageStage.MAP.name()).intValue()).isEqualTo(3);
         assertThat(counts.get(ImageStage.QUERY.name()).intValue()).isEqualTo(2);
         assertThat(counts.get(ImageStage.FILEKEY.name()).intValue()).isEqualTo(1);
-        // 받은 원본(암호문)은 남지 않는다
+        // 받은 파일은 남지 않는다
         try (var s = Files.list(Path.of(root.toString(), "esb", "meet"))) {
             assertThat(s.filter(p -> p.getFileName().toString().startsWith("img_")).toList()).isEmpty();
         }
+    }
+
+    @Test
+    @DisplayName("사진 평문 정책(기본 image.decrypt=SKIP) — 복호화 REAL 이어도 더미 원본은 평문 .jpg · 메타 'N', 저장 사진 = 받은 바이트 그대로")
+    void plainPolicyStoresReceivedBytesAsIs() throws Exception {
+        sim.seed(2);
+        String corr = ImageSimulationService.corrNo(1);
+        Path original = sim.originalDir().resolve(corr + "_2.jpg");
+        assertThat(original).isRegularFile();
+        assertThat(sim.originalDir().resolve(corr + "_2.jpg.enc")).doesNotExist();
+        assertThat(boramiJdbc.queryForList("SELECT DISTINCT CMMN_FILE_ENC_YN FROM " + tables.smsmCmfiBs()
+                + " WHERE CMMN_FILE_ID LIKE 'SIMIMGF%'", String.class)).containsExactly("N");
+
+        ImageCollectService.ImageRunResult r = runSim(false);
+
+        assertThat(r.success()).as("실패: %s", r.outcomes()).isEqualTo(2);
+        Path stored = Path.of((String) photos.find(corr).get("photo_path"));
+        assertThat(Files.readAllBytes(stored)).as("받은 그대로 저장").isEqualTo(Files.readAllBytes(original));
+    }
+
+    @Test
+    @DisplayName("사진 평문 정책에 원천이 암호문(메타 'Y')이면 그 건만 '복호화' 단계 실패 · 매핑 없음 — 안내에 평문 정책 · 원천 표시")
+    void plainPolicyFailsEncryptedSourceOnly() throws Exception {
+        sim.seed(2);
+        String corr = ImageSimulationService.corrNo(1);
+        Path original = sim.originalDir().resolve(corr + "_2.jpg");
+        Files.write(original, MediaDecryptor.fromKeyFile(root.resolve("rvs_key.txt")).encrypt(Files.readAllBytes(original)));
+        boramiJdbc.update("UPDATE " + tables.smsmCmfiBs() + " SET CMMN_FILE_ENC_YN = 'Y' WHERE CMMN_FILE_ID = ?", "SIMIMGF000012");
+
+        ImageCollectService.ImageRunResult r = runSim(false);
+
+        assertThat(r.success()).isEqualTo(1);
+        ImageOutcome failed = r.outcomes().stream().filter(o -> "FAIL".equals(o.status())).findFirst().orElseThrow();
+        assertThat(failed.corrNo()).isEqualTo(corr);
+        assertThat(failed.failedAt()).isEqualTo(ImageStage.DECRYPT);
+        assertThat(failed.errMsg()).contains("사진은 평문으로 받는다").contains("CMMN_FILE_ENC_YN=Y");
+        assertThat(photos.find(corr)).as("이미지가 아닌 파일은 매핑하지 않는다").isEmpty();
     }
 
     @Test

@@ -176,7 +176,7 @@ class DummyDataServiceTest {
 
     @Test
     @DisplayName("용도별 — DASHBOARD 는 DMY 접두 · dmyadm, SIMULATOR 는 SIM 접두 · simadm. 더미 원본 파일도 만든다")
-    void prefixesAndCreatorPerTarget() {
+    void prefixesAndCreatorPerTarget() throws Exception {
         Map<String, Object> g = dummy.generate(req(DummyTarget.DASHBOARD, null, D, 3, Map.of()));
         assertThat(g.get("target")).isEqualTo("DASHBOARD");
         assertThat(count(tables.rerdTfinDs(), "TARE_FILE_NO LIKE 'DMY-MEET-%' AND CRT_USR_ID = 'dmyadm'")).isEqualTo(3);
@@ -190,7 +190,15 @@ class DummyDataServiceTest {
         assertThat(keys(g, DummyDataType.MEET)).allMatch(k -> k.startsWith("DMY-MEET-" + DummyKeys.ymd8(D) + "-"));
         assertThat(keys(g, DummyDataType.IMAGE)).allMatch(k -> k.startsWith("DMYIMG" + DummyKeys.ymd6(D)));
         assertThat(dirs.xvarmOriginalDir(VoiceKind.MEET).resolve(DummyKeys.meetFileName(DummyTarget.DASHBOARD, D, 1, null))).isRegularFile();
-        assertThat(imageSim.originalDir().resolve(DummyKeys.imageCorrNo(DummyTarget.DASHBOARD, D, 1, null) + "_2.jpg.enc")).isRegularFile();
+        // 사진 평문 정책(image.decrypt=SKIP · 기본) — 복호화 REAL 이라 음성은 암호화돼도 사진은 평문 .jpg · 메타 'N'
+        Path photo = imageSim.originalDir().resolve(DummyKeys.imageCorrNo(DummyTarget.DASHBOARD, D, 1, null) + "_2.jpg");
+        assertThat(photo).isRegularFile();
+        assertThat(imageSim.originalDir().resolve(DummyKeys.imageCorrNo(DummyTarget.DASHBOARD, D, 1, null) + "_2.jpg.enc")).doesNotExist();
+        assertThat(java.util.Arrays.copyOf(Files.readAllBytes(photo), 3)).as("복호화 없이 JPEG 매직 넘버")
+                .containsExactly((byte) 0xFF, (byte) 0xD8, (byte) 0xFF);
+        assertThat(count(tables.smsmCmfiBs(), "CMMN_FILE_ID LIKE 'DMYIMGF%' AND CMMN_FILE_ENC_YN = 'N'")).as("사진 메타 'N'").isEqualTo(6);
+        assertThat(count(tables.smsmCmfiBs(), "CMMN_FILE_ID LIKE 'DMYCMFI%' AND CMMN_FILE_ENC_YN = 'Y'")).as("접견 음성은 그대로 암호화 'Y'")
+                .isEqualTo(3);
 
         Map<String, Object> s = dummy.generate(req(DummyTarget.SIMULATOR, null, D, 2, Map.of()));
         assertThat(s.get("crtUsrId")).isEqualTo("simadm");

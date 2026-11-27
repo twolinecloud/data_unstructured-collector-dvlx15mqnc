@@ -536,7 +536,7 @@
     <div>
       <h4 class="mb-0">비정형 데이터 수집기 (Unstructured Collector) 시뮬레이터</h4>
       <div class="text-secondary small">음성(접견·통화) → [수집 COLLECT: 조회·확보·복호화] → [정제/분석 ANALYZE: STT] → [적재/전송 SEND: 에이전트 커넥터 → 제논] · 로그 컬렉터 T1·T2·T4
-        &nbsp;|&nbsp; 수용자 사진 → FILEKEY 추출 → 복호화 → 저장 → Admin DB 매핑</div>
+        &nbsp;|&nbsp; 수용자 사진 → FILEKEY 추출 → 이미지 확인(복호화 안 함 · 사진 평문) → 저장 → Admin DB 매핑</div>
       <div id="health-bar" class="mt-1">
         <span class="hb wait"><span class="dot"></span>조회 중…</span>
       </div>
@@ -1759,7 +1759,7 @@
       </div>
       <div class="row mb-2"><div class="col-12"><div class="pf-help" id="im-est"></div></div></div>
       <div class="row mb-2"><div class="col-12 pf-help">건수만큼 수용자를 만들고 수용자마다 사진 2장(순번 1·2)과 사진이 아닌 이미지 1장(구분 2)을 둡니다 —
-        파이프라인이 <b>순번 2</b>를 골라야 정합성이 맞습니다. 더미 사진은 접견과 같은 RVS 키로 암호화되어 있고, 저장된 사진을 원문 해시와 대조해 복호화가 정확했는지 봅니다.
+        파이프라인이 <b>순번 2</b>를 골라야 정합성이 맞습니다. 더미 사진은 평문입니다(사진 평문 정책 · 복호화 안 함 — 음성만 암호화) — 저장된 사진을 원문 해시와 대조해 받은 그대로 저장됐는지 봅니다.
         가상 지연은 건마다 <b>실제로</b> 기다립니다(워커가 나눠 기다립니다). 매핑은 수용자당 한 행 UPSERT 라 몇 번 다시 돌려도 키 중복 오류가 나지 않아야 합니다.</div></div>
       <div class="im-actions mb-2">
         <button class="btn btn-dark fw-semibold px-3" id="im-start" title="남아 있는 SIM 을 지우고 건수만큼 새로 만든 뒤 처리합니다">초기화 후 신규 실행</button>

@@ -42,11 +42,11 @@ import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
- * <b>수용자 이미지 수집</b> — 보라미 조회 → FILEKEY 추출 → 브로커 수신 → 복호화(접견과 같은 모듈) → 저장 → Admin DB 매핑.
+ * <b>수용자 이미지 수집</b> — 보라미 조회 → FILEKEY 추출 → 브로커 수신 → 이미지 확인(복호화는 기본 생략 · {@code image.decrypt}) → 저장 → Admin DB 매핑.
  *
  * <ol>
  *   <li>최신 이미지 조회 · FILEKEY 추출 — {@link ImageSourceService}(페이지 단위, 배치 앞에서 한 번)</li>
- *   <li>건마다(워커 N개) — 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기 → 복호화 → 저장 → 매핑</li>
+ *   <li>건마다(워커 N개) — 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기 → 확인(복호화 기본 생략) → 저장 → 매핑</li>
  * </ol>
  *
  * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·FILEKEY 가 같고 저장
@@ -654,7 +654,7 @@ public class ImageCollectService {
     }
 
     /**
-     * 한 건 — 받기 → (가상 지연) → 복호화 → 저장 → 매핑. 예외(Error 포함)를 밖으로 던지지 않는다.
+     * 한 건 — 받기 → (가상 지연) → 이미지 확인(복호화는 기본 생략) → 저장 → 매핑. 예외(Error 포함)를 밖으로 던지지 않는다.
      *
      * @param injectAt 의도적 실패(주입) 단계 — 그 단계의 일을 한 뒤 실패시킨다(매핑은 커밋 전 롤백). 보통 null
      */
@@ -716,20 +716,30 @@ public class ImageCollectService {
                 m.add(ImageStage.VIRTUAL, s);
             }
 
-            // ── 복호화 ──
+            // ── 이미지 확인 · 복호화(기본 생략 — 사진 평문 정책 image.decrypt=SKIP) ──
             step = ImageStage.DECRYPT;
             s = ImageMetrics.start();
             byte[] cipher = Files.readAllBytes(received);
+            String skip = store.skipReason(t);
             byte[] plain = store.decrypt(t, cipher);
             if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.ANALYZE_FAIL, t.corrNo())) {
-                throw new IllegalStateException("복호화 결과가 이미지가 아닙니다 — 매직 넘버 불일치 [더미 시나리오 ANALYZE_FAIL · 1회]");
+                throw new IllegalStateException("받은 사진이 이미지가 아닙니다 — 매직 넘버 불일치 [더미 시나리오 ANALYZE_FAIL · 1회]");
             }
             m.add(ImageStage.DECRYPT, s);
             if (sample) {
-                trace.add(ImageTrace.Step.RECEIVE, "복호화 — 접견과 같은 RVS 키(AES/CBC) · 결과가 이미지인지 매직 넘버로 확인", "CODE",
-                        "MediaDecryptor.decrypt(" + slash(received) + ")  // CMMN_FILE_ENC_YN=" + (t.encrypted() ? "Y" : "N"),
-                        "입력 " + cipher.length + " bytes → 출력 " + plain.length + " bytes · 시작 바이트 " + hex(plain, 4)
-                                + " → " + String.valueOf(egovframework.unstructured.collector.image.model.ImageFormat.detect(plain)));
+                String fmt = String.valueOf(egovframework.unstructured.collector.image.model.ImageFormat.detect(plain));
+                if (skip == null) {
+                    trace.add(ImageTrace.Step.RECEIVE, "복호화 — 접견과 같은 RVS 키(AES/CBC) · 결과가 이미지인지 매직 넘버로 확인", "CODE",
+                            "MediaDecryptor.decrypt(" + slash(received) + ")  // image.decrypt=ENC_YN · CMMN_FILE_ENC_YN=Y",
+                            "입력 " + cipher.length + " bytes → 출력 " + plain.length + " bytes · 시작 바이트 " + hex(plain, 4)
+                                    + " → " + fmt);
+                } else {
+                    trace.add(ImageTrace.Step.RECEIVE, "복호화 생략 — 받은 그대로 저장(" + skip + ") · 이미지인지 매직 넘버로만 확인",
+                            "CODE",
+                            "ImageFormat.detect(" + slash(received) + ")  // 복호화 안 함 · CMMN_FILE_ENC_YN=" + (t.encrypted() ? "Y" : "N"),
+                            "입력 " + cipher.length + " bytes → 그대로 " + plain.length + " bytes · 시작 바이트 " + hex(plain, 4)
+                                    + " → " + fmt);
+                }
             }
             injectIf(injectAt, ImageStage.DECRYPT);
 

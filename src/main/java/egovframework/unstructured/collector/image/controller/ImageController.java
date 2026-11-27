@@ -30,11 +30,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 수용자 이미지 수집 API — 보라미 최신 사진을 받아 복호화·저장하고 Admin DB 에 매핑한다.
+ * 수용자 이미지 수집 API — 보라미 최신 사진을 받아(복호화는 기본 생략 · 사진 평문 정책) 저장하고 Admin DB 에 매핑한다.
  */
 @Tag(name = "2. 수용자 이미지 수집",
         description = "보라미 TB_IRIM_BSIF_DS(사진) → TB_SMSM_CMFI_BS(DOC_ID) → ASYSCONTENTELEMENT(FILEKEY) → 브로커 수신 → "
-                + "접견과 같은 복호화 → Target 저장 → Admin DB TB_SRC_INMATE_PHOTO 매핑")
+                + "이미지 확인(복호화 기본 생략 · image.decrypt=SKIP) → Target 저장 → Admin DB TB_SRC_INMATE_PHOTO 매핑")
 @RestController
 @RequestMapping(value = "/api/v1/image", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
@@ -62,6 +62,7 @@ public class ImageController {
         m.put("tables", source.tables());
         m.put("broker", broker.mode());
         m.put("decrypt", modes.decrypt().name());
+        m.put("imageDecrypt", props.decrypt().name() + (store.photosEncrypted() ? " · 원천 암호화 표시 건만 복호화" : " · 복호화 안 함"));
         m.put("outputRoot", store.outputRoot().toString().replace('\\', '/'));
         m.put("workers", props.workers());
         m.put("updatePhotoRef", props.updatePhotoRef());

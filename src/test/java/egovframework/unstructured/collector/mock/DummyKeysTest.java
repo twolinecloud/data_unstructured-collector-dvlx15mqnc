@@ -96,6 +96,7 @@ class DummyKeysTest {
         assertThat(DummyKeys.dashboardDateOf("meet-DMY-MEET-20261001-SF-0003")).contains(D);
         assertThat(DummyKeys.dashboardDateOf("decrypted_dmy_phone_20261001_0003.wav")).contains(D);
         assertThat(DummyKeys.dashboardDateOf("DMYIMG2610010003_2.jpg.enc")).contains(D);
+        assertThat(DummyKeys.dashboardDateOf("DMYIMG2610010003_2.jpg")).as("사진 평문 정책 — 평문 .jpg 도 같은 날짜").contains(D);
         assertThat(DummyKeys.dashboardDateOf("mock_meet_001.m4a")).isEmpty();
     }
 

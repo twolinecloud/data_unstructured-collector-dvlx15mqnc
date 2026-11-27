@@ -411,6 +411,9 @@ image:
   #   ⚠ 정형 수집기 '현재 수용자'(현원)는 Y,I 다 — C 를 넣어 정의가 다르다(정문출소 당일 사진까지 받으려고)
   active-status-codes: ${IMAGE_ACTIVE_STATUS_CODES:Y,I,C}
   update-photo-ref: ${IMAGE_UPDATE_PHOTO_REF:false}   # 매핑과 함께 TB_SRC_INMATE_BS.PHOTO_REF 도 갱신(기본 끔 — 정형 수집기와 순서 꼬임)
+  # 사진 복호화 — SKIP(기본 · 11-27 정책: 사진은 평문으로 받는다 · 복호화 안 하고 이미지인지만 확인 · 더미 사진도 평문 'N')
+  #   | ENC_YN(예전: voice.decrypt.mode=REAL 이고 CMMN_FILE_ENC_YN 이 암호화면 RVS 키로 복호화). 음성 복호화와 따로 논다
+  decrypt: ${IMAGE_DECRYPT:SKIP}
   # Admin DB — 매핑 테이블 kcais.TB_SRC_INMATE_PHOTO. 기본은 로컬 H2(테이블 자동 생성).
   #   개발계·운영 PostgreSQL 은 DDL(db/admin/V1__tb_src_inmate_photo.sql)을 관리자가 먼저 적용한다.
   #   풀은 스프링 빈이 아니다(보라미 DataSource 자동 구성과 섞이지 않게) — AdminDb 참고.

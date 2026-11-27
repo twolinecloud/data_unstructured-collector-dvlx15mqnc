@@ -66,7 +66,7 @@ class ImageSourceTestFilterTest {
         for (int i = 0; i < kv.length; i += 2) {
             env.put(kv[i], kv[i + 1]);
         }
-        ImageProperties props = new ImageProperties("1", "", 4, 2000, List.of("Y", "I", "C"), false, null, "IMAGE_COLLECT");
+        ImageProperties props = new ImageProperties("1", "", 4, 2000, List.of("Y", "I", "C"), false, null, "IMAGE_COLLECT", ImageProperties.Decrypt.SKIP);
         return new ImageSourceService(jdbc, tables, mock(VoiceProperties.class), props, mock(ImageTrace.class),
                 SourceTestFilter.parse(env, NOW));
     }

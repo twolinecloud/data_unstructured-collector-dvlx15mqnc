@@ -585,7 +585,7 @@ public class ImagePerfService {
         }
         item(items, "latest", latest == rows.size(), "최신 순번(2) 선택 %d/%d".formatted(latest, rows.size()));
         item(items, "files", exist == rows.size(), "저장 파일 %d/%d".formatted(exist, rows.size()));
-        item(items, "plain", plainOk == plain.size(), "원문 일치(복호화) %d/%d".formatted(plainOk, plain.size()));
+        item(items, "plain", plainOk == plain.size(), "원문 일치(저장 = 원본) %d/%d".formatted(plainOk, plain.size()));
         item(items, "dupKey", r.dupKeyFail() == 0, "PK 중복 오류 %d건".formatted(r.dupKeyFail()));
         item(items, "pool", returned, returned ? "커넥션 풀 반납 완료 (사용 0 · 대기 0)" : "커넥션 풀 반납 안 됨");
 
@@ -615,10 +615,10 @@ public class ImagePerfService {
         trace.add(V, "저장 사진 — PV 의 이미지 폴더(수용자별 하위 폴더)", "SHELL",
                 "find " + root + " -type f -name '" + prefix + "*' | wc -l",
                 exist + "   # 매핑 " + mapped + "행 중 파일이 있는 것");
-        trace.add(V, "수신 폴더 잔여물 — 받은 암호문(img_{수용자}_{순번}.bin)은 처리 뒤 지운다", "SHELL",
+        trace.add(V, "수신 폴더 잔여물 — 받은 파일(img_{수용자}_{순번}.bin)은 처리 뒤 지운다", "SHELL",
                 "ls " + dirs.receiveMeet().replace('\\', '/') + " | grep -c '^" + RECEIVED_PREFIX + "'",
                 String.valueOf(countReceived()));
-        trace.add(V, "원문 일치 — 저장 사진의 SHA-256 = SIM 원본(복호화 전) 해시", "CODE",
+        trace.add(V, "원문 일치 — 저장 사진의 SHA-256 = SIM 원본(평문) 해시", "CODE",
                 "sha256sum " + root + "/<수용자>/<파일>   # 시뮬레이터가 만든 원문 해시와 대조",
                 plainOk + "/" + plainChecked + " 일치");
         trace.add(V, "커넥션 풀 반납 — 끝난 뒤 사용 0 · 대기 0", "CODE",

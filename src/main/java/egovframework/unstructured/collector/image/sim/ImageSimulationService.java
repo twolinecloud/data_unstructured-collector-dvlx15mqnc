@@ -3,7 +3,6 @@ package egovframework.unstructured.collector.image.sim;
 import egovframework.unstructured.collector.common.config.BoramiTableNames;
 import egovframework.unstructured.collector.common.config.DbKindDetector;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
-import egovframework.unstructured.collector.common.config.VoiceModeState;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.decrypt.MediaDecryptor;
 import egovframework.unstructured.collector.common.util.SampleImage;
@@ -33,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
- * 수용자 이미지 <b>시뮬레이션 데이터</b> — 보라미 3테이블 행 + XVARM 원본 스토리지의 암호화된 더미 사진.
+ * 수용자 이미지 <b>시뮬레이션 데이터</b> — 보라미 3테이블 행 + XVARM 원본 스토리지의 더미 사진(기본 평문).
  *
  * <p>개발계 보라미 DB 에는 사진 원장({@code ir.tb_irim_bsif_ds})은 있지만 공통파일기본이 비어 있어 FILEKEY 까지
  * 이어지지 않는다(2026-09-29 확인 — 사진 있는 수용자 972명 중 공통파일 매칭 0). 그래서 음성과 같은 방식으로
@@ -47,9 +46,10 @@ import java.util.stream.Stream;
  * 파이프라인은 <b>순번 2</b>를 골라야 한다(구분이 '1' 인 것 중 최대). 순번 3 을 고르면 구분 필터가, 1 을 고르면
  * 최신 선택이 틀린 것이다 — 검증이 매핑된 순번으로 이것을 본다.</p>
  *
- * <p>더미 사진은 복호화가 REAL 이면 접견과 같은 RVS 키로 실제로 암호화해 둔다. 원문 해시를 기억해 두었다가
- * 저장된 사진과 비교한다 — 복호화가 정확했는지의 근거다. 더미 원문은 교정번호로 정해지므로(같은 교정번호 → 같은
- * 그림) 수집기가 다시 떠 해시를 잊었어도 다시 만들어 비교한다.</p>
+ * <p>더미 사진은 <b>평문</b>이다(사진 평문 정책 {@code image.decrypt=SKIP} · 메타 'N' · 이름 {@code .jpg}). 예전 동작
+ * ({@code image.decrypt=ENC_YN})에 복호화가 REAL 일 때만 접견과 같은 RVS 키로 실제로 암호화해 둔다. 원문 해시를 기억해
+ * 두었다가 저장된 사진과 비교한다 — 받은 그대로(또는 정확히 복호화해) 저장했는지의 근거다. 더미 원문은 교정번호로
+ * 정해지므로(같은 교정번호 → 같은 그림) 수집기가 다시 떠 해시를 잊었어도 다시 만들어 비교한다.</p>
  */
 @Log4j2
 @Service
@@ -68,7 +68,6 @@ public class ImageSimulationService {
     private final BoramiTableNames tables;
     private final DbKindDetector db;
     private final VoiceDirState dirs;
-    private final VoiceModeState modeState;
     private final VoiceProperties props;
     private final SimulationDataService voiceSim;
     private final InmatePhotoRepository photos;
@@ -99,8 +98,9 @@ public class ImageSimulationService {
         String ensured = voiceSim.ensureXvarmMockTables();   // 개발계 MOCK_DEV — 공통파일기본·XVARM 테이블이 없으면 만든다
         Timestamp now = Timestamp.valueOf(LocalDateTime.now().withNano(0));
         Path dir = originalDir();
-        // 복호화가 REAL 이면 접견과 같은 키로 암호화한다 — 키를 못 읽으면 평문으로 두고 메타도 'N' 으로 맞춘다
-        MediaDecryptor enc = modeState.decrypt() == VoiceProperties.DecryptMode.REAL ? encryptor() : null;
+        // 사진 평문 정책(image.decrypt=SKIP · 기본)이면 평문 · 메타 'N' · 이름 .jpg. 예전 동작(ENC_YN)에 복호화 REAL 일 때만
+        //   접견과 같은 키로 암호화한다 — 키를 못 읽으면 평문으로 두고 메타도 'N' 으로 맞춘다
+        MediaDecryptor enc = store.photosEncrypted() ? encryptor() : null;
 
         List<Object[]> images = new ArrayList<>();
         List<Object[]> cmfi = new ArrayList<>();
@@ -113,7 +113,7 @@ public class ImageSimulationService {
                 images.add(new Object[] {corr, sn, sn == 3 ? "2" : "1", fid, now, USR, now, USR});
                 if (sn <= 2) {
                     String doc = DOC_PREFIX + "%05d%d".formatted(i, sn);
-                    Path file = dir.resolve(corr + "_" + sn + ".jpg.enc");
+                    Path file = dir.resolve(corr + "_" + sn + (enc != null ? ".jpg.enc" : ".jpg"));
                     cmfi.add(new Object[] {fid, doc, corr + "_" + sn + ".jpg", "01", "A", now, "Y", enc != null ? "Y" : "N", "N",
                             now, USR, now, USR});
                     xvarm.add(new Object[] {doc, slash(file)});

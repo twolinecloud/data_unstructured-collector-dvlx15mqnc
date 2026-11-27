@@ -33,8 +33,22 @@ public record ImageProperties(
          */
         @DefaultValue("false") boolean updatePhotoRef,
         @DefaultValue AdminDb adminDb,
-        @DefaultValue("IMAGE_COLLECT") String jobId
+        @DefaultValue("IMAGE_COLLECT") String jobId,
+        /**
+         * 사진 복호화 — {@code SKIP}(기본 · 2026-11-27 정책: 사진은 평문으로 받는다 · 복호화하지 않고 이미지인지(매직 넘버)만
+         * 본다) | {@code ENC_YN}(예전 동작: 복호화 모드 {@code voice.decrypt.mode} 가 REAL 이고 공통파일기본
+         * {@code CMMN_FILE_ENC_YN} 이 암호화면 접견과 같은 RVS 키로 푼다). 접견·전화 음성 복호화와는 따로 논다
+         */
+        @DefaultValue("SKIP") Decrypt decrypt
 ) {
+
+    /** 사진 복호화 정책 — {@link ImageProperties#decrypt()}. */
+    public enum Decrypt {
+        /** 복호화하지 않는다(사진 평문 정책) — 받은 바이트를 그대로 저장하고 이미지인지만 확인한다 */
+        SKIP,
+        /** 예전 동작 — 복호화 모드 REAL 이고 원천이 암호화로 표시된 건만 푼다 */
+        ENC_YN
+    }
 
     /**
      * Admin DB(교정 AI 플랫폼 DB · 스키마 {@code kcais}).

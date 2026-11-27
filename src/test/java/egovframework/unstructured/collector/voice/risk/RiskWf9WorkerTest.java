@@ -1,6 +1,5 @@
 package egovframework.unstructured.collector.voice.risk;
 
-import egovframework.unstructured.collector.voice.stt.genon.AudioSampleGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,7 +26,6 @@ class RiskWf9WorkerTest {
     Path tmp;
 
     private Path root;
-    private Path audio;
     private final Wf9TestSupport.MutableClock clock = new Wf9TestSupport.MutableClock(Instant.parse("2026-11-16T03:00:00Z"));
     private final AtomicReference<String> blocked = new AtomicReference<>();
     private final AtomicBoolean batchRunning = new AtomicBoolean();
@@ -38,12 +36,11 @@ class RiskWf9WorkerTest {
     @BeforeEach
     void setUp() throws Exception {
         root = tmp.resolve("spool");
-        audio = Files.write(tmp.resolve("a.wav"), AudioSampleGenerator.sineWav(1, 8000, 440));
     }
 
     private RiskWf9Worker worker(Wf9TestSupport.Props p) {
         RiskWf9Properties props = p.build();
-        spool = new Wf9Spool(props, () -> root, Wf9TestSupport.genon(), () -> null, clock);
+        spool = new Wf9Spool(props, () -> root, () -> null, clock);
         return new RiskWf9Worker(props, spool, blocked::get, (job, file) -> {
             ran.add(job.recFileId());
             assertThat(file).exists();
@@ -53,11 +50,11 @@ class RiskWf9WorkerTest {
     }
 
     private static RiskWf9Pipeline.Outcome ok() {
-        return new RiskWf9Pipeline.Outcome(1, 0, 1, 0, 2, 10, true);
+        return new RiskWf9Pipeline.Outcome(1, 0, 1, 0, 10, true);
     }
 
     private void put(String recFileId) {
-        assertThat(spool.offer("E1", meet(recFileId), audio, false)).isTrue();
+        assertThat(spool.offer("E1", meet(recFileId), Wf9TestSupport.masked(), Wf9Spool.DEIDENT_MODE, false)).isTrue();
     }
 
     private Wf9Job only() throws Exception {
@@ -67,7 +64,7 @@ class RiskWf9WorkerTest {
     }
 
     @Test
-    @DisplayName("성공 → 스풀 삭제(음성 사본 포함)")
+    @DisplayName("성공 → 스풀 삭제(가린 문서 포함)")
     void success() throws Exception {
         RiskWf9Worker w = worker(new Wf9TestSupport.Props());
         put("R1");
@@ -85,7 +82,7 @@ class RiskWf9WorkerTest {
         RiskWf9Worker w = worker(new Wf9TestSupport.Props());
         put("R1");
         script.add(() -> {
-            throw Wf9Failure.permanent(Wf9Failure.Stage.DEID, "커넥터 비식별 HTTP 422 DEID_RESIDUAL_PII");
+            throw Wf9Failure.permanent(Wf9Failure.Stage.INPUT, "WF9 입력 규격 위반 — speech_results[0].segments[0].speaker INMATE · OTHER · UNKNOWN 이 아니다");
         });
 
         RiskWf9Worker.Report r = w.drain();

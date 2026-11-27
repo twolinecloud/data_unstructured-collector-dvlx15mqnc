@@ -19,15 +19,15 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
- * WF9 작업자 — <b>하나</b>. 음성 배치가 돌지 않을 때만 스풀을 오래된 것부터 비운다(제논 키 '동시 1건'을 배치 STT 에 양보).
+ * WF9 작업자 — <b>하나</b>. 음성 배치가 돌지 않을 때만 스풀을 오래된 것부터 비운다(배치가 쓰는 커넥터 · 로그 컬렉터에 양보).
  *
  * <ul>
  *   <li>전용 스레드에서 돈다 — 공용 스케줄러(배치 트리거가 쓰는 스레드)를 붙잡지 않는다</li>
- *   <li>건마다 배치가 시작했는지 다시 본다. 이미 보낸 제논 호출은 공정 세마포어 차례대로 끝난다</li>
- *   <li>성공 → 스풀 삭제(음성 사본 포함) · 다시 해도 같은 실패(400 · 422 · 사전 검증) → 바로 포기 ·
+ *   <li>건마다 배치가 시작했는지 다시 본다</li>
+ *   <li>성공 → 스풀 삭제(가린 문서 포함) · 다시 해도 같은 실패(400 · 422 · 입력 규격 위반) → 바로 포기 ·
  *       그 밖의 실패 → {@code retry-base-sec} 부터 두 배씩 기다려 {@code max-retries} 번까지 · 넣은 지 {@code max-age-hours} 가
  *       지나면 포기. 포기하면 사본을 지우고 ERROR 로그</li>
- *   <li>끝까지 갈 수 없는 설정이면(커넥터 MOCK · 로그 컬렉터 미연동 · 포털 계정 없음) 돌지 않는다 — 재시도를 태우지 않고,
+ *   <li>끝까지 갈 수 없는 설정이면(로그 컬렉터 미연동 · AuthKey 없음) 돌지 않는다 — 재시도를 태우지 않고,
  *       기한이 지난 사본만 지운다</li>
  * </ul>
  */
@@ -37,7 +37,7 @@ public class RiskWf9Worker {
 
     /** 한 건 처리 — 시험이 바꿔 끼운다. */
     interface Runner {
-        RiskWf9Pipeline.Outcome run(Wf9Job job, Path audio);
+        RiskWf9Pipeline.Outcome run(Wf9Job job, Path doc);
     }
 
     /** 한 번 순회한 결과. */
@@ -166,7 +166,7 @@ public class RiskWf9Worker {
             Wf9Job job = e.job();
             if (job == null) {
                 spool.delete(e);
-                log.error("[WF9] 포기 — {} · 작업 정보 · 음성 사본을 읽지 못함 · 폴더 지움", e.dir().getFileName());
+                log.error("[WF9] 포기 — {} · 작업 정보 · 가린 문서를 읽지 못함(예전 음성 사본 작업 포함) · 폴더 지움", e.dir().getFileName());
                 gaveUp++;
                 continue;
             }
@@ -203,11 +203,11 @@ public class RiskWf9Worker {
     private int processOne(Wf9Spool.Entry e) {
         Wf9Job job = e.job();
         try {
-            RiskWf9Pipeline.Outcome o = runner.run(job, e.dir().resolve(job.audioFile()));
+            RiskWf9Pipeline.Outcome o = runner.run(job, e.dir().resolve(job.docFile()));
             spool.delete(e);
-            log.info("[WF9] 완료 — {} · 발견 {} · 검토 {} · 적재 {}행{} · 토큰 {} · {}ms{} · 음성 사본 지움", job.shortId(),
+            log.info("[WF9] 완료 — {} · 발견 {} · 검토 {} · 적재 {}행{} · {}ms{} · 가린 문서 지움", job.shortId(),
                     o.findings(), o.reviews(), o.inserted(), o.skipped() > 0 ? " · 빈 내용 " + o.skipped() + "개 뺌" : "",
-                    o.tokens(), o.elapsedMs(), o.purgeMarked() ? " · T1 폐기 완료" : "");
+                    o.elapsedMs(), o.purgeMarked() ? " · T1 폐기 완료" : "");
             return 1;
         } catch (Wf9Failure f) {
             if (stopping) {
@@ -247,7 +247,7 @@ public class RiskWf9Worker {
 
     private void giveUp(Wf9Spool.Entry e, String why) {
         spool.delete(e);
-        log.error("[WF9] 포기 — {} · {} · 음성 사본 지움", e.job().shortId(), why);
+        log.error("[WF9] 포기 — {} · {} · 가린 문서 지움", e.job().shortId(), why);
     }
 
     /** 하루(KST) 상한 — 0 이면 없음. */

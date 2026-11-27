@@ -1190,7 +1190,7 @@ public class VoiceCollectService {
                     st.fileSize = st.acquired.sizeBytes();
                 } else {
                     st.stt = reused;   // 보라미가 이미 가진 STT(계획서 Q1) — 오디오를 만질 필요가 없다
-                    wf9Spool.noteNoAudio(target, ctx.testRun);   // 그래서 WF9(음성에서 시작)에서는 빠진다
+                    //   WF9 는 이제 가린 전사로 간다(2026-11-27) — 이 건도 DEIDENT 를 지나면 스풀에 들어간다
                 }
             }
         } catch (Exception e) {
@@ -1242,10 +1242,8 @@ public class VoiceCollectService {
             }
             if (plain != null) {
                 readyAudio = plain.path();
-                // WF9(접견·전화 위험 신호) — 음성 사본만 스풀에 넣고 바로 다음 단계로. 예외를 던지지 않는다(배치 결과에 영향 없음).
-                //   T1~T5 는 건드리지 않는다(1116 과제 3 · D7 — 예외: 제논 실호출 정상 응답 뒤 이 배치 T1 폐기 상태만 폐기 완료로 · PL 합의 11-20).
-                //   꺼져 있으면(기본) 아무 일도 하지 않는다
-                wf9Spool.offer(ctx.execId, target, plain.path(), ctx.testRun);
+                // WF9 는 여기서 음성을 받지 않는다(2026-11-27) — 원본 음성을 외부망 제논 전처리로 보내던 길을 걷어냈다.
+                //   비식별(DEIDENT) 직후 가린 전사로 스풀에 넣는다(아래)
             }
             long tCollected = System.currentTimeMillis();
             ctx.addCollect(tCollected - t0);
@@ -1302,6 +1300,11 @@ public class VoiceCollectService {
                 egovframework.unstructured.collector.voice.transfer.VoiceDeidentClient.Result d =
                         voiceDeident.deident(ctx.execId, target, pid, stt);
                 stt = stt.withDeidentified(d.text(), d.segments());
+                // WF9(접견·전화 위험 신호) — 가린 전사(전문 · 구간)로 만든 문서만 스풀에 넣고 바로 다음 단계로. 예외를 던지지 않는다.
+                //   커넥터가 실제로 비식별(마스킹)한 건(mode=DEIDENT)만 넣는다 — MOCK · BYPASS 는 원문이라 넣지 않는다.
+                //   토큰화하지 않는다(되돌릴 사전 없음). T1~T5 는 건드리지 않는다(1116 과제 3 · D7 — 예외: 제논 실호출 정상 응답 뒤
+                //   이 배치 T1 폐기 상태만 폐기 완료로 · PL 합의 11-20). 꺼져 있으면(기본) 아무 일도 하지 않는다
+                wf9Spool.offer(ctx.execId, target, stt, d.mode(), ctx.testRun);
                 tDeidented = System.currentTimeMillis();
                 ctx.addDeident(tDeidented - tAnalyzed);
             }

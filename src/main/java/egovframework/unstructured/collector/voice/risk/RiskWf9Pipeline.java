@@ -3,24 +3,26 @@ package egovframework.unstructured.collector.voice.risk;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
-import egovframework.unstructured.collector.voice.stt.genon.AudioValidationException;
-import egovframework.unstructured.collector.voice.stt.genon.GenonCall;
-import egovframework.unstructured.collector.voice.stt.genon.GenonSttClient;
-import egovframework.unstructured.collector.voice.stt.genon.GenonSttException;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
- * WF9 작업 한 건 — ① 제논 전처리 → ② 커넥터 비식별 → ③ 입력 규격 검사 → ④ 제논 WF9(Code Serving) → ⑤ 파싱 · 행 변환 → ⑥ 로그 컬렉터 통째 교체.
+ * WF9 작업 한 건 — ① 가린 문서 읽기 → ② 입력 규격 검사 → ③ 제논 WF9(Code Serving) → ④ 파싱 · 행 변환 → ⑤ 로그 컬렉터 통째 교체.
  *
- * <p>음성 · 전사 · 가린 문서 · 사전 · WF9 답 · 되돌린 내용은 <b>이 호출의 메모리에만</b> 있다(로그 · 디스크에 남기지 않는다).
- * 다시 하면 ①부터 다시 한다 — 사전을 디스크에 두지 않기 위해서다(D6).</p>
+ * <p><b>2026-11-27 텍스트 전용 전환</b> — 예전 ① 제논 음성 전처리({@code audio/process} · 원본 음성 multipart)와
+ * ② 커넥터 {@code /api/v1/deid/speech-results}(토큰화 + 토큰→원문 사전)를 걷어냈다. 원본 음성이 외부망으로 나가지 않는다.
+ * 문서는 배치가 전사 비식별 직후 스풀에 넣은 것({@link Wf9TextDocument})이고, 그 글은 본 배치 DEIDENT 단계에서
+ * <b>비식별(마스킹)만</b> 했다 — 토큰화하지 않으므로 되돌릴 사전이 없고, WF9 결과의 '내용'(SIGNAL_CN)도 가린 그대로 적재한다.</p>
  *
- * <p><b>T1 폐기 상태</b> — ① · ④ 의 제논 엔드포인트는 받은 것을 저장하지 않는다(비저장). 그래서 폐기 신호(콜백)가 오지 않으므로
+ * <p>가린 문서 · WF9 답은 <b>이 호출의 메모리에만</b> 있다(로그에 남기지 않는다). 가린 문서는 스풀에 있다가 성공 · 포기 때 지운다.</p>
+ *
+ * <p><b>T1 폐기 상태</b> — ③ 의 제논 엔드포인트는 받은 것을 저장하지 않는다(비저장). 그래서 폐기 신호(콜백)가 오지 않으므로
  * 제논 실호출(REST)이 정상 응답을 줄 때마다 바로 그 배치(T1 · {@link Wf9Job#execId()})의 {@code PURGE_STS_CD} 를
  * 폐기 완료({@link LogCollectorClient#PURGE_SUCCESS})로, {@code PURGE_DTM} 을 응답 시각으로 적는다(PL 합의 2026-11-20 ·
  * 11-23 에 걷어냈다가 11-26 설계서 복원으로 되살림). 배치 상태 · T2~T5 는 그대로다. MOCK 은 제논에 보낸 것이 없어 적지 않는다.
@@ -35,20 +37,15 @@ public class RiskWf9Pipeline {
      *
      * @param purgeMarked T1 폐기 완료를 적었는지(제논 실호출 정상 응답 뒤 · 로그 컬렉터가 받았을 때). MOCK 이면 false
      */
-    public record Outcome(int findings, int reviews, int inserted, int skipped, int tokens, long elapsedMs,
-                          boolean purgeMarked) {}
+    public record Outcome(int findings, int reviews, int inserted, int skipped, long elapsedMs, boolean purgeMarked) {}
 
-    private final GenonSttClient genon;
-    private final SpeechResultsDeidClient deid;
     private final GenonPortalClient portal;
     private final LogCollectorClient logCollector;
     private final RiskWf9Properties props;
     private final ObjectMapper om;
 
-    public RiskWf9Pipeline(GenonSttClient genon, SpeechResultsDeidClient deid, GenonPortalClient portal,
-                           LogCollectorClient logCollector, RiskWf9Properties props, ObjectMapper objectMapper) {
-        this.genon = genon;
-        this.deid = deid;
+    public RiskWf9Pipeline(GenonPortalClient portal, LogCollectorClient logCollector, RiskWf9Properties props,
+                           ObjectMapper objectMapper) {
         this.portal = portal;
         this.logCollector = logCollector;
         this.props = props;
@@ -57,10 +54,6 @@ public class RiskWf9Pipeline {
 
     /** 끝까지 갈 수 없는 까닭 — 갈 수 있으면 null. 막혀 있으면 스풀에 넣지 않고 작업자도 돌지 않는다(재시도를 태우지 않게). */
     public String blocker() {
-        String why = deid.blocker();
-        if (why != null) {
-            return why;
-        }
         if (!logCollector.isEnabled()) {
             return "로그 컬렉터 미연동(log-collector.enabled · base-url)";
         }
@@ -68,22 +61,22 @@ public class RiskWf9Pipeline {
     }
 
     /**
+     * @param doc 스풀의 가린 WF9 입력 문서({@link Wf9Spool#DOC_FILE})
      * @throws Wf9Failure 단계 · 다시 할지
      */
-    public Outcome run(Wf9Job job, Path audio) {
+    public Outcome run(Wf9Job job, Path doc) {
         long t0 = System.currentTimeMillis();
 
-        // ① 제논 음성 전처리 — STT 와 같은 '동시 1건' 차례를 기다린다(GenonSttClient 의 공정 세마포어)
-        GenonCall call = process(job, audio);
-        JsonNode processed = call.body();
-        // 비저장 엔드포인트가 정상 응답 — 제논에 남은 음성이 없다 → 바로 T1 폐기 완료(뒤 단계가 실패해도 이미 보낸 음성은 이것으로 끝)
-        boolean purged = "REST".equals(call.mode()) && markPurged(job, "전처리");
+        // ① 가린 문서 — 배치가 비식별(마스킹)을 마친 전사로 만들었다. 못 읽으면 다시 해도 같다
+        JsonNode document;
+        try {
+            document = om.readTree(Files.readAllBytes(doc));
+        } catch (Exception e) {
+            throw Wf9Failure.permanent(Wf9Failure.Stage.INPUT, "가린 문서를 읽지 못함 — " + e.getClass().getSimpleName());
+        }
 
-        // ② 커넥터 비식별 — 잔존이 있으면 422 로 끊긴다(제논에 보내지 않는다)
-        SpeechResultsDeidClient.Result masked = deid.deidentify(job.recFileId(), job.execId(), processed);
-
-        // ③ 입력 규격 검사 — 위반이면 외부망으로 보내지 않고 포기 · 빠진 값은 가이드 v4 6 · 7장 기본값으로 채운다(경로 · 필드 이름만 로그)
-        Wf9InputGuard.Report guard = Wf9InputGuard.check(masked.document());
+        // ② 입력 규격 검사 — 위반이면 외부망으로 보내지 않고 포기 · 빠진 값은 가이드 v4 6 · 7장 기본값으로 채운다(경로 · 필드 이름만 로그)
+        Wf9InputGuard.Report guard = Wf9InputGuard.check(document);
         if (!guard.filled().isEmpty()) {
             log.info("[WF9] {} — 입력 빈 값 채움 {}", job.shortId(), guard.filled());
         }
@@ -91,21 +84,21 @@ public class RiskWf9Pipeline {
             log.warn("[WF9] {} — 입력 경고 {}(보내기는 한다)", job.shortId(), guard.warnings());
         }
 
-        // ④ 제논 WF9(Code Serving)
+        // ③ 제논 WF9(Code Serving)
         String message;
         try {
-            message = om.writeValueAsString(masked.document());
+            message = om.writeValueAsString(document);
         } catch (Exception e) {
             throw Wf9Failure.permanent(Wf9Failure.Stage.PORTAL, "가린 문서를 글로 바꾸지 못함 — " + e.getClass().getSimpleName());
         }
         String answer = portal.wf9(message);   // HTTP 200 + SSE end 일 때만 돌아온다(그 밖은 Wf9Failure)
-        if (props.portalMode() == RiskWf9Properties.PortalMode.REST) {
-            purged = markPurged(job, "WF9") || purged;   // 가린 문서도 제논에 남지 않는다 — 폐기 일시를 이 응답 시각으로
-        }
+        boolean purged = props.portalMode() == RiskWf9Properties.PortalMode.REST
+                && markPurged(job, "WF9");   // 가린 문서도 제논에 남지 않는다 — 폐기 일시를 이 응답 시각으로
 
-        // ⑤ {findings, reviews} → 행(내용만 되돌린다 · 위험 분류는 받은 값 그대로 — 코드표로는 로그 컬렉터가 맞춘다)
+        // ④ {findings, reviews} → 행. 비식별(마스킹)만 했으므로 되돌릴 사전이 없다 — 내용은 받은 그대로(가린 채)
+        //    위험 분류는 받은 값 그대로 — 코드표로는 로그 컬렉터가 맞춘다
         Wf9Signals.Parsed parsed = Wf9Signals.parse(om, answer);
-        Wf9Signals.Rows rows = Wf9Signals.toRows(parsed, masked.mapping(), props.contentFields(), props.riskClassFields());
+        Wf9Signals.Rows rows = Wf9Signals.toRows(parsed, Map.of(), props.contentFields(), props.riskClassFields());
         if (rows.offSpec() > 0) {
             // 항목 규격(2026-11-20 제논 실응답 기준 — content · risk_type)과 다른 답. 값은 싣지 않고 필드 이름만 — 응답 모양이 바뀌면 설정으로 맞춘다
             log.warn("[WF9] {} — 항목 규격 밖 {}개(약속한 내용 필드 '{}' 없음) · 받은 필드 {} · 맞추려면 voice.risk-wf9.content-fields · risk-class-fields",
@@ -113,7 +106,7 @@ public class RiskWf9Pipeline {
                     rows.offSpecFields());
         }
 
-        // ⑥ 로그 컬렉터 — 녹음 단위 통째 교체(0건이면 지우기만)
+        // ⑤ 로그 컬렉터 — 녹음 단위 통째 교체(0건이면 지우기만)
         int inserted;
         try {
             inserted = logCollector.replaceContactRiskSignals(job.recFileId(), new LogCollectorClient.ContactRiskReplaceReq(
@@ -124,7 +117,7 @@ public class RiskWf9Pipeline {
             throw Wf9Failure.retry(Wf9Failure.Stage.STORE, e.getMessage());
         }
         return new Outcome(parsed.findings().size(), parsed.reviews().size(), inserted, rows.skipped(),
-                masked.mapping().size(), System.currentTimeMillis() - t0, purged);
+                System.currentTimeMillis() - t0, purged);
     }
 
     /**
@@ -139,29 +132,5 @@ public class RiskWf9Pipeline {
                     job.shortId(), what, StringUtils.hasText(job.execId()) ? job.execId() : "없음");
         }
         return ok;
-    }
-
-    private GenonCall process(Wf9Job job, Path audio) {
-        GenonCall call;
-        try {
-            call = genon.processContactAudio(audio.toFile(), null, null, job.contactId(), job.contactType(),
-                    job.occurredLocal().atZone(Wf9Job.KST).toInstant());
-        } catch (AudioValidationException e) {
-            throw Wf9Failure.permanent(Wf9Failure.Stage.PROCESS, "제논 사전 검증 위반 — " + e.check().violationText());
-        } catch (GenonSttException e) {
-            String msg = "제논 전처리 " + e.kind() + (e.httpStatus() > 0 ? " · HTTP " + e.httpStatus() : "")
-                    + (e.errorCode() != null && e.errorCode().matches("[A-Za-z0-9_.:-]{1,40}") ? " · " + e.errorCode() : "");
-            if (e.kind() == GenonSttException.Kind.REJECTED) {
-                throw Wf9Failure.permanent(Wf9Failure.Stage.PROCESS, msg);
-            }
-            throw Wf9Failure.retry(Wf9Failure.Stage.PROCESS, msg);
-        } catch (IllegalArgumentException e) {
-            throw Wf9Failure.permanent(Wf9Failure.Stage.PROCESS, "제논 전처리 필드 오류(contact_id · contact_type · occurred_at)");
-        }
-        JsonNode body = call.body();
-        if (body == null || !body.isObject() || !body.path("input").isObject()) {
-            throw Wf9Failure.retry(Wf9Failure.Stage.PROCESS, "제논 전처리 응답에 input 이 없다");
-        }
-        return call;
     }
 }

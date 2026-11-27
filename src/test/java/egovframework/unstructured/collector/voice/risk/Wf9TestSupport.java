@@ -3,9 +3,9 @@ package egovframework.unstructured.collector.voice.risk;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.sun.net.httpserver.HttpExchange;
+import egovframework.unstructured.collector.common.model.SttResult;
 import egovframework.unstructured.collector.common.model.VoiceKind;
 import egovframework.unstructured.collector.common.model.VoiceTarget;
-import egovframework.unstructured.collector.voice.stt.genon.GenonSttProperties;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,14 +58,15 @@ final class Wf9TestSupport {
         }
     }
 
-    /** 제논 STT 설정 — 기본 한도(20 MiB · 600초). */
-    static GenonSttProperties genon(GenonSttProperties.Mode mode, String baseUrl, long maxBytes, int maxDurationSec) {
-        return new GenonSttProperties(mode, baseUrl, "test-key", "2026-12-11", 10, 5, maxBytes, maxDurationSec, 1, 30, 3,
-                300, 600, 15);
-    }
+    /** 가린(마스킹) 전문 · 구간 — 본 배치 DEIDENT 단계가 돌려주는 꼴. 토큰이 아니라 별표로 가렸다. 내용은 지어낸 것이다. */
+    static final String MASKED_1 = "***이 ***-****-**** 로 연락하래요";
+    static final String MASKED_2 = "다음 주에 면회 갈게요";
 
-    static GenonSttProperties genon() {
-        return genon(GenonSttProperties.Mode.MOCK, "http://127.0.0.1:1", 20_971_520L, 600);
+    /** 구간 둘(0~2초 · 2.5~4초) · 길이 4.2초. */
+    static SttResult masked() {
+        return new SttResult(MASKED_1 + "\n" + MASKED_2, "MOCK", 4.2, false, "ko", List.of(
+                new SttResult.Segment(0, 0.0, 2.0, MASKED_1),
+                new SttResult.Segment(1, 2.5, 4.0, MASKED_2)));
     }
 
     /** 손으로 움직이는 시계. */

@@ -57,6 +57,12 @@ import java.util.regex.Pattern;
  * @param riskClassFields     항목에서 위험 분류(RISK_CLASS_CD)로 쓸 필드 — 앞에 둔 것부터. 첫 이름 {@code risk_type} 이 2026-11-20 실응답
  *                            (한글 이름 · 예 "자살" · "부정물품 수수"). 값은 그대로 넘기고 코드표(대시보드 위험 유형 9종 + SUICIDE_SELF_HARM + ETC)로는
  *                            로그 컬렉터가 맞춘다. 실응답의 {@code type} 은 접촉 구분("접견" · "전화")이라 후보에 넣지 않는다
+ * @param afterSend           그 배치(T1)의 클라우드 전송(T2 SEND)이 SUCCESS 가 된 뒤에만 WF9 를 부른다(기본 true · 2026-11-27).
+ *                            수동 전송이면 사람이 [클라우드 전송]을 누를 때까지 기다리고, 자동 전송이면 배치 안에서 SEND 가 끝나므로 바로 이어진다.
+ *                            WF9 정상 응답 뒤 T1 을 폐기 완료로 적으면 그 배치가 전송 대기 · 클라우드 전송 목록에서 빠지므로,
+ *                            전송 전에 WF9 가 돌면 안 보낸 배치가 목록에서 사라진다(그 구멍을 막는다). false 는 예전 동작(비식별 직후)
+ * @param sendWaitMaxHours    전송을 기다리는 상한(시간 · 기본 168 = 7일 · 스테이징 보존 기한과 같다) — 넘으면 포기하고 가린 문서를 지운다.
+ *                            전송이 확인되면 그때부터 {@code maxAgeHours} 를 센다
  */
 @ConfigurationProperties(prefix = "voice.risk-wf9")
 public record RiskWf9Properties(
@@ -90,7 +96,9 @@ public record RiskWf9Properties(
         List<String> contentFields,
         @DefaultValue({"risk_type", "riskClassCode", "risk_class_code", "riskClassCd", "risk_class_cd", "위험분류", "위험유형", "riskType",
                 "riskClass", "risk_class", "category", "code"})
-        List<String> riskClassFields
+        List<String> riskClassFields,
+        @DefaultValue("true") boolean afterSend,
+        @DefaultValue("168") int sendWaitMaxHours
 ) {
 
     /** MOCK — 네트워크 없이 가이드의 최종 응답 예시({@code {"findings":[],"reviews":[]}})를 돌려준다 · REST — 실제로 부른다. */
@@ -147,7 +155,7 @@ public record RiskWf9Properties(
     @Override
     public String toString() {
         return "RiskWf9Properties[enabled=" + enabled + ", spoolDir=" + spoolDir + ", portalMode=" + portalMode
-                + ", serving=" + servingRunUrl() + ", portalEndpoint=" + portalEndpoint
+                + ", serving=" + servingRunUrl() + ", portalEndpoint=" + portalEndpoint + ", afterSend=" + afterSend
                 + ", authKey=" + (hasAuthKey() ? "있음" : "없음") + "]";
     }
 

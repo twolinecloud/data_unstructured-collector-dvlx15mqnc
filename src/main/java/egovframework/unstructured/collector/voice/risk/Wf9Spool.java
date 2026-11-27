@@ -41,6 +41,9 @@ import java.util.stream.Stream;
  * 그 길은 원본 음성이 외부망으로 나가므로 걷어냈다. 이제 스풀에는 <b>커넥터가 실제로 가린 전사</b>만 들어간다:
  * 비식별 모드가 {@link #DEIDENT_MODE} 가 아니면(MOCK · BYPASS · 단계 꺼짐) 넣지 않는다 — 가리지 않은 글이 WF9 로 갈 길을 막는다.</p>
  *
+ * <p><b>2026-11-27 전송 뒤 호출</b> — 넣는 때는 그대로(비식별 직후)지만, 작업자는 그 배치의 클라우드 전송(T2 SEND)이
+ * SUCCESS 가 된 뒤에야 꺼내 부른다({@link RiskWf9Properties#afterSend()}). 그동안 가린 문서는 스풀에 남는다.</p>
+ *
  * <p><b>배치를 멈추지 않는다</b> — {@link #offer} 는 예외를 던지지 않고, 넣지 못하면 경고만 남긴다.
  * 문서는 배치 산출물과 같은 PVC · 권한에 두고, 성공 · 포기 즉시 지운다.</p>
  */
@@ -158,7 +161,7 @@ public class Wf9Spool {
             Files.write(tmp.resolve(DOC_FILE), doc);
             Wf9Job job = new Wf9Job(jobId, target.idempotencyKey().strip(), target.corrNo().strip(), target.kind().name(),
                     target.occurredAt().withNano(0).toString(), execId, contactId, DOC_FILE, built.cutSec(), clock.millis(),
-                    0, 0L, null);
+                    0, 0L, null, 0L);
             Files.writeString(tmp.resolve(JOB_FILE), JSON.writeValueAsString(job), StandardCharsets.UTF_8);
             try {
                 Files.move(tmp, dir, StandardCopyOption.ATOMIC_MOVE);

@@ -11,11 +11,14 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -29,6 +32,11 @@ import java.util.function.Supplier;
  *       지나면 포기. 포기하면 사본을 지우고 ERROR 로그</li>
  *   <li>끝까지 갈 수 없는 설정이면(로그 컬렉터 미연동 · AuthKey 없음) 돌지 않는다 — 재시도를 태우지 않고,
  *       기한이 지난 사본만 지운다</li>
+ *   <li><b>전송 확인 문(2026-11-27)</b> — {@code after-send} 면 그 배치(T1)의 클라우드 전송(T2 SEND 마지막 행)이 SUCCESS 일 때만 부른다.
+ *       수동 전송: STT → 비식별 → (대기) → (전송) → WF9 → T1 폐기 완료. 자동 전송: 배치 안에서 SEND 가 끝나므로 배치가 끝나면 바로 이어진다.
+ *       WAIT · RUNNING · FAIL · PARTIAL · CANCELED · 못 읽음은 기다린다(시도 횟수 · 하루 상한을 쓰지 않는다) · 기다림은
+ *       {@code send-wait-max-hours} 까지. 확인되면 job.json 에 적고, 그때부터 {@code max-age-hours} 를 센다.
+ *       전송 전에 WF9 가 돌면 정상 응답 뒤 폐기 완료가 적혀 <b>아직 안 보낸 배치가 전송 대기 · 클라우드 전송 목록에서 빠진다</b></li>
  * </ul>
  */
 @Log4j2
@@ -40,14 +48,23 @@ public class RiskWf9Worker {
         RiskWf9Pipeline.Outcome run(Wf9Job job, Path doc);
     }
 
-    /** 한 번 순회한 결과. */
-    public record Report(int succeeded, int retried, int gaveUp, boolean yielded, String blocked) {}
+    /** 전송 확인을 하지 않는 시험용 — 늘 SUCCESS. */
+    static final Function<String, String> ALWAYS_SENT = execId -> Wf9SendGate.SUCCESS;
+
+    /**
+     * 한 번 순회한 결과.
+     *
+     * @param waitingSend 그 배치의 클라우드 전송이 끝나지 않아 기다린 작업 수
+     */
+    public record Report(int succeeded, int retried, int gaveUp, boolean yielded, String blocked, int waitingSend) {}
 
     private final RiskWf9Properties props;
     private final Wf9Spool spool;
     private final Supplier<String> blocker;
     private final Runner runner;
     private final BooleanSupplier batchRunning;
+    /** execId → 그 배치 T2 SEND 마지막 행 상태(못 읽으면 null). */
+    private final Function<String, String> sendStatus;
     private final Clock clock;
     private final Object drainLock = new Object();
     private ScheduledExecutorService exec;
@@ -58,17 +75,25 @@ public class RiskWf9Worker {
     private boolean dayLimitLogged;
 
     @Autowired
-    public RiskWf9Worker(RiskWf9Properties props, Wf9Spool spool, RiskWf9Pipeline pipeline, BatchProgress progress) {
-        this(props, spool, pipeline::blocker, pipeline::run, progress::isRunning, Clock.systemUTC());
+    public RiskWf9Worker(RiskWf9Properties props, Wf9Spool spool, RiskWf9Pipeline pipeline, BatchProgress progress,
+                         Wf9SendGate sendGate) {
+        this(props, spool, pipeline::blocker, pipeline::run, progress::isRunning, sendGate::sendStatus, Clock.systemUTC());
+    }
+
+    /** 전송 확인 없이(늘 보냄으로 본다) — 전송과 상관없는 시험용. */
+    RiskWf9Worker(RiskWf9Properties props, Wf9Spool spool, Supplier<String> blocker, Runner runner,
+                  BooleanSupplier batchRunning, Clock clock) {
+        this(props, spool, blocker, runner, batchRunning, ALWAYS_SENT, clock);
     }
 
     RiskWf9Worker(RiskWf9Properties props, Wf9Spool spool, Supplier<String> blocker, Runner runner,
-                  BooleanSupplier batchRunning, Clock clock) {
+                  BooleanSupplier batchRunning, Function<String, String> sendStatus, Clock clock) {
         this.props = props;
         this.spool = spool;
         this.blocker = blocker;
         this.runner = runner;
         this.batchRunning = batchRunning;
+        this.sendStatus = sendStatus;
         this.clock = clock;
     }
 
@@ -79,10 +104,13 @@ public class RiskWf9Worker {
             return;
         }
         String why = blocker.get();
-        log.info("[WF9] 켜짐 — WF9 {}{} · 앞 {}초 분석 · 재시도 {}회 · 기한 {}시간 · {}", props.portalMode(),
+        log.info("[WF9] 켜짐 — WF9 {}{} · 앞 {}초 분석 · 재시도 {}회 · 기한 {}시간 · {} · {}", props.portalMode(),
                 props.portalMode() == RiskWf9Properties.PortalMode.REST
                         ? "(" + props.servingRunUrl() + " · AuthKey " + (props.hasAuthKey() ? "있음" : "없음") + ")" : "",
-                props.analyzeMaxSec(), props.maxRetries(), props.maxAgeHours(), why == null ? "준비됨" : "멈춤: " + why);
+                props.analyzeMaxSec(), props.maxRetries(), props.maxAgeHours(),
+                props.afterSend() ? "클라우드 전송(T2 SEND SUCCESS) 뒤 호출 · 전송 대기 상한 " + props.sendWaitMaxHours() + "시간"
+                        : "비식별 직후 호출(after-send=false)",
+                why == null ? "준비됨" : "멈춤: " + why);
         warnKeyExpiry();
         exec = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "wf9-worker");
@@ -139,7 +167,9 @@ public class RiskWf9Worker {
         int ok = 0;
         int retried = 0;
         int gaveUp = 0;
+        int waiting = 0;
         boolean yielded = false;
+        Map<String, String> sendSeen = new HashMap<>();   // 한 번 훑는 동안 배치마다 한 번만 묻는다
         String blocked = blocker.get();
         if (blocked == null && lastBlocker != null) {
             log.info("[WF9] 작업자 다시 돈다 — 막힘 풀림");
@@ -157,7 +187,7 @@ public class RiskWf9Worker {
             entries = spool.list();
         } catch (IOException e) {
             log.warn("[WF9] 스풀을 읽지 못함 — {}", e.getClass().getSimpleName());
-            return new Report(0, 0, 0, false, blocked);
+            return new Report(0, 0, 0, false, blocked, 0);
         }
         for (Wf9Spool.Entry e : entries) {
             if (stopping || Thread.currentThread().isInterrupted()) {
@@ -170,11 +200,21 @@ public class RiskWf9Worker {
                 gaveUp++;
                 continue;
             }
-            if (clock.millis() - job.createdAtMs() > props.maxAgeHours() * 3_600_000L) {
-                giveUp(e, "넣은 지 " + props.maxAgeHours() + "시간 지남"
-                        + (job.lastError() == null ? "" : " · 마지막 실패 " + job.lastError()));
-                gaveUp++;
-                continue;
+            boolean waitSend = props.afterSend() && job.sendConfirmedAtMs() <= 0;
+            if (waitSend) {
+                if (clock.millis() - job.createdAtMs() > props.sendWaitMaxHours() * 3_600_000L) {
+                    giveUp(e, "클라우드 전송을 " + props.sendWaitMaxHours() + "시간 기다렸으나 끝나지 않음(배치 " + job.execId() + ")");
+                    gaveUp++;
+                    continue;
+                }
+            } else {
+                long since = job.sendConfirmedAtMs() > 0 ? job.sendConfirmedAtMs() : job.createdAtMs();
+                if (clock.millis() - since > props.maxAgeHours() * 3_600_000L) {
+                    giveUp(e, (job.sendConfirmedAtMs() > 0 ? "전송 확인 뒤 " : "넣은 지 ") + props.maxAgeHours() + "시간 지남"
+                            + (job.lastError() == null ? "" : " · 마지막 실패 " + job.lastError()));
+                    gaveUp++;
+                    continue;
+                }
             }
             if (blocked != null || job.nextAttemptAtMs() > clock.millis()) {
                 continue;
@@ -183,6 +223,26 @@ public class RiskWf9Worker {
                 log.debug("[WF9] 음성 배치가 돌고 있어 양보한다");
                 yielded = true;
                 break;
+            }
+            if (waitSend) {
+                String execId = job.execId() == null ? "" : job.execId();
+                String sts = sendSeen.computeIfAbsent(execId, id -> {
+                    String s = id.isEmpty() ? null : sendStatus.apply(id);
+                    return s == null ? "" : s;
+                });
+                if (!Wf9SendGate.SUCCESS.equals(sts)) {
+                    log.debug("[WF9] 전송 대기 — {} · 배치 {} SEND {}", job.shortId(), execId, sts.isEmpty() ? "확인 못 함" : sts);
+                    waiting++;
+                    continue;
+                }
+                job = job.sendConfirmed(clock.millis());
+                try {
+                    spool.save(e, job);
+                } catch (IOException io) {
+                    log.warn("[WF9] 전송 확인을 적지 못함(그대로 진행) — {} · {}", job.shortId(), io.getClass().getSimpleName());
+                }
+                e = new Wf9Spool.Entry(e.dir(), job);
+                log.info("[WF9] 전송 확인 — {} · 배치 {} 클라우드 전송 SUCCESS → WF9 호출", job.shortId(), execId);
             }
             if (!takeDailySlot()) {
                 break;
@@ -196,7 +256,7 @@ public class RiskWf9Worker {
                 }
             }
         }
-        return new Report(ok, retried, gaveUp, yielded, blocked);
+        return new Report(ok, retried, gaveUp, yielded, blocked, waiting);
     }
 
     /** @return 1 성공 · 2 다시 하기로 · 3 포기 · 0 종료 중이라 그대로 둠 */

@@ -234,7 +234,12 @@ voice:
     analyze-max-sec: ${VOICE_RISK_WF9_ANALYZE_MAX_SEC:1800}
     max-retries: ${VOICE_RISK_WF9_MAX_RETRIES:3}
     retry-base-sec: ${VOICE_RISK_WF9_RETRY_BASE_SEC:300}    # 5분 → 10분 → 20분
-    max-age-hours: ${VOICE_RISK_WF9_MAX_AGE_HOURS:48}       # 넘으면 포기하고 사본 삭제(ERROR 로그)
+    max-age-hours: ${VOICE_RISK_WF9_MAX_AGE_HOURS:48}       # 넘으면 포기하고 사본 삭제(ERROR 로그) · 전송 확인 뒤부터 센다(after-send)
+    # 2026-11-27 — WF9 는 그 배치의 클라우드 전송(T2 SEND)이 SUCCESS 가 된 뒤에만 부른다.
+    #   수동 전송: STT → 비식별 → (대기) → (전송) → WF9 → T1 폐기 완료 · 자동 전송: 배치 안에서 SEND 가 끝나 바로 WF9 → 폐기 완료.
+    #   전송 전에 폐기 완료를 적으면 그 배치가 전송 대기 · 클라우드 전송 목록에서 빠진다. false = 예전(비식별 직후)
+    after-send: ${VOICE_RISK_WF9_AFTER_SEND:true}
+    send-wait-max-hours: ${VOICE_RISK_WF9_SEND_WAIT_MAX_HOURS:168}   # 전송을 기다리는 상한(7일 · 스테이징 보존 기한) — 넘으면 포기
     daily-limit: ${VOICE_RISK_WF9_DAILY_LIMIT:0}            # 하루(KST) 처리 상한 · 0 = 없음
     poll-sec: ${VOICE_RISK_WF9_POLL_SEC:30}
     initial-delay-sec: ${VOICE_RISK_WF9_INITIAL_DELAY_SEC:60}

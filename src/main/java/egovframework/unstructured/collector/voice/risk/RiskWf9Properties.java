@@ -20,24 +20,27 @@ import java.util.regex.Pattern;
  * → {@code /chat} 을 버리고 서빙별 AuthKey 로 {@code POST {servingBaseUrl}/{servingId}/{servingRev}/run} 을 바로 부른다.
  * 요청 본문({@code {endpoint, message, file_ids: []}})과 SSE 응답 처리는 그대로다.</p>
  *
- * <p><b>AuthKey 는 레포에 적지 않는다</b> — 배포 Secret → 환경 변수 {@code GENON_WF9_AUTH_KEY} 로만 받는다.
- * 음성 전처리 키는 기존 {@code GENON_STT_API_KEY} 를 그대로 쓴다(STT 와 같은 '동시 1건' 차례).</p>
+ * <p><b>AuthKey 는 레포에 적지 않는다</b> — 배포 Secret → 환경 변수 {@code GENON_WF9_AUTH_KEY} 로만 받는다.</p>
+ *
+ * <p><b>2026-11-27 텍스트 전용</b> — 제논 음성 전처리({@code audio/process})와 커넥터 {@code speech-results} 토큰화를 쓰지 않는다.
+ * 본 배치가 비식별(마스킹)한 전사로 WF9 를 바로 부른다({@link Wf9TextDocument}). 그래서 {@code deidPath} · {@code deidTimeoutSec} 는
+ * 더 이상 쓰지 않는다(배포 값 · 환경 변수가 남아 있어도 기동이 깨지지 않게 자리만 둔다).</p>
  *
  * @param enabled             켜기(기본 false — 개발계 외부망 · Secret 결정 전까지 끈 채로 배포)
  * @param spoolDir            스풀 위치. 비우면 복호화 작업 폴더 옆 {@code {ROOT}/xvram/wf9-spool}(같은 PVC · 권한)
  * @param skipTestRuns        시험 실행(TST · 시뮬레이터) 건은 넣지 않는다 — 가상 건이 대시보드 표에 섞이지 않게
  * @param maxPending          스풀에 쌓아 둘 작업 수 상한 — 넘으면 새 건을 넣지 않는다(경고)
  * @param maxSpoolMb          스풀 디스크 상한(MB) — 배치와 같은 PVC 라 가득 채우면 배치가 멈춘다
- * @param analyzeMaxSec       앞에서부터 분석할 길이(초 · D9 · 기본 1800 = 운영 상한 30분). 더 긴 PCM WAV 는 앞부분만 스풀에 담는다.
- *                            2026-11-20 600 → 1800 — 제논 가이드 11-19판 한도(3900초) 안이고, 30분 전처리 예상 약 133초가 시한 300초 안에 든다
+ * @param analyzeMaxSec       앞에서부터 분석할 길이(초 · D9 · 기본 1800 = 운영 상한 30분). 이 시각 뒤에 시작하는 전사 구간은 문서에 싣지 않는다.
+ *                            0 이하면 다 싣는다(2026-11-27 — 음성을 자르던 것을 구간 기준으로)
  * @param maxRetries          다시 해 볼 횟수(첫 시도 제외) — 다 쓰면 포기하고 사본을 지운다
  * @param retryBaseSec        다시 하기 전 기다림의 첫 간격(초) — 실패할 때마다 두 배
  * @param maxAgeHours         스풀에 넣은 뒤 이 시간이 지나면 포기하고 사본을 지운다
  * @param dailyLimit          하루(KST) 처리 상한 — 0 이면 없음
  * @param pollSec             작업자가 스풀을 살피는 간격(초) — 작업자 전용 스레드(공용 스케줄러를 붙잡지 않는다)
  * @param initialDelaySec     기동 뒤 첫 순회까지(초)
- * @param deidPath            커넥터 비식별 경로({@code agent-connector.base-url} 뒤)
- * @param deidTimeoutSec      커넥터 응답 상한 — 커넥터가 AI-R 을 최대 600초 기다리므로 그보다 길게
+ * @param deidPath            (2026-11-27 부터 쓰지 않음) 예전 커넥터 speech-results 비식별 경로
+ * @param deidTimeoutSec      (2026-11-27 부터 쓰지 않음) 예전 커넥터 speech-results 응답 상한
  * @param portalMode          MOCK(네트워크 없음 · 가이드 예시 빈 결과) · REST(Code Serving 실호출)
  * @param servingBaseUrl      Code Serving 게이트웨이 주소 — 뒤에 {@code /{servingId}/{servingRev}/run} 이 붙는다
  * @param servingId           접견·전화 분석 서빙 ID(가이드 v4 1쪽 표 · 숫자만)

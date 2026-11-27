@@ -39,6 +39,7 @@ class RiskWf9WorkerTest {
     }
 
     private RiskWf9Worker worker(Wf9TestSupport.Props p) {
+        p.afterSend = false;   // 전송 확인 문은 RiskWf9AfterSendTest 가 본다 — 여기는 기한 · 재시도 · 양보만
         RiskWf9Properties props = p.build();
         spool = new Wf9Spool(props, () -> root, () -> null, clock);
         return new RiskWf9Worker(props, spool, blocked::get, (job, file) -> {

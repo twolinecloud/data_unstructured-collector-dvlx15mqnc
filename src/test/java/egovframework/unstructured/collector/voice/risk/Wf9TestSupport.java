@@ -50,11 +50,14 @@ final class Wf9TestSupport {
         int portalTimeoutSec = 10;
         List<String> contentFields = List.of("content", "description", "summary", "text");
         List<String> riskClassFields = List.of("riskClassCode", "category", "type");
+        boolean afterSend = true;
+        int sendWaitMaxHours = 168;
 
         RiskWf9Properties build() {
             return new RiskWf9Properties(enabled, spoolDir, skipTestRuns, maxPending, maxSpoolMb, analyzeMaxSec, maxRetries,
                     retryBaseSec, maxAgeHours, dailyLimit, 30, 60, deidPath, deidTimeoutSec, portalMode, servingBaseUrl,
-                    servingId, servingRev, authKey, authKeyExpiresOn, portalEndpoint, 2, portalTimeoutSec, contentFields, riskClassFields);
+                    servingId, servingRev, authKey, authKeyExpiresOn, portalEndpoint, 2, portalTimeoutSec, contentFields, riskClassFields,
+                    afterSend, sendWaitMaxHours);
         }
     }
 

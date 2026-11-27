@@ -25,18 +25,25 @@ import java.time.ZoneId;
  * @param attempts       실패한 횟수
  * @param nextAttemptAtMs 다음 시도 가능 시각(epoch ms) — 0 이면 바로
  * @param lastError      마지막 실패 요약(단계 · 코드만)
+ * @param sendConfirmedAtMs 그 배치의 클라우드 전송(T2 SEND SUCCESS)을 확인한 시각(epoch ms) — 0 이면 아직(예전 job.json 도 0)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record Wf9Job(String jobId, String recFileId, String corrNo, String kind, String occurredAt, String execId,
                      String contactId, String docFile, Double cutSec, long createdAtMs, int attempts,
-                     long nextAttemptAtMs, String lastError) {
+                     long nextAttemptAtMs, String lastError, long sendConfirmedAtMs) {
 
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 실패 한 번을 적은 사본. */
     public Wf9Job failed(long nextAttemptAtMs, String lastError) {
         return new Wf9Job(jobId, recFileId, corrNo, kind, occurredAt, execId, contactId, docFile, cutSec, createdAtMs,
-                attempts + 1, nextAttemptAtMs, lastError);
+                attempts + 1, nextAttemptAtMs, lastError, sendConfirmedAtMs);
+    }
+
+    /** 전송 확인을 적은 사본 — 실패 횟수 · 다음 시도는 그대로. */
+    public Wf9Job sendConfirmed(long atMs) {
+        return new Wf9Job(jobId, recFileId, corrNo, kind, occurredAt, execId, contactId, docFile, cutSec, createdAtMs,
+                attempts, nextAttemptAtMs, lastError, atMs);
     }
 
     /** 제논 {@code contact_type} — 접견 · 전화. */

@@ -29,23 +29,29 @@ class FileArrivalWatcherTest {
     Path tmp;
 
     private VoiceProperties props(Path meet, Path phone) {
+        return props(meet, phone, VoiceProperties.AcquireMode.BROKER);
+    }
+
+    private VoiceProperties props(Path meet, Path phone, VoiceProperties.AcquireMode acquire) {
         return new VoiceProperties(
                 new VoiceProperties.Source(VoiceProperties.SourceMode.MOCK, "", "",
                         new VoiceProperties.Schema("", "", "", "", ""),
                         new VoiceProperties.Flag("Y", "Y", "N", "Y"),
                         VoiceProperties.XvarmMode.MOCK_DEV, new VoiceProperties.XvarmMock("sm", "xvarm"),
                         new VoiceProperties.LocalH2("jdbc:h2:mem:t", "sa", "", 10, 0),
-                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000)),
+                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000),
+                        VoiceProperties.XvarmJoin.TRACE),
                 new VoiceProperties.Broker(VoiceProperties.BrokerMode.MOCK, "", java.util.List.of(), 10, 3),
                 new VoiceProperties.Phone(VoiceProperties.PhoneMode.MOCK),
                 new VoiceProperties.Sync(20, 3, EsbFileNamingPolicy.Policy.ORIGINAL),
                 new VoiceProperties.Dirs(tmp.toString(), meet.toString(), phone.toString(), tmp.resolve("w").toString(),
-                        tmp.resolve("xv").toString()),
+                        tmp.resolve("xv").toString(), ""),
                 new VoiceProperties.Decrypt(VoiceProperties.DecryptMode.SKIP, ""),
                 new VoiceProperties.Stt(VoiceProperties.SttMode.MOCK, "", 30),
                 new VoiceProperties.Batch(20, false,
                         List.of("0", "1"), 500, "VOICE_ANALYSIS", "TEST_BATCH", "UNSTRUCTURED", false),
-                new VoiceProperties.Sim(false));
+                new VoiceProperties.Sim(false),
+                new VoiceProperties.Acquire(acquire), VoiceProperties.Inbound.defaults());
     }
 
     private VoiceTarget meetTarget() {
@@ -53,11 +59,20 @@ class FileArrivalWatcherTest {
                 true, null, "/data001", "mock_meet_001.m4a", null, LocalDateTime.now());
     }
 
+    private VoiceTarget phoneTarget() {
+        return new VoiceTarget(VoiceKind.PHONE, "CORR1", "VRFC-0001", null, null,
+                true, "KEY1", "/data002", "mock_phone_001.wav", null, LocalDateTime.now());
+    }
+
     private FileArrivalWatcher watcher(Path meet) throws Exception {
+        return watcher(meet, VoiceProperties.AcquireMode.BROKER);
+    }
+
+    private FileArrivalWatcher watcher(Path meet, VoiceProperties.AcquireMode acquire) throws Exception {
         Path phone = tmp.resolve("phone");
         Files.createDirectories(meet);
         Files.createDirectories(phone);
-        VoiceProperties p = props(meet, phone);
+        VoiceProperties p = props(meet, phone, acquire);
         egovframework.unstructured.collector.common.config.VoiceDirState dirs = new egovframework.unstructured.collector.common.config.VoiceDirState(p, new egovframework.unstructured.collector.common.config.DeployEnvPreset(new org.springframework.mock.env.MockEnvironment(), p, ""));
         dirs.resetToConfigured();
         return new FileArrivalWatcher(p, dirs, new EsbFileNamingPolicy());
@@ -200,6 +215,56 @@ class FileArrivalWatcherTest {
         VoiceFile f = w.await(meetTarget(), "mock_meet_001.m4a");
 
         assertThat(f.sizeBytes()).isPositive();
+    }
+
+    // ── 동기화 방식(SYNCED · 2단계)에서는 요청 전 잔재 삭제를 하지 않는다 ─────────────
+    // 그 이름의 파일은 보라미가 미리 넣어 준 원본이다 — 지우면 다시 받을 길이 없다(2026-11-28 XVARM 제거 1단계).
+
+    @Test
+    @DisplayName("SYNCED — 접견 잔재 삭제를 거절한다(파일 그대로 · false)")
+    void syncedRefusesToClearMeetFile() throws Exception {
+        Path meet = tmp.resolve("meet-synced");
+        FileArrivalWatcher w = watcher(meet, VoiceProperties.AcquireMode.SYNCED);
+        Path synced = meet.resolve("mock_meet_001.m4a");
+        Files.write(synced, SilentWav.of(1));
+
+        assertThat(w.clearStale(meetTarget())).isFalse();
+        assertThat(synced).exists();
+    }
+
+    @Test
+    @DisplayName("SYNCED — 사진 잔재 삭제도 거절한다(파일 그대로 · false)")
+    void syncedRefusesToClearPhotoFile() throws Exception {
+        Path meet = tmp.resolve("meet-synced-photo");
+        FileArrivalWatcher w = watcher(meet, VoiceProperties.AcquireMode.SYNCED);
+        Path synced = meet.resolve("img_SIMIMG00001_2.jpg");
+        Files.writeString(synced, "jpg");
+
+        assertThat(w.clearStale(meet, "img_SIMIMG00001_2.jpg")).isFalse();
+        assertThat(synced).exists();
+    }
+
+    @Test
+    @DisplayName("SYNCED 여도 전화는 그대로 지운다 — 전화는 확보 방식과 무관(ESB 전화 연계 · 요청 → 대기)")
+    void syncedStillClearsPhoneLeftover() throws Exception {
+        FileArrivalWatcher w = watcher(tmp.resolve("meet-synced-phone"), VoiceProperties.AcquireMode.SYNCED);
+        Path leftover = tmp.resolve("phone").resolve("mock_phone_001.wav");
+        Files.write(leftover, SilentWav.of(1));
+
+        assertThat(w.clearStale(phoneTarget())).isTrue();
+        assertThat(leftover).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("BROKER(기본) — 사진 잔재는 지금처럼 지운다")
+    void brokerClearsPhotoLeftover() throws Exception {
+        Path meet = tmp.resolve("meet-broker-photo");
+        FileArrivalWatcher w = watcher(meet);
+        Path leftover = meet.resolve("img_SIMIMG00001_2.jpg");
+        Files.writeString(leftover, "jpg");
+
+        assertThat(w.clearStale(meet, "img_SIMIMG00001_2.jpg")).isTrue();
+        assertThat(leftover).doesNotExist();
     }
 
     @Test

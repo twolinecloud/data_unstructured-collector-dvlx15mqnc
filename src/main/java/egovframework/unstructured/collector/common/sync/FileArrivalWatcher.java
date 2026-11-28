@@ -103,9 +103,16 @@ public class FileArrivalWatcher {
      * <p>치우지 않으면 두 가지로 깨진다 — ① 옛 음성을 새 것인 양 STT 에 태우거나,
      * ② 윈도우에서 그 이름이 삭제 대기로 잡혀 브로커·ESB 가 새 파일을 만들지 못한다.</p>
      *
+     * <p><b>접견은 브로커 방식({@code voice.acquire.mode=BROKER})에서만 지운다</b>(2026-11-28 XVARM 제거 1단계).
+     * 동기화 방식에서 그 이름의 파일은 보라미가 미리 넣어 준 원본이라 지우면 다시 받을 길이 없다. 전화는 확보 방식과
+     * 무관하게 그대로 지운다(ESB 전화 연계 · 요청 → 대기 순서 그대로).</p>
+     *
      * @return 실제로 치운 것이 있으면 {@code true}
      */
     public boolean clearStale(VoiceTarget target) {
+        if (target.kind() == VoiceKind.MEET && refuseOutsideBroker("접견 " + target.shortId())) {
+            return false;
+        }
         Path file = dirFor(target.kind())
                 .resolve(namingPolicy.expectedFileName(target, props.sync().namingPolicy()));
         if (!Files.exists(file)) {
@@ -139,14 +146,35 @@ public class FileArrivalWatcher {
                         present.isEmpty() ? "비어 있음(아무도 파일을 만들지 않았다)" : present));
     }
 
-    /** 요청 직전 — 그 이름에 남아 있는 지난 요청의 파일을 치운다({@link #clearStale(VoiceTarget)} 와 같은 원칙). */
+    /**
+     * 요청 직전 — 그 이름에 남아 있는 지난 요청의 파일을 치운다({@link #clearStale(VoiceTarget)} 와 같은 원칙).
+     * 수용자 사진(브로커 방식)만 쓴다 — 브로커 방식이 아니면 지우지 않는다.
+     */
     public boolean clearStale(Path dir, String fileName) {
+        if (refuseOutsideBroker("사진 " + fileName)) {
+            return false;
+        }
         Path file = dir.resolve(fileName);
         if (!Files.exists(file)) {
             return false;
         }
         log.warn("[Sync] 지난 요청의 잔재를 치운다 — {} (요청 전부터 있던 파일)", file.getFileName());
         StaleFiles.delete(file);
+        return true;
+    }
+
+    /**
+     * 브로커 방식이 아니면 참 — 요청 전 잔재 삭제를 거절한다. 동기화 방식이 이 길을 타면 코드 결함이라 error 로 남긴다
+     * (조용히 넘기면 원본을 지운 줄 모르고 지나간다).
+     */
+    private boolean refuseOutsideBroker(String what) {
+        VoiceProperties.AcquireMode mode = props.acquire() == null
+                ? VoiceProperties.AcquireMode.BROKER : props.acquire().mode();
+        if (mode == VoiceProperties.AcquireMode.BROKER) {
+            return false;
+        }
+        log.error("[Sync] 요청 전 잔재 삭제를 거절한다 — {} (voice.acquire.mode={} · 동기화 폴더의 파일은 원본이라 지우지 않는다)",
+                what, mode);
         return true;
     }
 

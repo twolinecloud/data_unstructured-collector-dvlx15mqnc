@@ -24,8 +24,62 @@ public record VoiceProperties(
         @DefaultValue Decrypt decrypt,
         @DefaultValue Stt stt,
         @DefaultValue Batch batch,
-        @DefaultValue Sim sim
+        @DefaultValue Sim sim,
+        @DefaultValue Acquire acquire,
+        @DefaultValue Inbound inbound
 ) {
+
+    /**
+     * 원천 파일(접견 녹음 · 수용자 사진)을 받아 오는 방식 — XVARM 제거(2026-11-26 회의 D2)의 전환 스위치.
+     *
+     * <ul>
+     *   <li>{@code BROKER}(기본 · 지금): 건마다 XVARM 브로커에 추출을 요청하고 수신 폴더에 도착하기를 기다린다</li>
+     *   <li>{@code SYNCED}(2단계): 보라미 배치가 전용 폴더에 넣어 둔 파일을 배치 한 번 대조로 찾는다.
+     *       아직 구현 전이라 고르면 기동을 막는다({@code InboundConfig})</li>
+     * </ul>
+     */
+    public record Acquire(
+            @DefaultValue("BROKER") AcquireMode mode
+    ) {}
+
+    /**
+     * 동기화 폴더(보라미 배치가 넣어 주는 접견 · 사진 파일)를 읽는 규칙 — {@code acquire.mode=SYNCED} 에서만 쓴다(2단계).
+     * 1단계는 자리만 만들어 기동 로그 {@code [Mode] 파일 확보} 에 보인다. 값의 근거는 구현 계획서 2.3.5 · 회의 질문 Q-a~Q-g.
+     */
+    public record Inbound(
+            /** 파일 이름 규칙 — DOC_ID(확장자를 뺀 이름 = 공통파일 DOC_ID) · ORIGINAL(녹취 파일명) · MANIFEST(보라미 목록 파일). 미확정(Q-a) */
+            @DefaultValue("DOC_ID") InboundNaming naming,
+            /** {@code {YYYYMMDD}}(KST) 하위 폴더를 쓰나 — 날짜의 뜻이 미확정(Q-a)이라 찾을 때는 루트와 최근 N일을 모두 본다 */
+            @DefaultValue("true") boolean dateSubdir,
+            @DefaultValue("3") int lookbackDays,
+            /** 쓰는 중으로 보고 목록에서 뺄 이름(Q-c). ⚠ 목록 기본값은 배열로 준다 — 문자열 하나("a,b")로 주면 원소가 1개가 된다 */
+            @DefaultValue({"*.tmp", "*.part", ".*"}) List<String> ignorePatterns,
+            @DefaultValue Reconcile reconcile,
+            /** 동기화 파일을 지우는 때 — SUCCESS(처리에 성공한 건만) · NEVER(시험 · 실데이터) */
+            @DefaultValue("SUCCESS") DeleteAfter deleteAfter,
+            /** 대상 밖 · 실패로 남은 동기화 파일의 보관 일수(R3) */
+            @DefaultValue("7") int retentionDays
+    ) {
+        public Inbound {
+            ignorePatterns = (ignorePatterns == null) ? List.of() : List.copyOf(ignorePatterns);
+        }
+
+        /** 설정 없이 만들 때(시험)의 값 — 위 {@code @DefaultValue} 와 같다. */
+        public static Inbound defaults() {
+            return new Inbound(InboundNaming.DOC_ID, true, 3, List.of("*.tmp", "*.part", ".*"),
+                    new Reconcile(300, 30, 1, ""), DeleteAfter.SUCCESS, 7);
+        }
+    }
+
+    /** 기대 목록 대조 — 배치 한 번 보고, 모자라면 간격마다 다시 보며, 예산을 넘기면 그 건만 수집 실패(Q-e · Q-g). */
+    public record Reconcile(
+            @DefaultValue("300") int intervalSec,
+            @DefaultValue("30") int budgetMin,
+            /** 다시 연 배치(재처리)의 대조 횟수 — 기다리지 않는다 */
+            @DefaultValue("1") int reopenRounds,
+            /** 보라미 끝 표식 파일 이름 — 있으면 더 기다리지 않는다. 비우면 보지 않는다 */
+            @DefaultValue("") String doneMarker
+    ) {}
 
     /** 보라미 대상 조회 경로. */
     public record Source(
@@ -49,7 +103,16 @@ public record VoiceProperties(
             /** {@code MOCK (로컬 H2)} 가 보는 인메모리 DB. 기동 시 Mock 스키마·필터 검증 행을 깔고 시뮬레이션 데이터를 시딩한다. */
             @DefaultValue LocalH2 localH2,
             /** {@code 개발계 DB}(DIRECT_JDBC) 가 보는 실제 DB — 개발계 borami-db(PostgreSQL) 또는 운영 보라미(Oracle). */
-            @DefaultValue DirectDb directDb
+            @DefaultValue DirectDb directDb,
+            /**
+             * 대상 조회(접견 · 사진)에 XVARM 표({@code ASYSCONTENTELEMENT})를 붙일지.
+             * <ul>
+             *   <li>{@code TRACE}(1단계 기본 · 지금과 같다): LEFT JOIN 으로 FILEKEY 를 얻는다 — 브로커가 FILEKEY 로 원본을 찾는다</li>
+             *   <li>{@code NONE}: 붙이지 않는다(FILEKEY 는 비움). 보라미 동기화 방식(SYNCED)에는 FILEKEY 가 필요 없고, 표가 안 보이는
+             *       환경에서 문장 전체가 깨지지 않는다. 2단계에서 기본을 이것으로 바꾼다</li>
+             * </ul>
+             */
+            @DefaultValue("TRACE") XvarmJoin xvarmJoin
     ) {}
 
     /**
@@ -229,7 +292,12 @@ public record VoiceProperties(
             @DefaultValue("") String receivePhone,
             @DefaultValue("") String work,
             /** XVARM 접견 원본 음성 스토리지 — 시뮬레이션 데이터 생성이 DB 파일명과 1:1 인 경량 더미 파일을 여기에 쓴다. */
-            @DefaultValue("") String xvarmOriginal
+            @DefaultValue("") String xvarmOriginal,
+            /**
+             * 사진 동기화 폴더 — {@code acquire.mode=SYNCED}(2단계)에서 보라미가 사진을 넣는 전용 폴더(회의 D5). 비우면 {@code {ROOT}/esb/photo}.
+             * BROKER 는 지금처럼 접견 수신 폴더(브로커 출력 폴더)를 같이 쓴다.
+             */
+            @DefaultValue("") String receivePhoto
     ) {}
 
     /** 시뮬레이션 데이터(개발계 DB 메타 + 물리 더미 파일) 생성 정책. */
@@ -303,6 +371,18 @@ public record VoiceProperties(
     public enum XvarmMode { MOCK_DEV, REAL }
 
     public enum BrokerMode { MOCK, REST }
+
+    /** 원천 파일 확보 — BROKER(건마다 XVARM 브로커 추출 · 지금) / SYNCED(보라미 동기화 폴더 대조 · 2단계). */
+    public enum AcquireMode { BROKER, SYNCED }
+
+    /** 대상 조회의 XVARM 표 — TRACE(LEFT JOIN 으로 FILEKEY · 브로커에 필요) / NONE(붙이지 않음). */
+    public enum XvarmJoin { NONE, TRACE }
+
+    /** 동기화 파일 이름 규칙(Q-a) — DOC_ID · ORIGINAL(녹취 파일명) · MANIFEST(보라미 목록 파일). */
+    public enum InboundNaming { DOC_ID, ORIGINAL, MANIFEST }
+
+    /** 동기화 파일을 지우는 때 — SUCCESS(처리 성공 뒤) · NEVER(지우지 않음). */
+    public enum DeleteAfter { SUCCESS, NEVER }
 
     /** 전화 파일 연계 — MOCK(내부 더미 생성) / ESB(연계 프로바이더가 떨궈 주기를 대기). */
     public enum PhoneMode { MOCK, ESB }

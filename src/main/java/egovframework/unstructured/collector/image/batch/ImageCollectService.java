@@ -1,15 +1,10 @@
 package egovframework.unstructured.collector.image.batch;
 
-import egovframework.unstructured.collector.common.broker.BrokerOutputCheck;
-import egovframework.unstructured.collector.common.broker.MockXvarmBrokerClient;
-import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
+import egovframework.unstructured.collector.common.inbound.SourceFileAcquirer;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.StepType;
 import egovframework.unstructured.collector.common.util.InmatePidGenerator;
-import egovframework.unstructured.collector.common.config.VoiceDirState;
-import egovframework.unstructured.collector.common.model.VoiceKind;
-import egovframework.unstructured.collector.common.sync.FileArrivalWatcher;
 import egovframework.unstructured.collector.image.config.AdminDb;
 import egovframework.unstructured.collector.image.config.ImageProperties;
 import egovframework.unstructured.collector.image.model.ImageOutcome;
@@ -42,14 +37,15 @@ import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
- * <b>수용자 이미지 수집</b> — 보라미 조회 → FILEKEY 추출 → 브로커 수신 → 이미지 확인(복호화는 기본 생략 · {@code image.decrypt}) → 저장 → Admin DB 매핑.
+ * <b>수용자 이미지 수집</b> — 보라미 조회 → 파일 확보(지금은 브로커 수신) → 이미지 확인(복호화는 기본 생략 · {@code image.decrypt}) → 저장 → Admin DB 매핑.
  *
  * <ol>
- *   <li>최신 이미지 조회 · FILEKEY 추출 — {@link ImageSourceService}(페이지 단위, 배치 앞에서 한 번)</li>
- *   <li>건마다(워커 N개) — 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기 → 확인(복호화 기본 생략) → 저장 → 매핑</li>
+ *   <li>최신 이미지 조회 · 문서ID(· XVARM 조인 {@code TRACE} 면 FILEKEY) — {@link ImageSourceService}(페이지 단위, 배치 앞에서 한 번)</li>
+ *   <li>건마다(워커 N개) — 파일 확보({@link SourceFileAcquirer} · 지금은 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기)
+ *       → 확인(복호화 기본 생략) → 저장 → 매핑</li>
  * </ol>
  *
- * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·FILEKEY 가 같고 저장
+ * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·DOC_ID 가 같고 저장
  * 파일이 있으면 '건너뜀'({@code force} 로 다시 받게 할 수 있다). 다시 받는 건은 저장 파일을 원자적으로 덮어쓰고
  * 매핑을 UPSERT 한다 — 키 중복 오류 없이 있으면 갱신 · 없으면 넣기. 더 최신 사진이 이미 매핑된 수용자는 덮지 않는다.</p>
  *
@@ -89,22 +85,17 @@ public class ImageCollectService {
             "duplicate key|DuplicateKey|primary key violation|unique constraint|Unique index", Pattern.CASE_INSENSITIVE);
 
     private final ImageSourceService source;
-    private final XvarmBrokerClient broker;
     /**
-     * 수집기 내장 Mock 브로커 — SIM 검증(6번 탭)이 쓴다. SIM 원본은 수집기 저장소에만 있어 실제 브로커가 읽을 수 없다
-     * (개발계 브로커는 별도 파드 · DUMMY 어댑터라 FILEKEY 와 무관한 가짜 음성을 자기 파드에 만든다).
+     * 사진 파일 확보 — 지금은 XVARM 브로커(BROKER · SIM 검증이면 수집기 내장 Mock). 보라미 동기화 폴더(SYNCED)로 갈아 끼울
+     * 자리다(XVARM 제거 1단계). 요청 전 잔재 삭제도 그 안에서만 한다.
      */
-    private final MockXvarmBrokerClient mockBroker;
-    private final FileArrivalWatcher watcher;
-    private final VoiceDirState dirs;
+    private final SourceFileAcquirer acquirer;
     private final ImageFileStore store;
     private final InmatePhotoRepository repo;
     private final ImageProperties props;
     private final AdminDb adminDb;
     /** 단계별 실행 기록(6번 탭) — 조회 첫 페이지 · 첫 건(표본)의 실제 SQL · cURL · 파일 명령과 결과. */
     private final ImageTrace trace;
-    /** 브로커 주소 — 기록의 cURL 에 쓴다. */
-    private final egovframework.unstructured.collector.common.config.VoiceModeState modeState;
     /**
      * 더미 키 표식 장애 — 교정번호에 표식(CF·AF·SF)을 단 건을 그 단계에서 한 번만 실패시킨다(수신 · 복호화 · 매핑).
      * 의도적 실패(주입)와 달리 실제 수집 API 로도 동작한다 — 대시보드 더미가 실제 배치에서 실패해야 하기 때문이다. 운영 제외.
@@ -254,10 +245,9 @@ public class ImageCollectService {
         int workers = Math.max(1, Math.min(64, req.workers() != null ? req.workers() : props.workers()));
         long virtualMs = req.virtualLatencyMs() == null ? 0L : Math.max(0L, Math.min(600_000L, req.virtualLatencyMs()));
         boolean force = Boolean.TRUE.equals(req.force());
-        // SIM 검증이면 수집기 내장 Mock 브로커로 받는다 — 설정 브로커(개발계 REST·DUMMY)는 SIM 원본을 읽을 수 없다
-        XvarmBrokerClient via = Boolean.TRUE.equals(req.simBroker()) ? mockBroker : broker;
-        String brokerLabel = via == mockBroker && !"MOCK".equals(broker.mode())
-                ? "MOCK(SIM 검증 — 수집기 내장 · 설정 " + broker.mode() + " 는 쓰지 않음)" : via.mode();
+        // SIM 검증이면 수집기 안의 흉내로 받는다(브로커 방식 = 내장 Mock 브로커) — 설정 브로커(개발계 REST·DUMMY)는 SIM 원본을 읽을 수 없다
+        boolean sim = Boolean.TRUE.equals(req.simBroker());
+        String brokerLabel = acquirer.photoSourceLabel(sim);
         // 의도적 실패(주입) — 명시적 시험 실행(6번 탭)에서만. 실제 수집 API 로는 켤 수 없다
         //   (SIM 접두는 이력만 시험(TST)으로 남길 뿐 주입을 허용하지 않는다)
         Map<String, ImageStage> inject = Boolean.TRUE.equals(req.testRun()) && req.injectFailures() != null
@@ -288,8 +278,8 @@ public class ImageCollectService {
         active.set(0);
         total = 0;
         ImageMetrics m = new ImageMetrics();
-        log.info("[Image] 시작 — execId={} · 워커 {} · 브로커 {} · 조건 corrNos={} prefix={} limit={} force={}{}{}", execId, workers,
-                brokerLabel, req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
+        log.info("[Image] 시작 — execId={} · 워커 {} · 확보 {} · 조건 corrNos={} prefix={} limit={} force={}{}{}", execId, workers,
+                acquirer.mode() + (sim ? " — 받은 곳 " + brokerLabel : ""), req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
                 virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "",
                 inject.isEmpty() ? "" : " · 의도적 실패 주입 " + inject.size() + "건");
 
@@ -369,7 +359,7 @@ public class ImageCollectService {
                         active.incrementAndGet();
                         current = t.shortId();
                         try {
-                            return count(processOne(t, mappedNow.get(t.corrNo()), force, virtualMs, m, via, inject.get(t.corrNo()),
+                            return count(processOne(t, mappedNow.get(t.corrNo()), force, virtualMs, m, sim, inject.get(t.corrNo()),
                                     steps));
                         } catch (Throwable e) {
                             // processOne 은 예외를 밖으로 던지지 않는다 — 그래도 새면 이 건만 실패로 두고 다음 건을 계속한다
@@ -659,47 +649,43 @@ public class ImageCollectService {
      * @param injectAt 의도적 실패(주입) 단계 — 그 단계의 일을 한 뒤 실패시킨다(매핑은 커밋 전 롤백). 보통 null
      */
     private ImageOutcome processOne(ImageTarget t, InmatePhotoRepository.Mapped cur, boolean force, long virtualMs,
-                                    ImageMetrics m, XvarmBrokerClient via, ImageStage injectAt, StepLog steps) {
+                                    ImageMetrics m, boolean sim, ImageStage injectAt, StepLog steps) {
         long t0 = System.currentTimeMillis();
         if (t.docId() == null) {
             m.error(ImageStage.FILEKEY);
             return ImageOutcome.fail(t, ImageStage.FILEKEY,
                     "공통파일기본(TB_SMSM_CMFI_BS)에 CMMN_FILE_ID=" + t.imageCmmnFileId() + " 가 없다", 0L);
         }
-        if (t.fileKey() == null || t.fileKey().isBlank()) {
+        // FILEKEY 는 브로커 방식만 필요하다(브로커가 FILEKEY 로 원본을 찾는다). 동기화 방식은 DOC_ID 로 찾는다.
+        if (acquirer.requiresFileKey() && (t.fileKey() == null || t.fileKey().isBlank())) {
             m.error(ImageStage.FILEKEY);
             return ImageOutcome.fail(t, ImageStage.FILEKEY, "XVARM(ASYSCONTENTELEMENT)에 ELEMENTID=" + t.docId() + " 가 없다", 0L);
         }
         if (cur != null && cur.imageSn() > t.imageSn()) {
             return ImageOutcome.skipped(t, "더 최신 사진(순번 " + cur.imageSn() + ")이 이미 매핑돼 있다");
         }
-        if (!force && cur != null && cur.imageSn() == t.imageSn() && Objects.equals(cur.fileKey(), t.fileKey())
+        // 변경 판단 = (순번, DOC_ID) — FILEKEY 는 XVARM 을 걷어내면 없다. 같은 사진(DOC_ID)이 XVARM 안에서 자리만 옮긴 것은 변경이 아니다.
+        if (!force && cur != null && cur.imageSn() == t.imageSn() && Objects.equals(cur.docId(), t.docId())
                 && cur.photoPath() != null && Files.isRegularFile(Path.of(cur.photoPath()))) {
             return ImageOutcome.skipped(t, "변경 없음 — 이미 매핑된 최신 사진");
         }
 
-        Path dir = dirs.receiveDir(VoiceKind.MEET);   // 브로커 출력 폴더 = 접견 수신 폴더
         Path received = null;
         ImageStage step = ImageStage.ACQUIRE;
         // 표본 — 이번 실행에서 처음 수신까지 온 한 건만 단계별 실행 기록을 남긴다
         boolean sample = sampleTaken.compareAndSet(false, true);
         try {
-            // ── 브로커 수신 ──
+            // ── 파일 확보(지금은 브로커 수신) ──
             long s = ImageMetrics.start();
-            watcher.clearStale(dir, t.receiveName());
             if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL, t.corrNo())) {
                 throw new IllegalStateException("XVARM 추출 실패 — 브로커가 이 건을 거부했습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
             }
-            XvarmBrokerClient.FileRequest fr = new XvarmBrokerClient.FileRequest(
-                    t.docId(), t.fileKey(), t.requestId(execId), t.receiveName());
-            XvarmBrokerClient.ExtractResult r = via.extractFile(fr);
-            if (sample) {
-                traceExtract(t, via, fr, r);
-            }
-            BrokerOutputCheck.mismatch(r.filePath(), dirs.receiveMeet()).ifPresent(reason -> {
-                throw new IllegalStateException(reason);
-            });
-            received = watcher.awaitFile(dir, fileNameOf(r.filePath(), t.receiveName()), () -> cancelRequested);
+            SourceFileAcquirer.PhotoRequest req =
+                    new SourceFileAcquirer.PhotoRequest(t.docId(), t.fileKey(), t.requestId(execId), t.receiveName(), sim);
+            received = acquirer.acquirePhoto(req,
+                    () -> cancelRequested,
+                    sample ? (title, kind, command, result) -> trace.add(ImageTrace.Step.RECEIVE, title, kind, command, result)
+                            : null);
             if (sample) {
                 trace.add(ImageTrace.Step.RECEIVE, "수신 폴더 도착 확인 — 쓰기가 끝날 때까지(크기 안정) 기다린 뒤", "SHELL",
                         "ls -la " + slash(received), lsLine(received));
@@ -760,9 +746,10 @@ public class ImageCollectService {
             step = ImageStage.MAP;
             s = ImageMetrics.start();
             String path = saved.path().toString().replace('\\', '/');
+            // filekey 자리(NOT NULL)는 확보 방식이 정한다 — 브로커 = XVARM FILEKEY(지금) · 동기화(2단계) = 받은 파일의 상대 경로
             InmatePhotoRepository.PhotoRow row = new InmatePhotoRepository.PhotoRow(
-                    t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
-                    saved.ext(), execId);
+                    t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), acquirer.photoRecordKey(req, received), path,
+                    saved.size(), saved.ext(), execId);
             InmatePhotoRepository.MapResult mr;
             // 커밋 전에 부른다 — 여기서 던지면 매핑이 롤백된다(의도적 실패 주입 · 더미 시나리오 SEND_FAIL)
             Runnable beforeCommit = () -> {
@@ -817,25 +804,10 @@ public class ImageCollectService {
                 try {
                     Files.deleteIfExists(received);
                 } catch (Exception ignored) {
-                    // 다음 요청 전 clearStale 이 치운다
+                    // (BROKER) 다음 요청 전 clearStale 이 치운다
                 }
             }
         }
-    }
-
-    /** ④ 브로커 추출 요청을 cURL 로 적는다 — 내장 Mock 이면 같은 요청을 수집기 안에서 처리한 것이다. */
-    private void traceExtract(ImageTarget t, XvarmBrokerClient via, XvarmBrokerClient.FileRequest fr,
-                              XvarmBrokerClient.ExtractResult r) {
-        String body = "{\"docId\":\"" + fr.docId() + "\",\"fileKey\":\"" + fr.fileKey() + "\",\"requestId\":\""
-                + fr.requestId() + "\",\"fileName\":\"" + fr.fileName() + "\"}";
-        boolean internal = via == mockBroker;
-        String base = internal ? "http://(수집기 내장 Mock)" : String.valueOf(modeState.brokerBaseUrl()).replaceAll("/+$", "");
-        String cmd = (internal ? "# 수집기 내장 Mock 브로커 — 아래 요청을 수집기 안에서 처리한다(SIM 원본은 수집기 저장소에만 있다)\n" : "")
-                + "curl -s -X POST '" + base + "/api/v1/xvarm/extract' \\\n  -H 'Content-Type: application/json' \\\n  -d '"
-                + body + "'";
-        trace.add(ImageTrace.Step.RECEIVE, "브로커 추출 요청 — FILEKEY 의 원본을 수신 폴더로(" + via.mode() + ")", "HTTP", cmd,
-                "{\"requestId\":\"" + r.requestId() + "\",\"status\":\"DONE\",\"filePath\":\""
-                        + String.valueOf(r.filePath()).replace('\\', '/') + "\",\"fileSize\":" + r.fileSize() + "}");
     }
 
     private void traceFailure(ImageStage step, String title, String reason) {
@@ -892,15 +864,6 @@ public class ImageCollectService {
             Throwable c = e.getCause() == null ? e : e.getCause();
             return ImageOutcome.fail(t, ImageStage.ACQUIRE, c.getClass().getSimpleName() + ": " + shorten(c.getMessage()), 0L);
         }
-    }
-
-    private static String fileNameOf(String path, String fallback) {
-        if (path == null || path.isBlank()) {
-            return fallback;
-        }
-        int i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-        String tail = i >= 0 ? path.substring(i + 1) : path;
-        return tail.isBlank() ? fallback : tail;
     }
 
     private static String rootMessage(Throwable t) {

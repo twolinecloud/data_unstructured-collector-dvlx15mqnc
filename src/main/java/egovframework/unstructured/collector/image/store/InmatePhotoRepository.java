@@ -49,8 +49,11 @@ public class InmatePhotoRepository {
     public record PhotoRow(String corrNo, int imageSn, String imageCmmnFileId, String docId, String fileKey,
                            String photoPath, long fileSize, String fileExt, String execId) {}
 
-    /** 이미 매핑된 사진 — 변경이 없으면 다시 받지 않는다. */
-    public record Mapped(String corrNo, int imageSn, String fileKey, String photoPath) {}
+    /**
+     * 이미 매핑된 사진 — 변경이 없으면 다시 받지 않는다. 변경 판단은 (순번, DOC_ID) 다(2026-11-28 XVARM 제거 1단계 — FILEKEY 는
+     * XVARM 조인을 빼면 없다). {@code fileKey} 는 기록용으로만 남는다.
+     */
+    public record Mapped(String corrNo, int imageSn, String docId, String fileKey, String photoPath) {}
 
     private final AdminDb db;
     private final ImageProperties props;
@@ -213,11 +216,11 @@ public class InmatePhotoRepository {
         NamedParameterJdbcTemplate named = new NamedParameterJdbcTemplate(db.jdbc());
         for (int i = 0; i < corrNos.size(); i += 500) {
             List<String> chunk = corrNos.subList(i, Math.min(corrNos.size(), i + 500));
-            named.query("SELECT corr_no, image_sn, filekey, photo_path FROM " + photo() + " WHERE corr_no IN (:ids)",
+            named.query("SELECT corr_no, image_sn, doc_id, filekey, photo_path FROM " + photo() + " WHERE corr_no IN (:ids)",
                     new MapSqlParameterSource("ids", chunk),
                     rs -> {
                         out.put(rs.getString("corr_no"), new Mapped(rs.getString("corr_no"), rs.getInt("image_sn"),
-                                rs.getString("filekey"), rs.getString("photo_path")));
+                                rs.getString("doc_id"), rs.getString("filekey"), rs.getString("photo_path")));
                     });
         }
         return out;
@@ -225,9 +228,9 @@ public class InmatePhotoRepository {
 
     /** 한 수용자의 매핑 — 사진 파일 제공 API({@link PhotoFileLocator})가 저장 경로를 찾을 때. 없으면 빈 값. */
     public Optional<Mapped> findMapped(String corrNo) {
-        return db.jdbc().query("SELECT corr_no, image_sn, filekey, photo_path FROM " + photo() + " WHERE corr_no = ?",
-                (rs, i) -> new Mapped(rs.getString("corr_no"), rs.getInt("image_sn"), rs.getString("filekey"),
-                        rs.getString("photo_path")),
+        return db.jdbc().query("SELECT corr_no, image_sn, doc_id, filekey, photo_path FROM " + photo() + " WHERE corr_no = ?",
+                (rs, i) -> new Mapped(rs.getString("corr_no"), rs.getInt("image_sn"), rs.getString("doc_id"),
+                        rs.getString("filekey"), rs.getString("photo_path")),
                 corrNo).stream().findFirst();
     }
 

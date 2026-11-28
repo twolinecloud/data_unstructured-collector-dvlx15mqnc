@@ -83,7 +83,7 @@ public class ImageController {
                     최신 사진을 골라 받아 저장하고 매핑한다. 끝날 때까지 돌아오지 않는다 — 진행은 `GET /progress`.
 
                     - `corrNos` 를 주면 그 수용자만, 비우면 전체(`image.chunk-size` 씩 끝까지 · 현재 수용자만 — `image.active-status-codes`)
-                    - 매핑된 순번·FILEKEY 가 같고 저장 파일이 있으면 **건너뜀**(다시 받지 않음) — `force=true` 면 다시 받는다
+                    - 매핑된 순번·DOC_ID 가 같고 저장 파일이 있으면 **건너뜀**(다시 받지 않음) — `force=true` 면 다시 받는다
                     - 다시 받는 건은 매핑을 UPSERT 한다 — 몇 번 다시 돌려도 키 중복 없이 있으면 갱신 · 없으면 넣기(멱등)
                     - 더 최신 사진이 이미 매핑된 수용자는 덮지 않는다(STALE)
                     - 한 건의 오류는 그 건만 실패로 남기고 다음 건을 계속한다

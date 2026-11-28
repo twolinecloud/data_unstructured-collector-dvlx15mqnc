@@ -65,17 +65,19 @@ class RestXvarmBrokerClientTest {
                         new VoiceProperties.Flag("Y", "Y", "N", "Y"),
                         VoiceProperties.XvarmMode.MOCK_DEV, new VoiceProperties.XvarmMock("sm", "xvarm"),
                         new VoiceProperties.LocalH2("jdbc:h2:mem:t", "sa", "", 10, 0),
-                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000)),
+                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000),
+                        VoiceProperties.XvarmJoin.TRACE),
                 // 폴링 간격을 짧게 — 테스트가 몇 초씩 잡고 있을 이유가 없다
                 new VoiceProperties.Broker(VoiceProperties.BrokerMode.REST, BASE, java.util.List.of(), 10, 3),
                 new VoiceProperties.Phone(VoiceProperties.PhoneMode.MOCK),
                 new VoiceProperties.Sync(10, 5, EsbFileNamingPolicy.Policy.ORIGINAL),
-                new VoiceProperties.Dirs("b", "m", "p", "w", ""),
+                new VoiceProperties.Dirs("b", "m", "p", "w", "", ""),
                 new VoiceProperties.Decrypt(VoiceProperties.DecryptMode.SKIP, ""),
                 new VoiceProperties.Stt(VoiceProperties.SttMode.MOCK, "", 30),
                 new VoiceProperties.Batch(20, false,
                         List.of("0", "1"), 500, "VOICE_ANALYSIS", "TEST_BATCH", "UNSTRUCTURED", false),
-                new VoiceProperties.Sim(false));
+                new VoiceProperties.Sim(false),
+                new VoiceProperties.Acquire(VoiceProperties.AcquireMode.BROKER), VoiceProperties.Inbound.defaults());
     }
 
     private VoiceTarget meet() {
@@ -207,7 +209,8 @@ class RestXvarmBrokerClientTest {
                 props().source(),
                 new VoiceProperties.Broker(VoiceProperties.BrokerMode.REST, "", java.util.List.of(), 10, 3),
                 new VoiceProperties.Phone(VoiceProperties.PhoneMode.MOCK),
-                props().sync(), props().dirs(), props().decrypt(), props().stt(), props().batch(), props().sim());
+                props().sync(), props().dirs(), props().decrypt(), props().stt(), props().batch(), props().sim(),
+                props().acquire(), props().inbound());
         egovframework.unstructured.collector.common.config.VoiceModeState state = modeState(noUrl);
         // 설정이 비면 DeployEnvPreset 이 로컬 기본(localhost:8082)을 채운다 — 화면에서 일부러 지운 상황을 만든다
         state.setBrokerBaseUrl("");

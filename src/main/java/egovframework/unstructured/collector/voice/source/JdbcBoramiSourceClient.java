@@ -142,7 +142,8 @@ public class JdbcBoramiSourceClient implements BoramiSourceClient {
                 limit,
                 Math.max(0, offset),
                 testFilter.insttCds(),
-                testFilter.corrNos());
+                testFilter.corrNos(),
+                props.source().xvarmJoin() == VoiceProperties.XvarmJoin.TRACE);
     }
 
     @Override

@@ -1,10 +1,9 @@
 package egovframework.unstructured.collector.voice.batch;
 
-import egovframework.unstructured.collector.common.broker.BrokerOutputCheck;
-import egovframework.unstructured.collector.common.broker.XvarmBrokerClient;
 import egovframework.unstructured.collector.common.config.VoiceDirState;
 import egovframework.unstructured.collector.common.config.VoiceProperties;
 import egovframework.unstructured.collector.common.decrypt.DecryptService;
+import egovframework.unstructured.collector.common.inbound.SourceFileAcquirer;
 import egovframework.unstructured.collector.common.logging.LogCollectorClient;
 import egovframework.unstructured.collector.common.model.BatchWindow;
 import egovframework.unstructured.collector.common.model.FileProcOutcome;
@@ -83,8 +82,10 @@ public class VoiceCollectService {
     private final VoiceProperties props;
     private final VoiceDirState dirs;
     private final BoramiSourceClient source;
-    private final XvarmBrokerClient broker;
+    /** 접견 파일 확보 — 지금은 XVARM 브로커(BROKER). 보라미 동기화 폴더(SYNCED)로 갈아 끼울 자리다(XVARM 제거 1단계). */
+    private final SourceFileAcquirer acquirer;
     private final egovframework.unstructured.collector.common.sync.PhoneFileProvider phoneFileProvider;
+    /** 전화 수신 대기 — 접견은 {@link #acquirer} 가 기다린다. */
     private final FileArrivalWatcher watcher;
     private final DecryptService decryptService;
     private final SttClient sttClient;
@@ -272,8 +273,8 @@ public class VoiceCollectService {
         // 트랙별로 따로 찍는다. 두 시나리오는 연동 주체가 달라서 한 줄에 섞으면
         // 어느 모드가 어느 경로에 걸린 것인지 읽히지 않는다.
         if (targets.contains(VoiceKind.MEET)) {
-            log.info("[Batch]   접견 트랙 — 조회={} → 브로커={} → 복호화={} → STT={} → 비식별={} → 전송=에이전트 커넥터 {}",
-                    source.mode(), broker.mode(), decryptService.mode(), sttClient.mode(), voiceDeident.mode(), connector.mode());
+            log.info("[Batch]   접견 트랙 — 조회={} → 확보={} → 복호화={} → STT={} → 비식별={} → 전송=에이전트 커넥터 {}",
+                    source.mode(), acquirer.mode(), decryptService.mode(), sttClient.mode(), voiceDeident.mode(), connector.mode());
         }
         if (targets.contains(VoiceKind.PHONE)) {
             log.info("[Batch]   전화 트랙 — 조회={} → 파일연계={} → 복호화={} → STT={} → 비식별={} → 전송=에이전트 커넥터 {}  (XVARM 경유 없음)",
@@ -1465,57 +1466,27 @@ public class VoiceCollectService {
     /**
      * 파일을 우리 스토리지까지 가져온다.
      *
-     * <p>경로가 둘로 갈린다 — 접견은 우리가 XVARM 브로커에 추출을 <b>지시</b>하고,
+     * <p>경로가 둘로 갈린다 — 접견은 확보 방식({@link SourceFileAcquirer} · 지금은 XVARM 브로커에 추출을 <b>지시</b>)을 따르고,
      * 전화는 별도 ESB 프로바이더가 떨궈 주는 것을 <b>기다린다</b>.
      * 어느 쪽이든 마지막은 수신 디렉터리를 보는 것으로 같다.</p>
      */
     private VoiceFile acquire(VoiceTarget target, String execId) {
-        // 요청 전에 그 이름에 남아 있는 것은 이번 요청의 산출물일 수 없다 — 먼저 치운다.
-        watcher.clearStale(target);
         if (target.kind() == VoiceKind.MEET) {
-            // 더미 시나리오 COLLECT_FAIL — 브로커에 요청하기 전에 끊는다. 개발계 브로커(DUMMY 어댑터)는 FILEKEY 가 없거나
+            // 더미 시나리오 COLLECT_FAIL — 원천에 요청하기 전에 끊는다. 개발계 브로커(DUMMY 어댑터)는 FILEKEY 가 없거나
             //   읽히지 않아도 무음 WAV 를 만들어 주므로 메타 누락만으로는 실패하지 않는다. 표식 건만 · 한 번만 · 운영 제외.
             if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL,
                     target.idempotencyKey())) {
                 throw new IllegalStateException("XVARM 추출 요청 거부 — FILEKEY 를 확인할 수 없습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
             }
-            log.info("[Track:MEET] ② XVARM 추출 요청 — {} via 브로커 {} (execId={})", target.shortId(), broker.mode(), execId);
-            XvarmBrokerClient.ExtractResult extracted = broker.extract(target, execId);
-            log.info("[Track:MEET] ③ ESB 수신 대기 — {} (브로커 산출 {})",
-                    target.shortId(), extracted.filePath());
-            // 브로커가 만든 파일이 우리 쪽에 보이는데 수신 폴더 밖이면 기다려 봐야 타임아웃이다.
-            //   브로커를 local 프로파일 없이 띄웠을 때 300초를 날리던 자리 — 지금 끊는다.
-            //   운영은 보라미 서버 경로라 우리 쪽에 없어 이 판정에 걸리지 않는다(BrokerOutputCheck).
-            BrokerOutputCheck.mismatch(extracted.filePath(), dirs.receiveMeet())
-                    .ifPresent(reason -> { throw new IllegalStateException(reason); });
-            // 브로커가 알려준 실제 파일명을 그대로 쓴다.
-            //   추측한 이름으로 찾으면 브로커가 다른 이름으로 만들었을 때 영영 못 찾고 타임아웃이 난다.
-            //   Mock 브로커는 우리와 같은 명명 정책을 써서 우연히 일치했을 뿐이고,
-            //   실제 XVARM 이 파일명을 어떻게 정하는지는 아직 모른다(계획서 Q3).
             // 중단 요청은 대기 중에도 곧바로 먹는다 — 파일이 끝내 오지 않는 건에서 대기 제한(300초)까지 멈춰 있지 않게
-            return watcher.await(target, fileNameOf(extracted.filePath()), progress::isCancelRequested);
+            return acquirer.acquireMeet(target, execId, progress::isCancelRequested);
         }
+        // 전화 — 요청 → 대기(XVARM 과 무관 · 그대로). 요청 전에 그 이름에 남아 있는 것은 이번 요청의 산출물일 수 없다 — 먼저 치운다.
+        watcher.clearStale(target);
         log.info("[Track:PHONE] ② 전화 파일 연계 요청 — {} via {}", target.shortId(), phoneFileProvider.mode());
         phoneFileProvider.request(target);
         log.info("[Track:PHONE] ③ 수신 대기 — {}", target.shortId());
         return watcher.await(target, null, progress::isCancelRequested);
-    }
-
-    /** 경로에서 파일명만 뽑는다. 경로가 비었으면 null — watcher 가 정책으로 되돌아간다. */
-    private static String fileNameOf(String path) {
-        if (path == null || path.isBlank()) {
-            return null;
-        }
-        try {
-            Path name = Path.of(path).getFileName();
-            return name == null ? null : name.toString();
-        } catch (Exception e) {
-            // 브로커가 우리 OS 와 다른 경로 표기를 줄 수 있다(보라미는 리눅스).
-            // 파싱이 안 되면 구분자로 직접 자른다.
-            int i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-            String tail = (i >= 0) ? path.substring(i + 1) : path;
-            return tail.isBlank() ? null : tail;
-        }
     }
 
     /**

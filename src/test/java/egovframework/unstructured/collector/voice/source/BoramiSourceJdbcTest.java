@@ -72,6 +72,16 @@ class BoramiSourceJdbcTest {
     @Autowired
     private SimulationDataService sim;
 
+    /** XVARM 조인 유무(voice.source.xvarm-join)를 SQL 단에서 직접 본다 — 기동 설정(BROKER)은 조인을 빼면 막히므로. */
+    @Autowired
+    private egovframework.unstructured.collector.voice.mapper.BoramiVoiceMapper mapper;
+
+    @Autowired
+    private egovframework.unstructured.collector.common.config.BoramiTableNames tables;
+
+    @Autowired
+    private egovframework.unstructured.collector.common.config.VoiceProperties props;
+
     private BatchWindow wide() {
         LocalDateTime now = LocalDateTime.now();
         return BatchWindow.manual(now.minusDays(2), now.plusDays(1));
@@ -116,6 +126,40 @@ class BoramiSourceJdbcTest {
         assertThat(Files.isRegularFile(Path.of(first.fileKey()))).as("DB 파일키와 1:1 인 물리 더미 파일").isTrue();
         assertThat(first.encrypted()).isTrue();
         assertThat(first.srcFileName()).isEqualTo("mock_meet_001.m4a");
+    }
+
+    @Test
+    @DisplayName("접견 조회는 공통파일 FILE_NM(원본 파일명)도 끌어온다 — 동기화 방식(2단계)에서 확장자를 아는 출처 · 전화는 비어 있다")
+    void meetQueryCarriesCmfiFileName() {
+        VoiceTarget first = source.findMeetTargets(wide(), SPECL, 100).stream()
+                .filter(t -> t.idempotencyKey().equals("SIM-MEET-001"))
+                .findFirst().orElseThrow();
+
+        assertThat(first.docFileName()).isEqualTo("mock_meet_001.m4a");
+        assertThat(source.findPhoneTargets(wide(), SPECL, 100)).allSatisfy(t -> assertThat(t.docFileName()).isNull());
+    }
+
+    @Test
+    @DisplayName("XVARM 조인을 빼면(xvarm-join=NONE) 그 표를 아예 읽지 않는다 — 없는 표 이름이어도 7건 · FILE_KEY 비움 · DOC_ID 그대로")
+    void meetQueryWithoutXvarmJoinNeverReadsXvarm() {
+        List<VoiceTarget> targets = mapper.selectMeetTargets(params("NO_SUCH_XVARM_TABLE", false));
+
+        assertThat(targets).hasSize(7);
+        assertThat(targets).allSatisfy(t -> assertThat(t.fileKey()).isNull());
+        VoiceTarget first = targets.stream().filter(t -> t.idempotencyKey().equals("SIM-MEET-001")).findFirst().orElseThrow();
+        assertThat(first.docId()).isEqualTo("SIMDOC0001");
+        assertThat(first.docFileName()).isEqualTo("mock_meet_001.m4a");
+        // 대조 — 조인을 켜면 같은 없는 표 이름에서 실패한다(위 결과가 조인을 정말 뺀 것이라는 근거)
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> mapper.selectMeetTargets(params("NO_SUCH_XVARM_TABLE", true)))
+                .isInstanceOf(Exception.class);
+    }
+
+    private BoramiQueryParams params(String xvarmTable, boolean xvarmJoin) {
+        egovframework.unstructured.collector.common.config.VoiceProperties.Flag f = props.source().flag();
+        BatchWindow w = wide();
+        return new BoramiQueryParams(tables.imscPtprDt(), tables.imphUcdrDs(), tables.rerdTfinDs(), tables.smsmCmfiBs(),
+                xvarmTable, f.recordedYes(), f.ptcrYes(), f.notDeleted(), f.encrypted(), w.from(), w.to(), SPECL, 100, 0,
+                List.of(), List.of(), xvarmJoin);
     }
 
     @Test

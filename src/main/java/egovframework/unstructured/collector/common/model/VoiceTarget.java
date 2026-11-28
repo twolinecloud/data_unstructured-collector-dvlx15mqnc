@@ -21,6 +21,9 @@ import java.time.LocalDateTime;
  * @param srcFileName    원본 파일명 — ESB 수신 파일이 {@code .DAT} 로 바뀌므로 포맷 판별에 쓴다
  * @param sourceSttPath  전화 전용 — {@code TELP_STT_FLPTH_NM}. 값이 있으면 보라미가 이미 STT 한 것일 수 있다(Q1)
  * @param occurredAt     접견일자 / 통화시작일시
+ * @param docFileName    접견 전용 — 공통파일기본 {@code TB_SMSM_CMFI_BS.FILE_NM}(원본 파일명). 동기화 폴더 방식(2단계)에서
+ *                       보라미가 {@code {DOC_ID}.{확장자}} 로 넣어 줄 때 확장자를 아는 출처다. 지금(1단계)은 조회만 하고 쓰지 않는다.
+ *                       전화는 늘 {@code null}
  */
 public record VoiceTarget(
         VoiceKind kind,
@@ -33,8 +36,17 @@ public record VoiceTarget(
         String srcFilePath,
         String srcFileName,
         String sourceSttPath,
-        LocalDateTime occurredAt
+        LocalDateTime occurredAt,
+        String docFileName
 ) {
+
+    /** 공통파일 원본 파일명 없이 — 전화 · Mock · 시험이 만든다({@code docFileName = null}). */
+    public VoiceTarget(VoiceKind kind, String corrNo, String idempotencyKey, String docId, String fileKey,
+                       boolean encrypted, String decryptKey, String srcFilePath, String srcFileName,
+                       String sourceSttPath, LocalDateTime occurredAt) {
+        this(kind, corrNo, idempotencyKey, docId, fileKey, encrypted, decryptKey, srcFilePath, srcFileName,
+                sourceSttPath, occurredAt, null);
+    }
 
     /** 로그·파일명에 쓸 짧은 식별자. 교정번호는 그 자체로 민감하므로 노출하지 않는다. */
     public String shortId() {

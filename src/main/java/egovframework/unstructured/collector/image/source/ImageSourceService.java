@@ -329,15 +329,23 @@ public class ImageSourceService {
 
     /**
      * 2·3단계 — 문서ID · FILEKEY(· 파일명 · 암호화 여부)를 채운다. 없는 건은 비운 채 돌려준다.
+     *
+     * <p>XVARM 조인({@code voice.source.xvarm-join})이 {@code NONE} 이면 3단계를 건너뛴다 — XVARM 표를 읽지 않고 FILEKEY 는
+     * 비운다(2026-11-28 XVARM 제거 1단계 · 동기화 방식은 DOC_ID 로 찾는다).</p>
      */
     public List<ImageTarget> attachFileKeys(List<ImageTarget> latest) {
         List<String> ids = latest.stream().map(ImageTarget::imageCmmnFileId).filter(s -> s != null && !s.isBlank())
                 .distinct().toList();
         Map<String, FileRow> byId = new HashMap<>();
-        String sql = "SELECT C.CMMN_FILE_ID, C.DOC_ID, C.FILE_NM, C.CMMN_FILE_ENC_YN, X.FILEKEY"
-                + "  FROM " + tables.smsmCmfiBs() + " C"
-                + "  LEFT JOIN " + tables.asysContentElement() + " X ON X.ELEMENTID = C.DOC_ID"
-                + " WHERE C.CMMN_FILE_ID IN (:ids)";
+        boolean xvarm = voiceProps.source().xvarmJoin() == VoiceProperties.XvarmJoin.TRACE;
+        String sql = xvarm
+                ? "SELECT C.CMMN_FILE_ID, C.DOC_ID, C.FILE_NM, C.CMMN_FILE_ENC_YN, X.FILEKEY"
+                        + "  FROM " + tables.smsmCmfiBs() + " C"
+                        + "  LEFT JOIN " + tables.asysContentElement() + " X ON X.ELEMENTID = C.DOC_ID"
+                        + " WHERE C.CMMN_FILE_ID IN (:ids)"
+                : "SELECT C.CMMN_FILE_ID, C.DOC_ID, C.FILE_NM, C.CMMN_FILE_ENC_YN, CAST(NULL AS VARCHAR(1)) AS FILEKEY"
+                        + "  FROM " + tables.smsmCmfiBs() + " C"
+                        + " WHERE C.CMMN_FILE_ID IN (:ids)";
         NamedParameterJdbcTemplate named = new NamedParameterJdbcTemplate(jdbc);
         for (int i = 0; i < ids.size(); i += 500) {
             named.query(sql, new MapSqlParameterSource("ids", ids.subList(i, Math.min(ids.size(), i + 500))), rs -> {
@@ -360,10 +368,17 @@ public class ImageSourceService {
                 m.put("FILEKEY", f == null ? null : f.fileKey());
                 rows.add(m);
             }
-            trace.add(ImageTrace.Step.DOC_ID, "공통파일기본 — CMMN_FILE_ID → DOC_ID · 파일명 · 암호화 여부 (②③ 을 한 번의 LEFT JOIN 으로)",
-                    "SQL", shown, ImageTrace.table(List.of("CMMN_FILE_ID", "DOC_ID", "FILE_NM", "CMMN_FILE_ENC_YN"), rows, ids.size(), 5));
-            trace.add(ImageTrace.Step.FILEKEY, "XVARM — ELEMENTID = DOC_ID → FILEKEY (같은 조인의 X 쪽)", "SQL", shown,
-                    ImageTrace.table(List.of("DOC_ID", "FILEKEY"), rows, ids.size(), 5));
+            if (xvarm) {
+                trace.add(ImageTrace.Step.DOC_ID, "공통파일기본 — CMMN_FILE_ID → DOC_ID · 파일명 · 암호화 여부 (②③ 을 한 번의 LEFT JOIN 으로)",
+                        "SQL", shown, ImageTrace.table(List.of("CMMN_FILE_ID", "DOC_ID", "FILE_NM", "CMMN_FILE_ENC_YN"), rows, ids.size(), 5));
+                trace.add(ImageTrace.Step.FILEKEY, "XVARM — ELEMENTID = DOC_ID → FILEKEY (같은 조인의 X 쪽)", "SQL", shown,
+                        ImageTrace.table(List.of("DOC_ID", "FILEKEY"), rows, ids.size(), 5));
+            } else {
+                trace.add(ImageTrace.Step.DOC_ID, "공통파일기본 — CMMN_FILE_ID → DOC_ID · 파일명 · 암호화 여부 (XVARM 조인 없음)",
+                        "SQL", shown, ImageTrace.table(List.of("CMMN_FILE_ID", "DOC_ID", "FILE_NM", "CMMN_FILE_ENC_YN"), rows, ids.size(), 5));
+                trace.add(ImageTrace.Step.FILEKEY, "XVARM 조인 안 함 — voice.source.xvarm-join=NONE (DOC_ID 로 찾는다 · FILEKEY 비움)",
+                        "CODE", "# XVARM(ASYSCONTENTELEMENT)을 읽지 않는다", "FILEKEY = NULL (" + ids.size() + "건)");
+            }
         }
         String encYes = voiceProps.source().flag().encrypted();
         List<ImageTarget> out = new ArrayList<>(latest.size());

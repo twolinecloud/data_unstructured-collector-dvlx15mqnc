@@ -78,7 +78,7 @@ class ImagePhotoFileControllerTest {
     /** 매핑 한 행 — 수집기처럼 슬래시 경로로 적는다. */
     private void map(String corrNo, int sn, String photoPath) {
         when(photos.findMapped(corrNo)).thenReturn(Optional.of(
-                new InmatePhotoRepository.Mapped(corrNo, sn, "key-" + corrNo, photoPath.replace('\\', '/'))));
+                new InmatePhotoRepository.Mapped(corrNo, sn, "doc-" + corrNo, "key-" + corrNo, photoPath.replace('\\', '/'))));
     }
 
     private static byte[] png() throws IOException {

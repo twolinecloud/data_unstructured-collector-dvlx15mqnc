@@ -29,16 +29,18 @@ class VoiceModeStateTest {
                         new VoiceProperties.Flag("Y", "Y", "N", "Y"),
                         VoiceProperties.XvarmMode.MOCK_DEV, new VoiceProperties.XvarmMock("sm", "xvarm"),
                         new VoiceProperties.LocalH2("jdbc:h2:mem:t", "sa", "", 10, 0),
-                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000)),
+                        new VoiceProperties.DirectDb("jdbc:postgresql://localhost:1/x", "", "u", "", 1000, 1, 0, 60000),
+                        VoiceProperties.XvarmJoin.TRACE),
                 new VoiceProperties.Broker(VoiceProperties.BrokerMode.MOCK, "", java.util.List.of(), 100, 10),
                 new VoiceProperties.Phone(VoiceProperties.PhoneMode.MOCK),
                 new VoiceProperties.Sync(10, 5, EsbFileNamingPolicy.Policy.ORIGINAL),
-                new VoiceProperties.Dirs("b", "m", "p", "w", ""),
+                new VoiceProperties.Dirs("b", "m", "p", "w", "", ""),
                 new VoiceProperties.Decrypt(VoiceProperties.DecryptMode.SKIP, ""),
                 new VoiceProperties.Stt(VoiceProperties.SttMode.MOCK, "", 30),
                 new VoiceProperties.Batch(20, false,
                         List.of("0", "1"), 500, "VOICE_ANALYSIS", "TEST_BATCH", "UNSTRUCTURED", false),
-                new VoiceProperties.Sim(false));
+                new VoiceProperties.Sim(false),
+                new VoiceProperties.Acquire(VoiceProperties.AcquireMode.BROKER), VoiceProperties.Inbound.defaults());
     }
 
     @Test

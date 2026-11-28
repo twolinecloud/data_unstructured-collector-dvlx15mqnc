@@ -201,6 +201,42 @@ class ImagePipelineTest {
     }
 
     @Test
+    @DisplayName("변경 판단은 (순번, DOC_ID) — 같은 사진이 XVARM 안에서 자리(FILEKEY)만 옮긴 것은 변경이 아니다")
+    void fileKeyOnlyChangeIsNotAChange() {
+        sim.seed(2);
+        assertThat(runSim(false).success()).isEqualTo(2);
+        // 2026-11-28 XVARM 제거 1단계 전에는 FILEKEY 를 비교해 이 건을 다시 받았다(동기화 방식에는 FILEKEY 가 없다)
+        boramiJdbc.update("UPDATE " + tables.asysContentElement() + " SET FILEKEY = FILEKEY || '.moved' WHERE ELEMENTID = ?",
+                "SIMIMGD000012");
+
+        ImageCollectService.ImageRunResult again = runSim(false);
+
+        assertThat(again.skipped()).isEqualTo(2);
+        assertThat(again.updated()).isZero();
+        assertThat(again.outcomes()).allSatisfy(o -> assertThat(o.errMsg()).contains("변경 없음"));
+    }
+
+    @Test
+    @DisplayName("같은 순번이라도 DOC_ID 가 바뀌면 다시 받아 UPDATED — 매핑의 DOC_ID 도 새 값")
+    void docIdChangeRedownloads() {
+        sim.seed(2);
+        assertThat(runSim(false).success()).isEqualTo(2);
+        String corr = ImageSimulationService.corrNo(1);
+        // 공통파일이 새 문서를 가리킨다 — XVARM 에도 새 문서 행(같은 원본)을 둔다. 접두 SIMIMGD 라 sim.clean() 이 치운다
+        boramiJdbc.update("UPDATE " + tables.smsmCmfiBs() + " SET DOC_ID = ? WHERE CMMN_FILE_ID = ?", "SIMIMGD900012", "SIMIMGF000012");
+        boramiJdbc.update("INSERT INTO " + tables.asysContentElement() + " (ELEMENTID, FILEKEY)"
+                + " SELECT ?, FILEKEY FROM " + tables.asysContentElement() + " WHERE ELEMENTID = ?", "SIMIMGD900012", "SIMIMGD000012");
+
+        ImageCollectService.ImageRunResult again = runSim(false);
+
+        assertThat(again.success()).as("실패: %s", again.outcomes()).isEqualTo(1);
+        assertThat(again.updated()).isEqualTo(1);
+        assertThat(again.skipped()).isEqualTo(1);
+        assertThat(photos.find(corr).get("doc_id")).isEqualTo("SIMIMGD900012");
+        assertThat(photos.findMapped(corr)).get().extracting(InmatePhotoRepository.Mapped::docId).isEqualTo("SIMIMGD900012");
+    }
+
+    @Test
     @DisplayName("옛 사진(순번이 더 작은 것)은 매핑을 덮지 않는다 — STALE")
     void staleDoesNotOverwrite() {
         sim.seed(1);

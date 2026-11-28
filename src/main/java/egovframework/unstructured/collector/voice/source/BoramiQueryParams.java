@@ -27,6 +27,8 @@ import java.util.List;
  * @param offset           건너뛸 행 수
  * @param insttCds         운영 테스트 조건 — 교정기관코드(비면 거르지 않음 · {@code SourceTestFilter})
  * @param corrNos          운영 테스트 조건 — 교정번호(비면 거르지 않음)
+ * @param xvarmJoin        접견 조회에 XVARM({@code tXvarm})을 조인해 FILEKEY 를 붙이나 — {@code voice.source.xvarm-join=TRACE}.
+ *                         거짓이면 그 표를 아예 읽지 않고 FILE_KEY 는 NULL 이다(2026-11-28 XVARM 제거 1단계 · 동기화 방식은 DOC_ID 로 찾는다)
  */
 public record BoramiQueryParams(
         String tImsc,
@@ -44,6 +46,7 @@ public record BoramiQueryParams(
         int limit,
         int offset,
         List<String> insttCds,
-        List<String> corrNos
+        List<String> corrNos,
+        boolean xvarmJoin
 ) {
 }

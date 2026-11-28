@@ -43,6 +43,8 @@ public class VoiceDirState {
     public static final String REL_RECEIVE_MEET = "esb/meet";
     public static final String REL_RECEIVE_PHONE = "esb/phone";
     public static final String REL_WORK = "xvram/decoding";
+    /** 사진 동기화 폴더(SYNCED · 2단계 · 회의 D5) — 아래 5종과 달리 화면 경로 표 · 바꾸기 대상에는 아직 넣지 않았다. */
+    public static final String REL_RECEIVE_PHOTO = "esb/photo";
 
     /** 화면 표기 순서·라벨 — 시뮬레이터 상단 서브헤더와 같다. */
     public static final List<String[]> LABELS = List.of(
@@ -78,6 +80,14 @@ public class VoiceDirState {
     public String receiveMeet() { return receiveMeet; }
     public String receivePhone() { return receivePhone; }
     public String work() { return work; }
+
+    /**
+     * 사진 동기화 폴더 — {@code acquire.mode=SYNCED}(2단계)에서 보라미가 사진을 넣는 곳. 설정({@code voice.dirs.receive-photo})이
+     * 비면 {@code {ROOT}/esb/photo}. BROKER 는 이 폴더를 쓰지 않는다(사진도 접견 수신 폴더 = 브로커 출력 폴더로 받는다).
+     */
+    public String receivePhoto() {
+        return or(props.dirs().receivePhoto(), norm(baseDir) + "/" + REL_RECEIVE_PHOTO);
+    }
 
     /** 종류별 수신 디렉터리. */
     public Path receiveDir(VoiceKind kind) {

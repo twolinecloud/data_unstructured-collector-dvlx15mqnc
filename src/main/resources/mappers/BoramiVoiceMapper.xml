@@ -35,6 +35,7 @@
             <arg column="SRC_FILE_NAME"   javaType="java.lang.String"/>
             <arg column="SOURCE_STT_PATH" javaType="java.lang.String"/>
             <arg column="OCCURRED_AT"     javaType="java.time.LocalDateTime"/>
+            <arg column="DOC_FILE_NAME"   javaType="java.lang.String"/>
         </constructor>
     </resultMap>
 
@@ -64,8 +65,10 @@
         ① ${p.tImsc}  특이수용자상세 : SPECL_MNG_SE_CD 로 대상 선별
         ② ${p.tRerd}  녹취파일내역   : CORR_NO 로 녹취 건 → TBLT_VTR_FILE_ID
         ③ ${p.tSmsm}  공통파일기본   : CMMN_FILE_ID = ②.TBLT_VTR_FILE_ID → DOC_ID
-        ④ ${p.tXvarm} XVARM         : ELEMENTID = ③.DOC_ID → FILEKEY
+        ④ ${p.tXvarm} XVARM         : ELEMENTID = ③.DOC_ID → FILEKEY  (p.xvarmJoin 일 때만 · voice.source.xvarm-join=TRACE)
 
+      ※ 2026-11-28 XVARM 제거 1단계 — ④는 브로커 방식이 FILEKEY 로 원본을 찾을 때만 필요하다. 보라미 동기화 방식(2단계)은
+         DOC_ID 로 찾으므로 ④를 빼고(xvarm-join=NONE) 그 표를 아예 읽지 않는다. ③의 FILE_NM(원본 파일명)은 확장자를 알려고 같이 읽는다.
       ※ 삭제 플래그가 셋이다(녹취 DEL_YN · 녹음파일 RECRD_FILE_DEL_YN · 공통파일 DEL_YN).
          하나라도 놓치면 이미 지워진 파일을 XVARM 에 요청하게 된다.
       ※ ③④ 테이블은 2026-09-12 기준 borami-db 에 없다. 실연동 전까지 접견은 MOCK 을 쓴다.
@@ -79,19 +82,29 @@
             , R.CORR_NO                   AS CORR_NO
             , R.TARE_FILE_NO              AS IDEMPOTENCY_KEY
             , F.DOC_ID                    AS DOC_ID
+        <choose>
+            <when test="p.xvarmJoin">
             , X.FILEKEY                   AS FILE_KEY
+            </when>
+            <otherwise>
+            , CAST(NULL AS VARCHAR(1))    AS FILE_KEY
+            </otherwise>
+        </choose>
             , CASE WHEN F.CMMN_FILE_ENC_YN = #{p.flagEncrypted} THEN 1 ELSE 0 END AS ENCRYPTED
             , CAST(NULL AS VARCHAR(1))    AS DECRYPT_KEY
             , R.TARE_FLPTH_NM             AS SRC_FILE_PATH
             , R.TARE_FILE_NM              AS SRC_FILE_NAME
             , CAST(NULL AS VARCHAR(1))    AS SOURCE_STT_PATH
             , R.CRT_DT                    AS OCCURRED_AT
+            , F.FILE_NM                   AS DOC_FILE_NAME
         FROM ${p.tRerd} R
         INNER JOIN ${p.tSmsm} F
                 ON F.CMMN_FILE_ID = R.TBLT_VTR_FILE_ID
                AND F.DEL_YN = #{p.flagNotDeleted}
+        <if test="p.xvarmJoin">
         LEFT JOIN ${p.tXvarm} X
                ON X.ELEMENTID = F.DOC_ID
+        </if>
         WHERE R.CRT_DT &gt;= #{p.from}
           AND R.CRT_DT &lt;  #{p.to}
           AND R.DEL_YN = #{p.flagNotDeleted}
@@ -126,6 +139,7 @@
             , U.TELP_RECRD_FILE_NM        AS SRC_FILE_NAME
             , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH
             , U.CRT_DT                    AS OCCURRED_AT
+            , CAST(NULL AS VARCHAR(1))    AS DOC_FILE_NAME
         FROM ${p.tImph} U
         WHERE U.CRT_DT &gt;= #{p.from}
           AND U.CRT_DT &lt;  #{p.to}
@@ -159,6 +173,7 @@
             , U.TELP_RECRD_FILE_NM        AS SRC_FILE_NAME
             , U.TELP_STT_FLPTH_NM         AS SOURCE_STT_PATH
             , U.CRT_DT                    AS OCCURRED_AT
+            , CAST(NULL AS VARCHAR(1))    AS DOC_FILE_NAME
         FROM ${p.tImph} U
         WHERE U.CRT_DT &gt;= #{p.from}
           AND U.CRT_DT &lt;  #{p.to}

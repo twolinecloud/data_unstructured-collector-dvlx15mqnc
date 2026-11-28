@@ -37,14 +37,15 @@ import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
- * <b>수용자 이미지 수집</b> — 보라미 조회 → FILEKEY 추출 → 브로커 수신 → 이미지 확인(복호화는 기본 생략 · {@code image.decrypt}) → 저장 → Admin DB 매핑.
+ * <b>수용자 이미지 수집</b> — 보라미 조회 → 파일 확보(지금은 브로커 수신) → 이미지 확인(복호화는 기본 생략 · {@code image.decrypt}) → 저장 → Admin DB 매핑.
  *
  * <ol>
- *   <li>최신 이미지 조회 · FILEKEY 추출 — {@link ImageSourceService}(페이지 단위, 배치 앞에서 한 번)</li>
- *   <li>건마다(워커 N개) — 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기 → 확인(복호화 기본 생략) → 저장 → 매핑</li>
+ *   <li>최신 이미지 조회 · 문서ID(· XVARM 조인 {@code TRACE} 면 FILEKEY) — {@link ImageSourceService}(페이지 단위, 배치 앞에서 한 번)</li>
+ *   <li>건마다(워커 N개) — 파일 확보({@link SourceFileAcquirer} · 지금은 브로커 {@code POST /api/v1/xvarm/extract} 로 수신 폴더에 받기)
+ *       → 확인(복호화 기본 생략) → 저장 → 매핑</li>
  * </ol>
  *
- * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·FILEKEY 가 같고 저장
+ * <p><b>재실행해도 안전하다(멱등)</b> — 변경 없는 건은 다시 받지 않는다: 매핑 테이블의 순번·DOC_ID 가 같고 저장
  * 파일이 있으면 '건너뜀'({@code force} 로 다시 받게 할 수 있다). 다시 받는 건은 저장 파일을 원자적으로 덮어쓰고
  * 매핑을 UPSERT 한다 — 키 중복 오류 없이 있으면 갱신 · 없으면 넣기. 더 최신 사진이 이미 매핑된 수용자는 덮지 않는다.</p>
  *
@@ -277,8 +278,8 @@ public class ImageCollectService {
         active.set(0);
         total = 0;
         ImageMetrics m = new ImageMetrics();
-        log.info("[Image] 시작 — execId={} · 워커 {} · 브로커 {} · 조건 corrNos={} prefix={} limit={} force={}{}{}", execId, workers,
-                brokerLabel, req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
+        log.info("[Image] 시작 — execId={} · 워커 {} · 확보 {} · 조건 corrNos={} prefix={} limit={} force={}{}{}", execId, workers,
+                acquirer.mode() + (sim ? " — 받은 곳 " + brokerLabel : ""), req.corrNos() == null ? "전체" : req.corrNos().size() + "명", req.corrNoPrefix(), req.limit(), force,
                 virtualMs > 0 ? " · 가상 지연 " + virtualMs + "ms" : "",
                 inject.isEmpty() ? "" : " · 의도적 실패 주입 " + inject.size() + "건");
 
@@ -679,8 +680,9 @@ public class ImageCollectService {
             if (scenarioFaults.failOnce(egovframework.unstructured.collector.mock.FailureScenario.COLLECT_FAIL, t.corrNo())) {
                 throw new IllegalStateException("XVARM 추출 실패 — 브로커가 이 건을 거부했습니다 [더미 시나리오 COLLECT_FAIL · 1회]");
             }
-            received = acquirer.acquirePhoto(
-                    new SourceFileAcquirer.PhotoRequest(t.docId(), t.fileKey(), t.requestId(execId), t.receiveName(), sim),
+            SourceFileAcquirer.PhotoRequest req =
+                    new SourceFileAcquirer.PhotoRequest(t.docId(), t.fileKey(), t.requestId(execId), t.receiveName(), sim);
+            received = acquirer.acquirePhoto(req,
                     () -> cancelRequested,
                     sample ? (title, kind, command, result) -> trace.add(ImageTrace.Step.RECEIVE, title, kind, command, result)
                             : null);
@@ -744,9 +746,10 @@ public class ImageCollectService {
             step = ImageStage.MAP;
             s = ImageMetrics.start();
             String path = saved.path().toString().replace('\\', '/');
+            // filekey 자리(NOT NULL)는 확보 방식이 정한다 — 브로커 = XVARM FILEKEY(지금) · 동기화(2단계) = 받은 파일의 상대 경로
             InmatePhotoRepository.PhotoRow row = new InmatePhotoRepository.PhotoRow(
-                    t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), t.fileKey(), path, saved.size(),
-                    saved.ext(), execId);
+                    t.corrNo(), t.imageSn(), t.imageCmmnFileId(), t.docId(), acquirer.photoRecordKey(req, received), path,
+                    saved.size(), saved.ext(), execId);
             InmatePhotoRepository.MapResult mr;
             // 커밋 전에 부른다 — 여기서 던지면 매핑이 롤백된다(의도적 실패 주입 · 더미 시나리오 SEND_FAIL)
             Runnable beforeCommit = () -> {

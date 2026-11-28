@@ -25,11 +25,13 @@ import java.util.Map;
  *   <li><b>최신 이미지</b> — {@code TB_IRIM_BSIF_DS} 에서 {@code IMAGE_SE_CD='1'}(사진) 중 수용자별 {@code IMAGE_SN} 최대 1건의
  *       {@code IMAGE_CMMN_FILE_ID}. 수용자 순으로 페이지를 넘긴다</li>
  *   <li><b>문서ID</b> — {@code TB_SMSM_CMFI_BS} 에서 {@code CMMN_FILE_ID = IMAGE_CMMN_FILE_ID} 의 {@code DOC_ID}</li>
- *   <li><b>FILEKEY</b> — {@code ASYSCONTENTELEMENT} 에서 {@code ELEMENTID = DOC_ID} 의 {@code FILEKEY}</li>
+ *   <li><b>FILEKEY</b> — {@code ASYSCONTENTELEMENT} 에서 {@code ELEMENTID = DOC_ID} 의 {@code FILEKEY}
+ *       ({@code voice.source.xvarm-join=TRACE} 일 때만 · {@code NONE} 이면 XVARM 표를 읽지 않는다)</li>
  * </ol>
  *
  * <p>2·3단계는 페이지마다 한 번에(IN 목록 + LEFT JOIN) 묻는다 — 건마다 묻지 않는다. 없는 건은 비운 채 돌려주고,
- * 배치가 그 건을 'FILEKEY 추출' 실패로 남긴다(조용히 빠뜨리지 않는다).</p>
+ * 배치가 그 건을 실패로 남긴다(조용히 빠뜨리지 않는다) — DOC_ID 가 없으면 늘, FILEKEY 가 없으면 FILEKEY 가 필요한
+ * 확보 방식(브로커)에서만 'FILEKEY 추출' 실패다.</p>
  *
  * <p>SQL 은 Oracle 12c+ · PostgreSQL · H2 에서 같은 문장이 돌게 쓴다({@code ROW_NUMBER() OVER} ·
  * {@code OFFSET 0 ROWS FETCH NEXT … ROWS ONLY} · {@code CORR_NO} 키셋 커서). 조회만 하고 트랜잭션을 열지 않는다 — 문장마다 커넥션을 빌렸다 곧 돌려준다.</p>

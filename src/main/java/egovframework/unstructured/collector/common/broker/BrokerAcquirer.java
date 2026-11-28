@@ -107,6 +107,12 @@ public class BrokerAcquirer implements SourceFileAcquirer {
         return watcher.awaitFile(dir, photoFileNameOf(r.filePath(), req.receiveName()), canceled);
     }
 
+    /** 지금과 같다 — 매핑 {@code filekey} 에 XVARM FILEKEY 를 남긴다(이 방식은 FILEKEY 없는 건을 그 전에 실패시킨다). */
+    @Override
+    public String photoRecordKey(PhotoRequest req, Path received) {
+        return req.fileKey();
+    }
+
     /** ④ 브로커 추출 요청을 cURL 로 적는다 — 내장 Mock 이면 같은 요청을 수집기 안에서 처리한 것이다. */
     private void traceExtract(TraceSink trace, XvarmBrokerClient via, XvarmBrokerClient.FileRequest fr,
                               XvarmBrokerClient.ExtractResult r) {

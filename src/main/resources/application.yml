@@ -174,11 +174,11 @@ voice:
 
   # ── 동기화 폴더 규칙 — SYNCED 에서만 쓴다(2단계). 값은 미리 둔 자리이고 지금은 기동 로그에만 보인다 ──
   #   naming        : 파일 이름 규칙 — DOC_ID({DOC_ID}.{확장자} · 기본) | ORIGINAL(원본 파일명) | MANIFEST(목록 파일) [보라미 확인 Q-a]
-  #   date-subdir   : 날짜 폴더({YYYYMMDD}/) 아래에 넣어 주나 [Q-b] · lookback-days : 대조할 때 거슬러 볼 날짜 폴더 수
+  #   date-subdir   : 날짜 폴더({YYYYMMDD}/) 아래에 넣어 주나 [Q-a] · lookback-days : 대조할 때 거슬러 볼 날짜 폴더 수
   #   ignore-patterns: 쓰는 중 · 숨김 파일 — 대조에서 뺀다
   #   reconcile     : 배치 1회 대조 — interval-sec 간격 · budget-min 예산(5분 × 6 = 30분 [Q-e]) · 미도착 건 재확인 reopen-rounds 회 ·
   #                   done-marker(보라미가 끝 표식 파일을 두면 그 이름 · 비우면 안 봄 [Q-g])
-  #   delete-after  : 동기화 파일을 지우는 때 — SUCCESS(그 건 STT 이후 성공 때만 · 기본) | NEVER(실데이터 시험용 · 지우지 않음)
+  #   delete-after  : 동기화 파일을 지우는 때 — SUCCESS(성공 때만 · 기본 — 접견은 그 건이 STT 이후 성공 때 · 사진은 배치 끝에 그 DOC_ID 를 쓰는 건이 모두 성공 · 변경 없음일 때) | NEVER(실데이터 시험용 · 지우지 않음)
   #   retention-days: 지우지 못하고 남은 파일(실패 · 중단 건)을 두는 날 수 [R3]
   inbound:
     naming: ${VOICE_INBOUND_NAMING:DOC_ID}               # DOC_ID | ORIGINAL | MANIFEST

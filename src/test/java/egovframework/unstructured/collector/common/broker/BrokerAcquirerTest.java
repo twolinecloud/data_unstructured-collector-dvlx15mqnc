@@ -161,6 +161,16 @@ class BrokerAcquirerTest {
     }
 
     @Test
+    @DisplayName("사진 매핑 filekey 자리 — 브로커 방식은 지금처럼 XVARM FILEKEY 그대로(받은 파일 경로가 아니다)")
+    void photoRecordKeyIsXvarmFileKey() {
+        SourceFileAcquirer.PhotoRequest req = new SourceFileAcquirer.PhotoRequest("DOC1", "/ecm/vol1/FK1", "RID1", "img_C1_1.bin", false);
+
+        assertThat(acquirer.photoRecordKey(req, meetDir.resolve("img_C1_1.bin"))).isEqualTo("/ecm/vol1/FK1");
+        assertThat(acquirer.photoRecordKey(new SourceFileAcquirer.PhotoRequest("DOC1", "/ecm/vol1/FK1", "RID2", "img_C1_1.bin", true),
+                meetDir.resolve("img_C1_1.bin"))).as("SIM 검증도 같다").isEqualTo("/ecm/vol1/FK1");
+    }
+
+    @Test
     @DisplayName("파일명 뽑기 — 사진은 / · \\ 어느 구분자든 자르고, 비면 요청한 이름")
     void fileNameHelpers() {
         assertThat(BrokerAcquirer.fileNameOf("/borami/out/R_1.DAT")).isEqualTo("R_1.DAT");

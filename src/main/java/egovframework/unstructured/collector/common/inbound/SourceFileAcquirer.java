@@ -44,6 +44,15 @@ public interface SourceFileAcquirer {
      */
     Path acquirePhoto(PhotoRequest req, BooleanSupplier canceled, TraceSink trace);
 
+    /**
+     * 사진 매핑 표 {@code filekey} 자리(NOT NULL)에 남길 값 — 그 사진을 어디서 받았는지 되짚는 키.
+     * 브로커 방식은 XVARM FILEKEY 그대로다(지금). 동기화 방식(2단계)은 받은 파일의 상대 경로를 넣는다
+     * (계획서 2.3.3 1안 · DDL 없이 — XVARM 조인을 빼면 FILEKEY 가 없다).
+     *
+     * @param received {@link #acquirePhoto} 가 돌려준 파일
+     */
+    String photoRecordKey(PhotoRequest req, Path received);
+
     /** 사진 실행 결과의 '받은 곳' 표시 — SIM 검증({@code sim})이면 수집기 안의 흉내로 받는다. */
     String photoSourceLabel(boolean sim);
 

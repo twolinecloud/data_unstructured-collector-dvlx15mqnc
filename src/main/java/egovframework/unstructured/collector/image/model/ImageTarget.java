@@ -10,7 +10,7 @@ package egovframework.unstructured.collector.image.model;
  * </ol>
  *
  * @param docId     2단계 결과. 공통파일기본에 없으면 null
- * @param fileKey   3단계 결과. XVARM 에 없으면 null
+ * @param fileKey   3단계 결과. XVARM 에 없거나 XVARM 조인을 빼면({@code voice.source.xvarm-join=NONE}) null
  * @param encrypted 공통파일기본의 암호화 여부 — {@code 'N'} 인 파일을 복호화하면 원본이 깨진다
  */
 public record ImageTarget(
